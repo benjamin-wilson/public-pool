@@ -31,21 +31,21 @@ export class MiningJob {
         this.ntime = Math.floor(new Date().getTime() / 1000).toString();
         this.clean_jobs = false;
 
-
-        const { coinb1, coinb2, coinbaseData } = this.createCoinbaseTransaction('', blockTemplate.height);
-
-        console.log(coinbaseData);
-        const coinbaseHash = this.bufferToHex(this.sha256(coinbaseData));
-
-        this.coinb1 = coinb1;
-        this.coinb2 = coinb2;
-
         const transactions = blockTemplate.transactions.map(tx => tx.hash);
         const transactionFees = blockTemplate.transactions.reduce((pre, cur, i, arr) => {
             return pre + cur.fee;
         }, 0);
+        const miningReward = this.calculateMiningReward(blockTemplate.height);
         console.log('TRANSACTION FEES', transactionFees);
-        console.log('MINING REWARD', this.calculateMiningReward(blockTemplate.height));
+        console.log('MINING REWARD', miningReward);
+
+        const { coinbasePart1, coinbasePart2 } = this.createCoinbaseTransaction('', blockTemplate.height, transactionFees + miningReward);
+
+        this.coinb1 = coinbasePart1;
+        this.coinb2 = coinbasePart2;
+
+        const coinbaseHash = this.bufferToHex(this.sha256(this.coinb1 + this.coinb2));
+
         transactions.unshift(coinbaseHash);
 
         // Calculate merkle branch
@@ -58,14 +58,11 @@ export class MiningJob {
         for (const layer of layers) {
             branch.push(this.bufferToHex(layer[0]));
         }
-
         //console.log(branch);
 
         this.merkle_branch = branch;
 
     }
-
-
 
     private calculateMiningReward(blockHeight: number): number {
         const initialBlockReward = 50 * 1e8; // Initial block reward in satoshis (1 BTC = 100 million satoshis)
@@ -84,7 +81,7 @@ export class MiningJob {
         return buffer.toString('hex');
     }
 
-    private createCoinbaseTransaction(address: string, blockHeight: number): { coinb1: string, coinb2: string, coinbaseData: any } {
+    private createCoinbaseTransaction(address: string, blockHeight: number, reward: number): { coinbasePart1: string, coinbasePart2: string } {
         // Generate coinbase script
         const coinbaseScript = `03${blockHeight.toString(16).padStart(8, '0')}54696d652026204865616c74682021`;
 
@@ -101,14 +98,11 @@ export class MiningJob {
         const script = '1976a914' + address + '88ac'; // Change this to your desired output script
         const locktime = '00000000';
 
-        // Combine coinb1 and coinb2
-        const coinb1 = version + coinbaseTransaction + outputCount + satoshis;
-        const coinb2 = script + locktime;
+        // Combine coinbasePart1 and coinbasePart2
+        const coinbasePart1 = version + coinbaseTransaction + outputCount + satoshis;
+        const coinbasePart2 = script + locktime;
 
-        const coinbaseData = version + coinbaseTransaction + outputCount + satoshis + script + locktime;
-
-
-        return { coinb1, coinb2, coinbaseData };
+        return { coinbasePart1, coinbasePart2 };
     }
 
     private sha256(data) {
