@@ -20,7 +20,7 @@ export class SuggestDifficulty extends StratumBaseMessage {
         return {
             id: null,
             method: eResponseMethod.SET_DIFFICULTY,
-            params: [1024]
+            params: [256]
         }
     }
 }

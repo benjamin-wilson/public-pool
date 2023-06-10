@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RPCClient } from 'rpc-bitcoin';
 
@@ -6,7 +6,7 @@ import { IBlockTempalte } from './models/IBlockTempalte';
 
 
 @Injectable()
-export class BitcoinRpcService implements OnModuleInit {
+export class BitcoinRpcService {
 
     private client: RPCClient;
 
@@ -21,16 +21,10 @@ export class BitcoinRpcService implements OnModuleInit {
         console.log('Bitcoin RPC connected');
     }
 
-    async onModuleInit(): Promise<void> {
-        console.log('onModuleInit');
-        // Asynchronous initialization logic
-        //await this.getBlockTemplate();
-
-        return;
-    }
 
 
-    public async getBlockTemplate() {
+
+    public async getBlockTemplate(): Promise<IBlockTempalte> {
 
         const result: IBlockTempalte = await this.client.getblocktemplate({
             template_request: {
@@ -40,7 +34,7 @@ export class BitcoinRpcService implements OnModuleInit {
             }
         });
 
-        console.log('Block Template: ', JSON.stringify(result));
+        return result;
     }
 }
 
