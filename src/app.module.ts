@@ -22,7 +22,7 @@ import { CoinbaseConstructorService } from './coinbase-constructor.service';
     ],
 })
 export class AppModule {
-    constructor(private readonly bitcoinStratumProvider: BitcoinStratumProvider) {
-        this.bitcoinStratumProvider.listen(3333);
+    constructor() {
+
     }
 }

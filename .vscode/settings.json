@@ -3,10 +3,13 @@
         "coinb",
         "Fastify",
         "getblocktemplate",
+        "getmininginfo",
+        "hexdata",
         "merkle",
         "nbits",
         "ntime",
         "prevhash",
+        "submitblock",
         "Tempalte"
     ]
 }

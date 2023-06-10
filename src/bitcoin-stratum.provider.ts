@@ -1,9 +1,9 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Server, Socket } from 'net';
-import { BehaviorSubject, take } from 'rxjs';
+import { BehaviorSubject, skip, take } from 'rxjs';
 
 import { BitcoinRpcService } from './bitcoin-rpc.service';
-import { IBlockTempalte } from './models/IBlockTempalte';
+import { IBlockTemplate } from './models/bitcoin-rpc/IBlockTemplate';
 import { MiningJob } from './models/MiningJob';
 import { StratumV1Client } from './models/StratumV1Client';
 
@@ -14,7 +14,7 @@ export class BitcoinStratumProvider implements OnModuleInit {
 
   private server: Server;
 
-  private blockTemplate: IBlockTempalte;
+  private blockTemplate: IBlockTemplate;
 
   private interval: NodeJS.Timer;
 
@@ -25,12 +25,25 @@ export class BitcoinStratumProvider implements OnModuleInit {
 
   constructor(private readonly bitcoinRpcService: BitcoinRpcService) {
 
+
+
+  }
+
+
+  async onModuleInit(): Promise<void> {
+    console.log('onModuleInit');
+
+    this.blockTemplate = await this.bitcoinRpcService.getBlockTemplate();
+    this.latestJob = new MiningJob(this.blockTemplate)
+
+
     this.server = new Server((socket: Socket) => {
       console.log('New client connected:', socket.remoteAddress);
 
       const client = new StratumV1Client(socket, this.newMiningJobEmitter.asObservable());
 
-      client.onInitialized.pipe(take(1)).subscribe(() => {
+      client.onInitialized.pipe(skip(1), take(1)).subscribe(() => {
+        console.log('Client Ready')
         if (this.latestJob == null) {
           return;
         }
@@ -46,33 +59,25 @@ export class BitcoinStratumProvider implements OnModuleInit {
 
     });
 
-  }
+    this.server.listen(3333, () => {
+      console.log(`Bitcoin Stratum server is listening on port ${3333}`);
+    });
 
 
-  async onModuleInit(): Promise<void> {
-    console.log('onModuleInit');
-    this.blockTemplate = await this.bitcoinRpcService.getBlockTemplate();
 
-    clearInterval(this.interval);
-    const job = new MiningJob(this.blockTemplate).response();
-    this.newMiningJobEmitter.next(JSON.stringify(job));
+    //clearInterval(this.interval);
 
-    this.interval = setInterval(() => {
-      this.latestJob = new MiningJob(this.blockTemplate);
+    this.newMiningJobEmitter.next(JSON.stringify(this.latestJob.response()));
 
-      const job = this.latestJob.response();
-      const jobString = JSON.stringify(job);
+    this.interval = setInterval(async () => {
+      this.blockTemplate = await this.bitcoinRpcService.getBlockTemplate();
 
-      this.newMiningJobEmitter.next(jobString);
+      this.latestJob = new MiningJob(this.blockTemplate)
+      this.newMiningJobEmitter.next(JSON.stringify(this.latestJob.response()));
     }, 60000);
 
     return;
   }
 
 
-  listen(port: number) {
-    this.server.listen(port, () => {
-      console.log(`Bitcoin Stratum server is listening on port ${port}`);
-    });
-  }
 }
