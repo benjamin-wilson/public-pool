@@ -4,8 +4,12 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { BitcoinStratumProvider } from './bitcoin-stratum.provider';
 
+
+
 @Module({
-    imports: [],
+    imports: [
+
+    ],
     controllers: [AppController],
     providers: [AppService, BitcoinStratumProvider],
 })
