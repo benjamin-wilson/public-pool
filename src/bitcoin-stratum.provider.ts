@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Server, Socket } from 'net';
 
+import { CoinbaseConstructorService } from './coinbase-constructor.service';
 import { StratumV1Client } from './models/StratumV1Client';
 
 @Injectable()
@@ -10,7 +11,8 @@ export class BitcoinStratumProvider {
 
   private server: Server;
 
-  constructor() {
+  constructor(private coinbaseConstructorService: CoinbaseConstructorService) {
+
     this.server = new Server((socket: Socket) => {
       console.log('New client connected:', socket.remoteAddress);
 

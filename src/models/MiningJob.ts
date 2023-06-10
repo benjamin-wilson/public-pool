@@ -9,12 +9,12 @@ export class MiningJob {
 
 
     public job_id: string; // ID of the job. Use this ID while submitting share generated from this job.
-    public prevhash: string; // Hash of previous block.
-    public coinb1: string; // Initial part of coinbase transaction.
-    public coinb2: string; // Final part of coinbase transaction.
+    public prevhash: string; // The hex-encoded previous block hash.
+    public coinb1: string; // The hex-encoded prefix of the coinbase transaction (to precede extra nonce 2).
+    public coinb2: string; //The hex-encoded suffix of the coinbase transaction (to follow extra nonce 2).
     public merkle_branch: string[]; // List of hashes, will be used for calculation of merkle root. This is not a list of all transactions, it only contains prepared hashes of steps of merkle tree algorithm.
-    public version: string; // Bitcoin block version.
-    public nbits: string; // Encoded current network difficulty
+    public version: string; // The hex-encoded block version.
+    public nbits: string; // The hex-encoded network difficulty required for the block.
     public ntime: string; // Current ntime/
     public clean_jobs: boolean; // When true, server indicates that submitting shares from previous jobs don't have a sense and such shares will be rejected. When this flag is set, miner should also drop all previous jobs too.
 

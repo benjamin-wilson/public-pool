@@ -6,6 +6,7 @@
         "merkle",
         "nbits",
         "ntime",
-        "prevhash"
+        "prevhash",
+        "Tempalte"
     ]
 }
