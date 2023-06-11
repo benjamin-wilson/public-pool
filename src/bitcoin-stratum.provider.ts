@@ -18,24 +18,17 @@ export class BitcoinStratumProvider implements OnModuleInit {
 
   private interval: NodeJS.Timer;
 
-  private newMiningJobEmitter: BehaviorSubject<string> = new BehaviorSubject(null);
+  private newMiningJobEmitter: BehaviorSubject<MiningJob> = new BehaviorSubject(null);
 
   private latestJob: MiningJob;
 
 
   constructor(private readonly bitcoinRpcService: BitcoinRpcService) {
-
-
-
   }
 
 
   async onModuleInit(): Promise<void> {
     console.log('onModuleInit');
-
-    this.blockTemplate = await this.bitcoinRpcService.getBlockTemplate();
-    this.latestJob = new MiningJob(this.blockTemplate)
-
 
     this.server = new Server((socket: Socket) => {
       console.log('New client connected:', socket.remoteAddress);
@@ -47,9 +40,9 @@ export class BitcoinStratumProvider implements OnModuleInit {
         if (this.latestJob == null) {
           return;
         }
-        const job = this.latestJob.response();
-        const jobString = JSON.stringify(job);
-        client.localMiningJobEmitter.next(jobString);
+
+        this.latestJob.constructResponse();
+        client.localMiningJobEmitter.next(this.latestJob);
       });
 
       // this.clients.push(client);
@@ -59,24 +52,28 @@ export class BitcoinStratumProvider implements OnModuleInit {
 
     });
 
+    this.bitcoinRpcService.newBlock().subscribe(async () => {
+      console.log('NEW BLOCK')
+
+      this.blockTemplate = await this.bitcoinRpcService.getBlockTemplate();
+      this.latestJob = new MiningJob(this.blockTemplate)
+
+      this.latestJob.constructResponse();
+      this.newMiningJobEmitter.next(this.latestJob);
+      clearInterval(this.interval);
+      this.interval = setInterval(async () => {
+        this.blockTemplate = await this.bitcoinRpcService.getBlockTemplate();
+
+        this.latestJob = new MiningJob(this.blockTemplate)
+        this.latestJob.constructResponse();
+        this.newMiningJobEmitter.next(this.latestJob);
+      }, 60000);
+    })
+
     this.server.listen(3333, () => {
       console.log(`Bitcoin Stratum server is listening on port ${3333}`);
     });
 
-
-
-    //clearInterval(this.interval);
-
-    this.newMiningJobEmitter.next(JSON.stringify(this.latestJob.response()));
-
-    this.interval = setInterval(async () => {
-      this.blockTemplate = await this.bitcoinRpcService.getBlockTemplate();
-
-      this.latestJob = new MiningJob(this.blockTemplate)
-      this.newMiningJobEmitter.next(JSON.stringify(this.latestJob.response()));
-    }, 60000);
-
-    return;
   }
 
 

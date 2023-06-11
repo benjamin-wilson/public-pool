@@ -10,6 +10,7 @@ import { ConfigurationMessage } from './stratum-messages/ConfigurationMessage';
 import { MiningSubmitMessage } from './stratum-messages/MiningSubmitMessage';
 import { SubscriptionMessage } from './stratum-messages/SubscriptionMessage';
 import { SuggestDifficulty } from './stratum-messages/SuggestDifficultyMessage';
+import { MiningJob } from './MiningJob';
 
 export class StratumV1Client extends EasyUnsubscribe {
 
@@ -22,12 +23,14 @@ export class StratumV1Client extends EasyUnsubscribe {
 
 
     public onInitialized: BehaviorSubject<void> = new BehaviorSubject(null);
-    public localMiningJobEmitter: BehaviorSubject<string> = new BehaviorSubject(null);
+    public localMiningJobEmitter: BehaviorSubject<MiningJob> = new BehaviorSubject(null);
 
+
+    private currentJob: MiningJob;
 
     constructor(
         private readonly socket: Socket,
-        private readonly globalMiningJobEmitter: Observable<string>
+        private readonly globalMiningJobEmitter: Observable<MiningJob>
     ) {
         super();
 
@@ -44,11 +47,12 @@ export class StratumV1Client extends EasyUnsubscribe {
             console.error('Socket error:', error);
         });
 
-        merge(this.globalMiningJobEmitter, this.localMiningJobEmitter).pipe(takeUntil(this.easyUnsubscribe)).subscribe((job: string) => {
+        merge(this.globalMiningJobEmitter, this.localMiningJobEmitter).pipe(takeUntil(this.easyUnsubscribe)).subscribe((job: MiningJob) => {
+            this.currentJob = job;
             if (!this.initialized) {
                 return;
             }
-            this.socket.write(job + '\n');
+            this.socket.write(job.response + '\n');
         })
 
 
@@ -185,6 +189,8 @@ export class StratumV1Client extends EasyUnsubscribe {
 
                 if (errors.length === 0) {
                     //this.clientSuggestedDifficulty = miningSubmitMessage;
+                    miningSubmitMessage.parse();
+                    this.handleMiningSubmission(miningSubmitMessage);
                     socket.write(JSON.stringify(miningSubmitMessage.response()) + '\n');
                 } else {
                     console.error(errors);
@@ -209,6 +215,10 @@ export class StratumV1Client extends EasyUnsubscribe {
     }
 
 
+    private handleMiningSubmission(submission: MiningSubmitMessage) {
+        const diff = submission.testNonceValue(this.currentJob, submission.nonce);
+        console.log(diff);
+    }
 
     // private miningNotify() {
     //     const notification = {

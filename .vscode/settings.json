@@ -9,6 +9,7 @@
         "nbits",
         "ntime",
         "prevhash",
+        "Satoshis",
         "submitblock",
         "Tempalte"
     ]
