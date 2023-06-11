@@ -5,6 +5,7 @@ import { StratumBaseMessage } from './StratumBaseMessage';
 import { MiningJob } from '../MiningJob';
 import * as crypto from 'crypto';
 
+
 const trueDiffOne = Number('26959535291011309493156476344723991336010898738574164086137773096960');
 export class MiningSubmitMessage extends StratumBaseMessage {
 
@@ -43,42 +44,47 @@ export class MiningSubmitMessage extends StratumBaseMessage {
 
 
     testNonceValue(job: MiningJob, nonce: string): number {
+        const header = Buffer.alloc(80);
 
-        const header: Buffer = Buffer.alloc(80);
+        // TODO: Use the midstate hash instead of hashing the whole header
 
-        // TODO: use the midstate hash instead of hashing the whole header
+        // Copy data from job to header
 
 
-        header.set(Buffer.from(job.version).subarray(0, 4), 0);
-        header.set(Buffer.from(job.prevhash).subarray(0, 32), 4);
-        header.set(Buffer.from(job.merkleRoot).subarray(0, 32), 36);
+        header.set(Buffer.from(job.version, 'hex').subarray(0, 4), 0);
+        header.set(Buffer.from(job.prevhash, 'hex').subarray(0, 32), 4);
+        header.set(Buffer.from(job.merkleRoot, 'hex').subarray(0, 32), 36);
         header.set(Buffer.from(job.ntime).subarray(0, 4), 68);
-        header.set(Buffer.from(job.target).subarray(0, 4), 72);
-        header.set(Buffer.from(nonce).subarray(0, 4), 76);
+        header.set(Buffer.from(job.target, 'hex').subarray(0, 4), 72);
+        header.set(Buffer.from(nonce, 'hex').subarray(0, 4), 76);
 
 
         const hashBuffer = crypto.createHash('sha256').update(header).digest();
         const hashResult = crypto.createHash('sha256').update(hashBuffer).digest();
 
-        const s64 = this.le256toDouble(hashResult);
-        const ds = trueDiffOne / s64;
-        console.log(trueDiffOne + '/ ' + s64)
+        const d64 = 1.0;
+        const s64 = this.littleEndianToDouble(hashResult);
+        const ds = d64 / s64;
+
         return ds;
     }
 
 
-    private le256toDouble(target: Buffer): number {
-        const bits192 = 6277101735386680763835789423207666416102355444464034512896n; // Replace with the actual value of bits192
-        const bits128 = 340282366920938463463374607431768211456n; // Replace with the actual value of bits128
-        const bits64 = 18446744073709551616n; // Replace with the actual value of bits64
+    private littleEndianToDouble(buffer: Buffer): number {
+        // Reverse the byte order to big-endian
+        const reversedBytes = Buffer.from(buffer).reverse();
 
-        const data64 = target.readBigUInt64LE(24);
-        let dcut64 = Number(data64) * Number(bits192);
+        // Convert the reversed bytes to a hexadecimal string
+        const hexString = `0x${reversedBytes.toString('hex')}`;
 
-        dcut64 += Number(target.readBigUInt64LE(16)) * Number(bits128);
-        dcut64 += Number(target.readBigUInt64LE(8)) * Number(bits64);
-        dcut64 += Number(target.readBigUInt64LE(0));
+        // Interpret the hexadecimal string as a double
+        const doubleValue = Number(hexString);
 
-        return dcut64;
+        // Check for NaN and Infinity
+        if (!Number.isFinite(doubleValue)) {
+            throw new Error('Conversion resulted in NaN or Infinity');
+        }
+
+        return doubleValue;
     }
 }

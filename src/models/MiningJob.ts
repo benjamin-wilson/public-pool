@@ -15,7 +15,7 @@ export class MiningJob {
     public params: string[];
 
     public target: string;
-    public merkleRoot: Buffer;
+    public merkleRoot: string;
 
     public job_id: string; // ID of the job. Use this ID while submitting share generated from this job.
     public prevhash: string; // The hex-encoded previous block hash.
@@ -30,6 +30,8 @@ export class MiningJob {
     public response: string;
 
     constructor(blockTemplate: IBlockTemplate) {
+
+        console.log(blockTemplate);
 
         this.job_id = randomUUID();
         this.target = blockTemplate.target;
@@ -71,7 +73,7 @@ export class MiningJob {
 
         this.merkle_branch = branch;
 
-        this.merkleRoot = tree.getRoot();
+        this.merkleRoot = tree.getRoot().toString('hex')
 
     }
 
