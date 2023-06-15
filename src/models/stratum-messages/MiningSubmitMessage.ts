@@ -1,18 +1,17 @@
+import Big from 'big.js';
 import { ArrayMaxSize, ArrayMinSize, IsArray } from 'class-validator';
-
-import { eRequestMethod } from '../enums/eRequestMethod';
-import { StratumBaseMessage } from './StratumBaseMessage';
-import { MiningJob } from '../MiningJob';
 import * as crypto from 'crypto';
 
+import { eRequestMethod } from '../enums/eRequestMethod';
+import { MiningJob } from '../MiningJob';
+import { StratumBaseMessage } from './StratumBaseMessage';
 
-const trueDiffOne = Number('26959535291011309493156476344723991336010898738574164086137773096960');
 export class MiningSubmitMessage extends StratumBaseMessage {
 
     @IsArray()
     @ArrayMinSize(5)
     @ArrayMaxSize(5)
-    params: string[];
+    public params: string[];
 
     public userId: string;
     public jobId: string;
@@ -43,48 +42,60 @@ export class MiningSubmitMessage extends StratumBaseMessage {
     }
 
 
-    testNonceValue(job: MiningJob, nonce: string): number {
+    testNonceValue(job: MiningJob, nonce: number, midstateIndex: number = 0): string {
+        const truediffone = Big('26959535291011309493156476344723991336010898738574164086137773096960');
+        let s64: Big, ds: number;
         const header = Buffer.alloc(80);
 
         // TODO: Use the midstate hash instead of hashing the whole header
 
         // Copy data from job to header
 
+        let rolledVersion = job.version;
+        for (let i = 0; i < midstateIndex; i++) {
+            rolledVersion = this.incrementBitmask(rolledVersion, job.versionMask);
+        }
 
-        header.set(Buffer.from(job.version, 'hex').subarray(0, 4), 0);
-        header.set(Buffer.from(job.prevhash, 'hex').subarray(0, 32), 4);
-        header.set(Buffer.from(job.merkleRoot, 'hex').subarray(0, 32), 36);
-        header.set(Buffer.from(job.ntime).subarray(0, 4), 68);
-        header.set(Buffer.from(job.target, 'hex').subarray(0, 4), 72);
-        header.set(Buffer.from(nonce, 'hex').subarray(0, 4), 76);
+        header.writeUInt32LE(rolledVersion, 0);
+        Buffer.from(job.prevhash, 'hex').copy(header, 4);
+        Buffer.from(job.merkleRoot, 'hex').copy(header, 36);
+        header.writeUInt32LE(job.ntime, 68);
+        header.writeUInt32LE(job.target, 72);
+        header.writeUInt32LE(nonce, 76);
 
+        console.log(header);
 
-        const hashBuffer = crypto.createHash('sha256').update(header).digest();
-        const hashResult = crypto.createHash('sha256').update(hashBuffer).digest();
+        const hashBuffer: Buffer = crypto.createHash('sha256').update(header).digest();
+        const hashResult: Buffer = crypto.createHash('sha256').update(hashBuffer).digest();
 
-        const d64 = 1.0;
-        const s64 = this.littleEndianToDouble(hashResult);
-        const ds = d64 / s64;
+        s64 = this.le256todouble(hashResult);
+        ds = truediffone.div(s64);
 
-        return ds;
+        return ds.toString();
     }
 
 
-    private littleEndianToDouble(buffer: Buffer): number {
-        // Reverse the byte order to big-endian
-        const reversedBytes = Buffer.from(buffer).reverse();
 
-        // Convert the reversed bytes to a hexadecimal string
-        const hexString = `0x${reversedBytes.toString('hex')}`;
+    private le256todouble(target: Buffer): Big {
 
-        // Interpret the hexadecimal string as a double
-        const doubleValue = Number(hexString);
+        const bits192 = new Big(6277101735386680763835789423207666416102355444464034512896);
+        const bits128 = new Big(340282366920938463463374607431768211456);
+        const bits64 = new Big(18446744073709551616);
 
-        // Check for NaN and Infinity
-        if (!Number.isFinite(doubleValue)) {
-            throw new Error('Conversion resulted in NaN or Infinity');
-        }
+        const data64_3 = target.readBigUInt64LE(24);
+        const data64_2 = target.readBigUInt64LE(16);
+        const data64_1 = target.readBigUInt64LE(8);
+        const data64_0 = target.readBigUInt64LE(0);
 
-        return doubleValue;
+        const dcut64 = new Big(data64_3).times(bits192)
+            .plus(new Big(data64_2).times(bits128))
+            .plus(new Big(data64_1).times(bits64))
+            .plus(new Big(data64_0));
+
+        return dcut64;
+    }
+
+    public incrementBitmask(rolledVersion: number, versionMask: number) {
+        return (rolledVersion + 1) | versionMask;
     }
 }

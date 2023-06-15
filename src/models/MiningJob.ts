@@ -14,7 +14,7 @@ export class MiningJob {
     public method: eResponseMethod.MINING_NOTIFY;
     public params: string[];
 
-    public target: string;
+    public target: number;
     public merkleRoot: string;
 
     public job_id: string; // ID of the job. Use this ID while submitting share generated from this job.
@@ -22,24 +22,26 @@ export class MiningJob {
     public coinb1: string; // The hex-encoded prefix of the coinbase transaction (to precede extra nonce 2).
     public coinb2: string; //The hex-encoded suffix of the coinbase transaction (to follow extra nonce 2).
     public merkle_branch: string[]; // List of hashes, will be used for calculation of merkle root. This is not a list of all transactions, it only contains prepared hashes of steps of merkle tree algorithm.
-    public version: string; // The hex-encoded block version.
+    public version: number; // The hex-encoded block version.
     public nbits: string; // The hex-encoded network difficulty required for the block.
-    public ntime: string; // Current ntime/
+    public ntime: number; // Current ntime/
     public clean_jobs: boolean; // When true, server indicates that submitting shares from previous jobs don't have a sense and such shares will be rejected. When this flag is set, miner should also drop all previous jobs too.
 
     public response: string;
+
+    public versionMask: number;
 
     constructor(blockTemplate: IBlockTemplate) {
 
         console.log(blockTemplate);
 
         this.job_id = randomUUID();
-        this.target = blockTemplate.target;
+        this.target = Number(blockTemplate.target);
         this.prevhash = blockTemplate.previousblockhash;
 
-        this.version = blockTemplate.version.toString();
+        this.version = blockTemplate.version;
         this.nbits = blockTemplate.bits;
-        this.ntime = Math.floor(new Date().getTime() / 1000).toString();
+        this.ntime = Math.floor(new Date().getTime() / 1000);
         this.clean_jobs = false;
 
         const transactions = blockTemplate.transactions.map(tx => tx.hash);

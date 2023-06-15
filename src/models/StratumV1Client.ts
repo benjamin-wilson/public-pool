@@ -1,16 +1,16 @@
 import { plainToInstance } from 'class-transformer';
 import { validate, ValidatorOptions } from 'class-validator';
 import { Socket } from 'net';
-import { BehaviorSubject, combineLatest, concat, merge, Observable, takeUntil } from 'rxjs';
+import { BehaviorSubject, merge, Observable, takeUntil } from 'rxjs';
 
 import { EasyUnsubscribe } from '../utils/AutoUnsubscribe';
 import { eRequestMethod } from './enums/eRequestMethod';
+import { MiningJob } from './MiningJob';
 import { AuthorizationMessage } from './stratum-messages/AuthorizationMessage';
 import { ConfigurationMessage } from './stratum-messages/ConfigurationMessage';
 import { MiningSubmitMessage } from './stratum-messages/MiningSubmitMessage';
 import { SubscriptionMessage } from './stratum-messages/SubscriptionMessage';
 import { SuggestDifficulty } from './stratum-messages/SuggestDifficultyMessage';
-import { MiningJob } from './MiningJob';
 
 export class StratumV1Client extends EasyUnsubscribe {
 
@@ -24,6 +24,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
     public onInitialized: BehaviorSubject<void> = new BehaviorSubject(null);
     public localMiningJobEmitter: BehaviorSubject<MiningJob> = new BehaviorSubject(null);
+    public blockFoundEmitter: BehaviorSubject<any> = new BehaviorSubject(null);
 
 
     private currentJob: MiningJob;
@@ -216,8 +217,11 @@ export class StratumV1Client extends EasyUnsubscribe {
 
 
     private handleMiningSubmission(submission: MiningSubmitMessage) {
-        const diff = submission.testNonceValue(this.currentJob, submission.nonce);
-        console.log(diff);
+        const networkDifficulty = 0;
+        const diff = submission.testNonceValue(this.currentJob, parseInt(submission.nonce, 16));
+        if (networkDifficulty < diff) {
+            this.blockFoundEmitter.next(true);
+        }
     }
 
     // private miningNotify() {

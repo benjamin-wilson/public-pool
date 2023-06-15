@@ -24,6 +24,7 @@
     "@nestjs/config": "^2.3.2",
     "@nestjs/core": "^9.0.0",
     "@nestjs/platform-fastify": "^9.4.2",
+    "big.js": "^6.2.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.0",
     "merkletreejs": "^0.3.10",
