@@ -18,7 +18,7 @@ describe('MiningSubmitMessage', () => {
             merkleRoot: "5bdc1968499c3393873edf8e07a1c3a50a97fc3a9d1a376bbf77087dd63778eb",
             ntime: 0x647025b5,
             target: 0x1705ae3a,
-        } as MiningJob, 0x0a029ed1);
+        } as MiningJob, 167943889);
 
         it('should be correct difficulty', () => {
             expect(value).toEqual(683);

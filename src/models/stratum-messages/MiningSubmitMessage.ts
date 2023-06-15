@@ -42,9 +42,9 @@ export class MiningSubmitMessage extends StratumBaseMessage {
     }
 
 
-    testNonceValue(job: MiningJob, nonce: number, midstateIndex: number = 0): string {
+    testNonceValue(job: MiningJob, nonce: number, midstateIndex: number = 0): number {
         const truediffone = Big('26959535291011309493156476344723991336010898738574164086137773096960');
-        let s64: Big, ds: number;
+        let s64: string;
         const header = Buffer.alloc(80);
 
         // TODO: Use the midstate hash instead of hashing the whole header
@@ -56,43 +56,60 @@ export class MiningSubmitMessage extends StratumBaseMessage {
             rolledVersion = this.incrementBitmask(rolledVersion, job.versionMask);
         }
 
-        header.writeUInt32LE(rolledVersion, 0);
-        Buffer.from(job.prevhash, 'hex').copy(header, 4);
-        Buffer.from(job.merkleRoot, 'hex').copy(header, 36);
-        header.writeUInt32LE(job.ntime, 68);
-        header.writeUInt32LE(job.target, 72);
-        header.writeUInt32LE(nonce, 76);
 
-        console.log(header);
+
+        header.writeInt32LE(rolledVersion, 0);
+
+        const hexGroups = job.prevhash.match(/.{1,8}/g);
+        // Reverse each group and concatenate them
+        const reversedHexString = hexGroups
+            ?.map(group => group.match(/.{2}/g)?.reverse()?.join(''))
+            .join('');
+        // Create the buffer from the reversed hex string
+        const buffer = Buffer.from(reversedHexString, 'hex');
+        buffer.copy(header, 4, 0, 32);
+
+        // const hexGroups2 = job.merkleRoot.match(/.{1,8}/g);
+        // // Reverse each group and concatenate them
+        // const reversedHexString2 = hexGroups2
+        //     ?.map(group => group.match(/.{2}/g)?.reverse()?.join(''))
+        //     .join('');
+        // // Create the buffer from the reversed hex string
+        // const buffer2 = Buffer.from(reversedHexString2, 'hex');
+        // buffer2.copy(header, 36, 0, 32);
+
+        Buffer.from(job.merkleRoot, 'hex').copy(header, 36, 0, 32)
+
+        header.writeInt32LE(job.ntime, 68);
+        header.writeInt32LE(job.target, 72);
+        header.writeInt32LE(nonce, 76);
+
+
 
         const hashBuffer: Buffer = crypto.createHash('sha256').update(header).digest();
         const hashResult: Buffer = crypto.createHash('sha256').update(hashBuffer).digest();
 
-        s64 = this.le256todouble(hashResult);
-        ds = truediffone.div(s64);
 
-        return ds.toString();
+        s64 = this.le256todouble(hashResult);
+
+        return parseInt(truediffone.div(s64).toString());
+
+
     }
 
 
 
-    private le256todouble(target: Buffer): Big {
+    private le256todouble(target: Buffer): string {
+        let number = BigInt(0);
 
-        const bits192 = new Big(6277101735386680763835789423207666416102355444464034512896);
-        const bits128 = new Big(340282366920938463463374607431768211456);
-        const bits64 = new Big(18446744073709551616);
+        // Iterate over the buffer bytes in reverse order
+        for (let i = target.length - 1; i >= 0; i--) {
+            // Shift the number 8 bits to the left and OR with the current byte
+            number = (number << BigInt(8)) | BigInt(target[i]);
+        }
 
-        const data64_3 = target.readBigUInt64LE(24);
-        const data64_2 = target.readBigUInt64LE(16);
-        const data64_1 = target.readBigUInt64LE(8);
-        const data64_0 = target.readBigUInt64LE(0);
+        return number.toString();
 
-        const dcut64 = new Big(data64_3).times(bits192)
-            .plus(new Big(data64_2).times(bits128))
-            .plus(new Big(data64_1).times(bits64))
-            .plus(new Big(data64_0));
-
-        return dcut64;
     }
 
     public incrementBitmask(rolledVersion: number, versionMask: number) {
