@@ -59,31 +59,11 @@ export class MiningSubmitMessage extends StratumBaseMessage {
 
 
         header.writeInt32LE(rolledVersion, 0);
-
-        const hexGroups = job.prevhash.match(/.{1,8}/g);
-        // Reverse each group and concatenate them
-        const reversedHexString = hexGroups
-            ?.map(group => group.match(/.{2}/g)?.reverse()?.join(''))
-            .join('');
-        // Create the buffer from the reversed hex string
-        const buffer = Buffer.from(reversedHexString, 'hex');
-        buffer.copy(header, 4, 0, 32);
-
-        // const hexGroups2 = job.merkleRoot.match(/.{1,8}/g);
-        // // Reverse each group and concatenate them
-        // const reversedHexString2 = hexGroups2
-        //     ?.map(group => group.match(/.{2}/g)?.reverse()?.join(''))
-        //     .join('');
-        // // Create the buffer from the reversed hex string
-        // const buffer2 = Buffer.from(reversedHexString2, 'hex');
-        // buffer2.copy(header, 36, 0, 32);
-
+        header.write(this.convertStringToLE(job.prevhash), 4, 'hex')
         Buffer.from(job.merkleRoot, 'hex').copy(header, 36, 0, 32)
-
         header.writeInt32LE(job.ntime, 68);
         header.writeInt32LE(job.target, 72);
         header.writeInt32LE(nonce, 76);
-
 
 
         const hashBuffer: Buffer = crypto.createHash('sha256').update(header).digest();
@@ -97,16 +77,23 @@ export class MiningSubmitMessage extends StratumBaseMessage {
 
     }
 
+    private convertStringToLE(str: string) {
+        const hexGroups = str.match(/.{1,8}/g);
+        // Reverse each group and concatenate them
+        const reversedHexString = hexGroups.reduce((pre, cur, indx, arr) => {
+            const reversed = cur.match(/.{2}/g).reverse();
+            return `${pre}${reversed.join('')}`;
+        }, '');
+        return reversedHexString;
+    }
 
 
     private le256todouble(target: Buffer): string {
-        let number = BigInt(0);
 
-        // Iterate over the buffer bytes in reverse order
-        for (let i = target.length - 1; i >= 0; i--) {
+        const number = target.reduceRight((acc, byte) => {
             // Shift the number 8 bits to the left and OR with the current byte
-            number = (number << BigInt(8)) | BigInt(target[i]);
-        }
+            return (acc << BigInt(8)) | BigInt(byte);
+        }, BigInt(0));
 
         return number.toString();
 
