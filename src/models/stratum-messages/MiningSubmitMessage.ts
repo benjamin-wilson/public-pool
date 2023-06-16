@@ -10,7 +10,7 @@ export class MiningSubmitMessage extends StratumBaseMessage {
 
     @IsArray()
     @ArrayMinSize(5)
-    @ArrayMaxSize(5)
+    @ArrayMaxSize(6)
     public params: string[];
 
     public userId: string;
@@ -18,7 +18,7 @@ export class MiningSubmitMessage extends StratumBaseMessage {
     public extraNonce2: string;
     public ntime: string;
     public nonce: string
-
+    public versionMask: string;
     constructor() {
         super();
         this.method = eRequestMethod.AUTHORIZE;
@@ -31,6 +31,7 @@ export class MiningSubmitMessage extends StratumBaseMessage {
         this.extraNonce2 = this.params[2];
         this.ntime = this.params[3];
         this.nonce = this.params[4];
+        this.versionMask = this.params[5];
     }
 
     public response() {
@@ -42,42 +43,57 @@ export class MiningSubmitMessage extends StratumBaseMessage {
     }
 
 
-    testNonceValue(job: MiningJob, nonce: number, midstateIndex: number = 0): number {
+    public testNonceValue(job: MiningJob, submission: MiningSubmitMessage): number {
+
+        const nonce = parseInt(submission.nonce, 16);
+        const versionMask = parseInt(submission.versionMask, 16);
+        const extraNonce = 'ccc5d664';
+        const extraNonce2 = submission.extraNonce2;
+
+        const coinbaseTx = `${job.coinb1}${extraNonce}${extraNonce2}${job.coinb2}`;
+
+        const newRoot = this.calculateMerkleRootHash(coinbaseTx, job.merkle_branch)
+
+
         const truediffone = Big('26959535291011309493156476344723991336010898738574164086137773096960');
-        let s64: string;
+
         const header = Buffer.alloc(80);
 
         // TODO: Use the midstate hash instead of hashing the whole header
 
-        // Copy data from job to header
-
-        let rolledVersion = job.version;
-        for (let i = 0; i < midstateIndex; i++) {
-            rolledVersion = this.incrementBitmask(rolledVersion, job.versionMask);
+        let version = job.version;
+        if (versionMask !== undefined && versionMask != 0) {
+            version = (version ^ versionMask);
         }
 
 
 
-        header.writeInt32LE(rolledVersion, 0);
-        header.write(this.convertStringToLE(job.prevhash), 4, 'hex')
-        Buffer.from(job.merkleRoot, 'hex').copy(header, 36, 0, 32)
-        header.writeInt32LE(job.ntime, 68);
-        header.writeInt32LE(job.target, 72);
-        header.writeInt32LE(nonce, 76);
+
+        header.writeUInt32LE(version, 0);
+
+        header.write(this.swapEndianWords(job.prevhash), 4, 'hex')
+        newRoot.copy(header, 36, 0, 32)
+        header.writeUInt32LE(job.ntime, 68);
+        header.writeBigUint64LE(BigInt(job.nbits), 72);
+        header.writeUInt32LE(nonce, 76);
+
+        // for (let i = 0; i < 80; i++) {
+        //     console.log(header[i].toString(10));
+        // }
 
 
         const hashBuffer: Buffer = crypto.createHash('sha256').update(header).digest();
         const hashResult: Buffer = crypto.createHash('sha256').update(hashBuffer).digest();
 
 
-        s64 = this.le256todouble(hashResult);
+        let s64 = this.le256todouble(hashResult);
 
-        return parseInt(truediffone.div(s64).toString());
+        return parseInt(truediffone.div(s64.toString()).toString());
 
 
     }
 
-    private convertStringToLE(str: string) {
+    private swapEndianWords(str: string) {
         const hexGroups = str.match(/.{1,8}/g);
         // Reverse each group and concatenate them
         const reversedHexString = hexGroups.reduce((pre, cur, indx, arr) => {
@@ -88,18 +104,37 @@ export class MiningSubmitMessage extends StratumBaseMessage {
     }
 
 
-    private le256todouble(target: Buffer): string {
+    private le256todouble(target: Buffer): bigint {
 
         const number = target.reduceRight((acc, byte) => {
             // Shift the number 8 bits to the left and OR with the current byte
             return (acc << BigInt(8)) | BigInt(byte);
         }, BigInt(0));
 
-        return number.toString();
+        return number;
 
     }
 
-    public incrementBitmask(rolledVersion: number, versionMask: number) {
-        return (rolledVersion + 1) | versionMask;
+    private calculateMerkleRootHash(coinbaseTx: string, merkleBranches: string[]): Buffer {
+
+        let coinbaseTxBuf = Buffer.from(coinbaseTx, 'hex');
+
+        const bothMerkles = Buffer.alloc(64);
+        let test = this.sha256(coinbaseTxBuf)
+        let newRoot = this.sha256(test);
+        bothMerkles.set(newRoot);
+
+        for (let i = 0; i < merkleBranches.length; i++) {
+            bothMerkles.set(Buffer.from(merkleBranches[i], 'hex'), 32);
+            newRoot = this.sha256(this.sha256(bothMerkles));
+            bothMerkles.set(newRoot);
+        }
+
+        return bothMerkles;
     }
+
+    private sha256(data: Buffer) {
+        return crypto.createHash('sha256').update(data).digest()
+    }
+
 }

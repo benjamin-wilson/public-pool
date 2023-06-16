@@ -1,9 +1,8 @@
 import * as crypto from 'crypto';
+import { MerkleTree } from 'merkletreejs';
 
+import { IBlockTemplate } from './bitcoin-rpc/IBlockTemplate';
 import { eResponseMethod } from './enums/eResponseMethod';
-import { IBlockTemplate, IBlockTemplateTx } from './bitcoin-rpc/IBlockTemplate';
-import { randomUUID } from 'crypto';
-import { MerkleTree } from 'merkletreejs'
 
 interface AddressObject {
     address: string;
@@ -14,37 +13,39 @@ export class MiningJob {
     public method: eResponseMethod.MINING_NOTIFY;
     public params: string[];
 
-    public target: number;
+    public target: string;
     public merkleRoot: string;
 
-    public job_id: string; // ID of the job. Use this ID while submitting share generated from this job.
+    public job_id: number; // ID of the job. Use this ID while submitting share generated from this job.
     public prevhash: string; // The hex-encoded previous block hash.
     public coinb1: string; // The hex-encoded prefix of the coinbase transaction (to precede extra nonce 2).
     public coinb2: string; //The hex-encoded suffix of the coinbase transaction (to follow extra nonce 2).
     public merkle_branch: string[]; // List of hashes, will be used for calculation of merkle root. This is not a list of all transactions, it only contains prepared hashes of steps of merkle tree algorithm.
     public version: number; // The hex-encoded block version.
-    public nbits: string; // The hex-encoded network difficulty required for the block.
+    public nbits: number; // The hex-encoded network difficulty required for the block.
     public ntime: number; // Current ntime/
     public clean_jobs: boolean; // When true, server indicates that submitting shares from previous jobs don't have a sense and such shares will be rejected. When this flag is set, miner should also drop all previous jobs too.
 
     public response: string;
 
-    public versionMask: number;
+    public versionMask: string;
+
+    public tree: MerkleTree;
 
     constructor(blockTemplate: IBlockTemplate) {
 
-        console.log(blockTemplate);
+        //console.log(blockTemplate);
 
-        this.job_id = randomUUID();
-        this.target = Number(blockTemplate.target);
-        this.prevhash = blockTemplate.previousblockhash;
+        this.job_id = 1;
+        this.target = blockTemplate.target;
+        this.prevhash = this.convertToLittleEndian(blockTemplate.previousblockhash);
 
         this.version = blockTemplate.version;
-        this.nbits = blockTemplate.bits;
+        this.nbits = parseInt(blockTemplate.bits, 16);
         this.ntime = Math.floor(new Date().getTime() / 1000);
         this.clean_jobs = false;
 
-        const transactions = blockTemplate.transactions.map(tx => tx.hash);
+
         const transactionFees = blockTemplate.transactions.reduce((pre, cur, i, arr) => {
             return pre + cur.fee;
         }, 0);
@@ -57,25 +58,31 @@ export class MiningJob {
         this.coinb1 = coinbasePart1;
         this.coinb2 = coinbasePart2;
 
-        const coinbaseHash = this.bufferToHex(this.sha256(this.coinb1 + this.coinb2));
+        const coinbaseHash = this.sha256(this.coinb1 + this.coinb2).toString('hex');
+        const coinbaseBuffer = Buffer.from(coinbaseHash, 'hex');
 
-        transactions.unshift(coinbaseHash);
+        //transactions.unshift(coinbaseHash);
 
         // Calculate merkle branch
+        const transactionBuffers = blockTemplate.transactions.map(tx => Buffer.from(tx.hash, 'hex'));
+        transactionBuffers.unshift(coinbaseBuffer);
+        this.tree = new MerkleTree(transactionBuffers, this.sha256, { isBitcoinTree: true });
 
-        const tree = new MerkleTree(transactions, this.sha256, { isBitcoinTree: true });
-        const layers = tree.getLayers();
 
-        const branch = [];
+        // // this.merkle_branch = tree.getProof(coinbaseBuffer).map(p => p.data.toString('hex'))
 
-        for (const layer of layers) {
-            branch.push(this.bufferToHex(layer[0]));
-        }
-        //console.log(branch);
+        // this.merkle_branch = tree.getLayers().map(l => l.pop().toString('hex'));
+        // this.merkleRoot = this.merkle_branch.pop();
 
-        this.merkle_branch = branch;
+        const rootBuffer = this.tree.getRoot();
+        this.merkleRoot = rootBuffer.toString('hex');
+        this.merkle_branch = this.tree.getProof(coinbaseBuffer).map(p => p.data.toString('hex'));
 
-        this.merkleRoot = tree.getRoot().toString('hex')
+
+        // let test = this.tree.getRoot();
+        // for (let i = 0; i < test.length; i++) {
+        //     console.log(test[i])
+        // }
 
     }
 
@@ -148,14 +155,14 @@ export class MiningJob {
             id: 0,
             method: eResponseMethod.MINING_NOTIFY,
             params: [
-                this.job_id,
+                this.job_id.toString(16),
                 this.prevhash,
                 this.coinb1,
                 this.coinb2,
                 this.merkle_branch,
-                this.version,
-                this.nbits,
-                this.ntime,
+                this.version.toString(16),
+                this.nbits.toString(16),
+                this.ntime.toString(16),
                 this.clean_jobs
             ]
         };
@@ -164,6 +171,12 @@ export class MiningJob {
 
     }
 
+
+    private convertToLittleEndian(hash: string): string {
+        const bytes = Buffer.from(hash, 'hex');
+        Array.prototype.reverse.call(bytes);
+        return bytes.toString('hex');
+    }
 
 
 

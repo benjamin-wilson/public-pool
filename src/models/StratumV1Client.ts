@@ -218,7 +218,9 @@ export class StratumV1Client extends EasyUnsubscribe {
 
     private handleMiningSubmission(submission: MiningSubmitMessage) {
         const networkDifficulty = 0;
-        const diff = submission.testNonceValue(this.currentJob, parseInt(submission.nonce, 16));
+        const diff = submission.testNonceValue(this.currentJob, submission);
+        console.log('DIFF');
+        console.log(diff);
         if (networkDifficulty < diff) {
             this.blockFoundEmitter.next(true);
         }
