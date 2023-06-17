@@ -43,11 +43,11 @@ export class MiningSubmitMessage extends StratumBaseMessage {
     }
 
 
-    public testNonceValue(job: MiningJob, submission: MiningSubmitMessage): number {
+    public testNonceValue(clientId: string, job: MiningJob, submission: MiningSubmitMessage): number {
 
         const nonce = parseInt(submission.nonce, 16);
         const versionMask = parseInt(submission.versionMask, 16);
-        const extraNonce = 'ccc5d664';
+        const extraNonce = clientId;
         const extraNonce2 = submission.extraNonce2;
 
         const coinbaseTx = `${job.coinb1}${extraNonce}${extraNonce2}${job.coinb2}`;

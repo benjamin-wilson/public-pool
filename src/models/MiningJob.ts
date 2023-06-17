@@ -16,7 +16,7 @@ export class MiningJob {
     public target: string;
     public merkleRoot: string;
 
-    public job_id: number; // ID of the job. Use this ID while submitting share generated from this job.
+    public job_id: string; // ID of the job. Use this ID while submitting share generated from this job.
     public prevhash: string; // The hex-encoded previous block hash.
     public coinb1: string; // The hex-encoded prefix of the coinbase transaction (to precede extra nonce 2).
     public coinb2: string; //The hex-encoded suffix of the coinbase transaction (to follow extra nonce 2).
@@ -32,26 +32,26 @@ export class MiningJob {
 
     public tree: MerkleTree;
 
-    constructor(blockTemplate: IBlockTemplate) {
+    constructor(id: string, blockTemplate: IBlockTemplate, _cleanJobs: boolean) {
 
         //console.log(blockTemplate);
 
-        this.job_id = 1;
+        this.job_id = id;
         this.target = blockTemplate.target;
         this.prevhash = this.convertToLittleEndian(blockTemplate.previousblockhash);
 
         this.version = blockTemplate.version;
         this.nbits = parseInt(blockTemplate.bits, 16);
         this.ntime = Math.floor(new Date().getTime() / 1000);
-        this.clean_jobs = false;
+        this.clean_jobs = _cleanJobs;
 
 
         const transactionFees = blockTemplate.transactions.reduce((pre, cur, i, arr) => {
             return pre + cur.fee;
         }, 0);
         const miningReward = this.calculateMiningReward(blockTemplate.height);
-        console.log('TRANSACTION FEES', transactionFees);
-        console.log('MINING REWARD', miningReward);
+        //console.log('TRANSACTION FEES', transactionFees);
+        //console.log('MINING REWARD', miningReward);
 
         const { coinbasePart1, coinbasePart2 } = this.createCoinbaseTransaction([{ address: '', percentage: 100 }], blockTemplate.height, transactionFees + miningReward);
 
@@ -79,10 +79,7 @@ export class MiningJob {
         this.merkle_branch = this.tree.getProof(coinbaseBuffer).map(p => p.data.toString('hex'));
 
 
-        // let test = this.tree.getRoot();
-        // for (let i = 0; i < test.length; i++) {
-        //     console.log(test[i])
-        // }
+        this.constructResponse();
 
     }
 
@@ -97,10 +94,6 @@ export class MiningJob {
         const currentReward = initialBlockReward / Math.pow(2, halvingCount);
 
         return currentReward;
-    }
-
-    private bufferToHex(buffer: Buffer): string {
-        return buffer.toString('hex');
     }
 
 
@@ -149,13 +142,13 @@ export class MiningJob {
     }
 
 
-    public constructResponse() {
+    private constructResponse() {
 
         const job = {
             id: 0,
             method: eResponseMethod.MINING_NOTIFY,
             params: [
-                this.job_id.toString(16),
+                this.job_id,
                 this.prevhash,
                 this.coinb1,
                 this.coinb2,

@@ -1,9 +1,9 @@
 import { plainToInstance } from 'class-transformer';
 import { validate, ValidatorOptions } from 'class-validator';
+import * as crypto from 'crypto';
 import { Socket } from 'net';
-import { BehaviorSubject, merge, Observable, takeUntil } from 'rxjs';
 
-import { EasyUnsubscribe } from '../utils/AutoUnsubscribe';
+import { StratumV1JobsService } from '../stratum-v1-jobs.service';
 import { eRequestMethod } from './enums/eRequestMethod';
 import { MiningJob } from './MiningJob';
 import { AuthorizationMessage } from './stratum-messages/AuthorizationMessage';
@@ -12,53 +12,40 @@ import { MiningSubmitMessage } from './stratum-messages/MiningSubmitMessage';
 import { SubscriptionMessage } from './stratum-messages/SubscriptionMessage';
 import { SuggestDifficulty } from './stratum-messages/SuggestDifficultyMessage';
 
-export class StratumV1Client extends EasyUnsubscribe {
+
+export class StratumV1Client {
 
     private clientSubscription: SubscriptionMessage;
     private clientConfiguration: ConfigurationMessage;
     private clientAuthorization: AuthorizationMessage;
     private clientSuggestedDifficulty: SuggestDifficulty;
 
-    public initialized = false;
+    // public clientSubmission: BehaviorSubject<any> = new BehaviorSubject(null);
 
+    public id: string;
+    public stratumInitialized = false;
 
-    public onInitialized: BehaviorSubject<void> = new BehaviorSubject(null);
-    public localMiningJobEmitter: BehaviorSubject<MiningJob> = new BehaviorSubject(null);
-    public blockFoundEmitter: BehaviorSubject<any> = new BehaviorSubject(null);
-
-
-    private currentJob: MiningJob;
+    public refreshInterval: NodeJS.Timer;
 
     constructor(
-        private readonly socket: Socket,
-        private readonly globalMiningJobEmitter: Observable<MiningJob>
+        public readonly socket: Socket,
+        private readonly stratumV1JobsService: StratumV1JobsService
     ) {
-        super();
+
+        this.id = this.getRandomHexString();
+
+        console.log(`id: ${this.id}`);
 
         this.socket.on('data', this.handleData.bind(this, this.socket));
 
-        this.socket.on('end', () => {
-            // Handle socket disconnection
-            console.log('Client disconnected:', socket.remoteAddress);
-            this.unsubscribeAll();
-        });
-
-        this.socket.on('error', (error: Error) => {
-            // Handle socket error
-            console.error('Socket error:', error);
-        });
-
-        merge(this.globalMiningJobEmitter, this.localMiningJobEmitter).pipe(takeUntil(this.easyUnsubscribe)).subscribe((job: MiningJob) => {
-            this.currentJob = job;
-            if (!this.initialized) {
-                return;
-            }
-            this.socket.write(job.response + '\n');
-        })
-
-
     }
 
+    private getRandomHexString() {
+        const randomBytes = crypto.randomBytes(4); // 4 bytes = 32 bits
+        const randomNumber = randomBytes.readUInt32BE(0); // Convert bytes to a 32-bit unsigned integer
+        const hexString = randomNumber.toString(16).padStart(8, '0'); // Convert to hex and pad with zeros
+        return hexString;
+    }
 
     private async handleData(socket: Socket, data: Buffer) {
         const message = data.toString();
@@ -98,7 +85,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                 if (errors.length === 0) {
                     this.clientSubscription = subscriptionMessage;
 
-                    socket.write(JSON.stringify(this.clientSubscription.response()) + '\n');
+                    socket.write(JSON.stringify(this.clientSubscription.response(this.id)) + '\n');
                 } else {
                     console.error(errors);
                 }
@@ -189,9 +176,8 @@ export class StratumV1Client extends EasyUnsubscribe {
                 const errors = await validate(miningSubmitMessage, validatorOptions);
 
                 if (errors.length === 0) {
-                    //this.clientSuggestedDifficulty = miningSubmitMessage;
-                    miningSubmitMessage.parse();
                     this.handleMiningSubmission(miningSubmitMessage);
+                    //this.clientSubmission.next(miningSubmitMessage)
                     socket.write(JSON.stringify(miningSubmitMessage.response()) + '\n');
                 } else {
                     console.error(errors);
@@ -200,63 +186,45 @@ export class StratumV1Client extends EasyUnsubscribe {
             }
         }
 
-        if (!this.initialized) {
-            if (this.clientSubscription != null
-                && this.clientConfiguration != null
-                && this.clientAuthorization != null
-                && this.clientSuggestedDifficulty != null) {
-                this.initialized = true;
 
-                this.onInitialized.next();
+        if (this.clientSubscription != null
+            && this.clientConfiguration != null
+            && this.clientAuthorization != null
+            && this.clientSuggestedDifficulty != null
+            && this.stratumInitialized == false) {
 
-            }
+            this.stratumInitialized = true;
+
+            this.newBlock(this.stratumV1JobsService.getLatestJob());
 
         }
+    }
 
+    public newBlock(job: MiningJob) {
+        this.newJob(job);
+
+        clearInterval(this.refreshInterval);
+        this.refreshInterval = setInterval(async () => {
+            this.newJob(this.stratumV1JobsService.getLatestJob());
+        }, 60000);
+    }
+
+    private newJob(job: MiningJob) {
+        if (this.stratumInitialized && job != null) {
+            this.socket.write(job.response + '\n');
+        }
     }
 
 
     private handleMiningSubmission(submission: MiningSubmitMessage) {
+        submission.parse();
         const networkDifficulty = 0;
-        const diff = submission.testNonceValue(this.currentJob, submission);
-        console.log('DIFF');
-        console.log(diff);
+        const job = this.stratumV1JobsService.getJobById(submission.jobId);
+        const diff = submission.testNonceValue(this.id, job, submission);
+        console.log(`DIFF: ${diff}`);
         if (networkDifficulty < diff) {
-            this.blockFoundEmitter.next(true);
+            //this.clientSubmission.next(true);
         }
     }
-
-    // private miningNotify() {
-    //     const notification = {
-    //         id: null,
-    //         method: eResponseMethod.MINING_NOTIFY,
-    //         params: [
-    //             '64756fab0000442e',
-    //             '39dbb5b4e173e1f9ac6f6ad92e9dde300effce6b0003ea860000000000000000',
-    //             '01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff35033e1c0c00048fef83640447483e060c',
-    //             '0a636b706f6f6c112f736f6c6f2e636b706f6f6c2e6f72672fffffffff03e1c7872600000000160014876961d21eaba10f0701dcc78f6624a4c682270d384dc900000000001976a914f4cbe6c6bb3a8535c963169c22963d3a20e7686988ac0000000000000000266a24aa21a9ed751521cd94e7780a9a13ac8bb1da5410d30acdd2f6348876835623b04b2dc83b00000000',
-    //             [
-    //                 'c0c9d351b9e094dd85bc64c8909dece6226269ebfe173bb74ba2f89c51df7066',
-    //                 '6c56f47cbfaef5688bb338bc56c4189530f12cdb98f8cc46b6a12053f1e69fdd',
-    //                 '697cdaa8d15691f7b30dfe7f6c33957f04cfc8126fed16d2fe38c96adaa59c41',
-    //                 'cbe8aa6e0343884a40b850df8fd3c2ffcc026acec392ce93f9e28619eb0d3dac',
-    //                 'e023091cf0fc02684c77730a34791181a44be92f966ba579aa4cf6e98d754548',
-    //                 '6b8fea64efe363e02ff42a4257d76a77381006eade804c8a8c9b96c9c98b1d9e',
-    //                 '1c936bc5320cdbbe7348cdd4bf272529822e9d34dfa8e0ee0041eae635891cc3',
-    //                 '8fed2682a3c95863c6b9440b1a47abdd3d4230181f61edf0daa2e5f0befbcf65',
-    //                 '0837c4d162e1086ec553ea90af4be4f9747958e556598cc38cb08149e58227b1',
-    //                 '0b5287e647c7cb6f2fcdf13d5ef3bf091d1137773d7695405d0b2768f442ee78',
-    //                 '71eaff9247b5556fa88bca6da2e055d5db8aef2969a2d5c68f8e7efd7d39a283'
-    //             ],
-    //             '20000000',
-    //             '17057e69',
-    //             '6483ef8f',
-    //             true
-    //         ],
-
-    //     };
-
-    //     this.socket.write(JSON.stringify(notification) + '\n');
-    // }
 
 }

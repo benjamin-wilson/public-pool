@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RPCClient } from 'rpc-bitcoin';
+import { BehaviorSubject, Observable } from 'rxjs';
 
 import { IBlockTemplate } from './models/bitcoin-rpc/IBlockTemplate';
-import { BehaviorSubject, Observable } from 'rxjs';
 import { IMiningInfo } from './models/bitcoin-rpc/IMiningInfo';
 
 
@@ -30,7 +30,7 @@ export class BitcoinRpcService {
         setInterval(async () => {
             const miningInfo = await this.getMiningInfo();
             if (miningInfo.blocks > this.blockHeight) {
-                console.log(miningInfo);
+                // console.log(miningInfo);
                 if (this.blockHeight != 0) {
                     this.newBlock$.next(miningInfo.blocks + 1);
                 }
