@@ -1,3 +1,4 @@
+import { Expose, Transform } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsNumber } from 'class-validator';
 
 import { eRequestMethod } from '../enums/eRequestMethod';
@@ -9,18 +10,31 @@ export class SuggestDifficulty extends StratumBaseMessage {
     @ArrayMinSize(1)
     @ArrayMaxSize(1)
     @IsNumber({}, { each: true })
-    params: string[];
+    params: string | number[];
+
+
+
+    @Expose()
+    @IsNumber()
+    @Transform(({ value, key, obj, type }) => {
+        return Number(obj.params[0]);
+    })
+    public suggestedDifficulty: number;
 
     constructor() {
         super();
         this.method = eRequestMethod.SUGGEST_DIFFICULTY;
+
     }
 
-    public response() {
+
+
+    public response(difficulty: number) {
         return {
             id: null,
             method: eResponseMethod.SET_DIFFICULTY,
-            params: [256]
+            params: [difficulty]
         }
     }
 }
+

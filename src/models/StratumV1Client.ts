@@ -27,6 +27,8 @@ export class StratumV1Client {
 
     public refreshInterval: NodeJS.Timer;
 
+    public clientDifficulty: number = 512;
+
     constructor(
         public readonly socket: Socket,
         private readonly stratumV1JobsService: StratumV1JobsService
@@ -131,7 +133,7 @@ export class StratumV1Client {
 
                 if (errors.length === 0) {
                     this.clientAuthorization = authorizationMessage;
-                    this.clientAuthorization.parse();
+
                     //const response = this.buildSubscriptionResponse(authorizationMessage.id);
                     socket.write(JSON.stringify(this.clientAuthorization.response()) + '\n');
                 } else {
@@ -144,7 +146,7 @@ export class StratumV1Client {
 
                 const suggestDifficultyMessage = plainToInstance(
                     SuggestDifficulty,
-                    parsedMessage,
+                    parsedMessage
                 );
 
                 const validatorOptions: ValidatorOptions = {
@@ -155,8 +157,10 @@ export class StratumV1Client {
                 const errors = await validate(suggestDifficultyMessage, validatorOptions);
 
                 if (errors.length === 0) {
+
                     this.clientSuggestedDifficulty = suggestDifficultyMessage;
-                    socket.write(JSON.stringify(this.clientSuggestedDifficulty.response()) + '\n');
+                    this.clientDifficulty = suggestDifficultyMessage.suggestedDifficulty;
+                    socket.write(JSON.stringify(this.clientSuggestedDifficulty.response(this.clientDifficulty)) + '\n');
                 } else {
                     console.error(errors);
                 }
@@ -217,7 +221,6 @@ export class StratumV1Client {
 
 
     private handleMiningSubmission(submission: MiningSubmitMessage) {
-        submission.parse();
         const networkDifficulty = 0;
         const job = this.stratumV1JobsService.getJobById(submission.jobId);
         const diff = submission.testNonceValue(this.id, job, submission);

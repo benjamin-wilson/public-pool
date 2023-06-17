@@ -1,4 +1,5 @@
-import { ArrayMaxSize, ArrayMinSize, IsArray } from 'class-validator';
+import { Expose, Transform } from 'class-transformer';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsString } from 'class-validator';
 
 import { eRequestMethod } from '../enums/eRequestMethod';
 import { StratumBaseMessage } from './StratumBaseMessage';
@@ -10,8 +11,18 @@ export class AuthorizationMessage extends StratumBaseMessage {
     @ArrayMaxSize(2)
     params: string[];
 
+    @Expose()
+    @IsString()
+    @Transform(({ value, key, obj, type }) => {
+        return obj.params[0];
+    })
     public username: string;
 
+    @Expose()
+    @IsString()
+    @Transform(({ value, key, obj, type }) => {
+        return obj.params[1];
+    })
     public password: string;
 
     constructor() {
@@ -20,11 +31,6 @@ export class AuthorizationMessage extends StratumBaseMessage {
 
     }
 
-    public parse() {
-        this.username = this.params[0];
-        this.password = this.params[1];
-        console.log(`Username ${this.username}, Password: ${this.password}`);
-    }
 
     public response() {
         return {

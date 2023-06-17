@@ -145,7 +145,7 @@ export class MiningJob {
     private constructResponse() {
 
         const job = {
-            id: 0,
+            id: null,
             method: eResponseMethod.MINING_NOTIFY,
             params: [
                 this.job_id,

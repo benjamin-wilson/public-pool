@@ -1,5 +1,6 @@
 import Big from 'big.js';
-import { ArrayMaxSize, ArrayMinSize, IsArray } from 'class-validator';
+import { Expose, Transform } from 'class-transformer';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsString } from 'class-validator';
 import * as crypto from 'crypto';
 
 import { eRequestMethod } from '../enums/eRequestMethod';
@@ -13,26 +14,47 @@ export class MiningSubmitMessage extends StratumBaseMessage {
     @ArrayMaxSize(6)
     public params: string[];
 
+    @Expose()
+    @IsString()
+    @Transform(({ value, key, obj, type }) => {
+        return obj.params[0];
+    })
     public userId: string;
+    @Expose()
+    @IsString()
+    @Transform(({ value, key, obj, type }) => {
+        return obj.params[1];
+    })
     public jobId: string;
+    @Expose()
+    @IsString()
+    @Transform(({ value, key, obj, type }) => {
+        return obj.params[2];
+    })
     public extraNonce2: string;
+    @Expose()
+    @IsString()
+    @Transform(({ value, key, obj, type }) => {
+        return obj.params[3];
+    })
     public ntime: string;
+    @Expose()
+    @IsString()
+    @Transform(({ value, key, obj, type }) => {
+        return obj.params[4];
+    })
     public nonce: string
+    @Expose()
+    @IsString()
+    @Transform(({ value, key, obj, type }) => {
+        return obj.params[5];
+    })
     public versionMask: string;
     constructor() {
         super();
         this.method = eRequestMethod.AUTHORIZE;
     }
 
-
-    public parse() {
-        this.userId = this.params[0];
-        this.jobId = this.params[1];
-        this.extraNonce2 = this.params[2];
-        this.ntime = this.params[3];
-        this.nonce = this.params[4];
-        this.versionMask = this.params[5];
-    }
 
     public response() {
         return {
