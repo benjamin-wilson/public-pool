@@ -102,19 +102,20 @@ export class MiningJob {
     private createCoinbaseTransaction(addresses: AddressObject[], blockHeight: number, reward: number): { coinbasePart1: string, coinbasePart2: string } {
         // Generate coinbase script
         const blockHeightScript = `03${blockHeight.toString(16).padStart(8, '0')}`;
-        const inputScript = `54696d652026204865616c74682021`;
+
 
         // Create coinbase transaction
-        const endOfInput = 'ffffffff';
+        const outputIndex = 'ffffffff';
+        const sequence = 'ffffffff';
         const lockTime = '00000000';
         const version = '01000000';
         const inputCount = '01';
         const fakeCoinbaseInput = '0000000000000000000000000000000000000000000000000000000000000000';
 
-        const inputScriptBytes = ((blockHeightScript.length + inputScript.length + lockTime.length) / 2).toString(16).padStart(2, '0');
+        const inputScriptBytes = ((blockHeightScript.length + 16) / 2).toString(16).padStart(2, '0');
 
 
-        const inputTransaction = inputCount + fakeCoinbaseInput + endOfInput + inputScriptBytes + blockHeightScript + inputScript + lockTime;
+        const inputTransaction = inputCount + fakeCoinbaseInput + outputIndex + inputScriptBytes + blockHeightScript;
 
 
 
@@ -141,8 +142,8 @@ export class MiningJob {
         // Create outputs
         const outputCountHex = addresses.length.toString(16).padStart(2, '0');
 
-        const coinbasePart1 = version + inputTransaction + endOfInput + outputCountHex;
-        const coinbasePart2 = outputs + lockTime;
+        const coinbasePart1 = version + inputTransaction;
+        const coinbasePart2 = sequence + outputCountHex + outputs + lockTime;
 
         return { coinbasePart1, coinbasePart2 };
     }

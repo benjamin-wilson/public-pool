@@ -89,8 +89,6 @@ export class MiningSubmitMessage extends StratumBaseMessage {
         }
 
 
-
-
         header.writeUInt32LE(version, 0);
 
         header.write(this.swapEndianWords(job.prevhash), 4, 'hex')
