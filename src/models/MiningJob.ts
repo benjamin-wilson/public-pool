@@ -1,3 +1,4 @@
+import * as bitcoinjs from 'bitcoinjs-lib';
 import * as crypto from 'crypto';
 import { MerkleTree } from 'merkletreejs';
 
@@ -32,7 +33,7 @@ export class MiningJob {
 
     public tree: MerkleTree;
 
-    constructor(id: string, blockTemplate: IBlockTemplate, _cleanJobs: boolean) {
+    constructor(id: string, public blockTemplate: IBlockTemplate, _cleanJobs: boolean) {
 
         //console.log(blockTemplate);
 
@@ -53,7 +54,7 @@ export class MiningJob {
         //console.log('TRANSACTION FEES', transactionFees);
         //console.log('MINING REWARD', miningReward);
 
-        const { coinbasePart1, coinbasePart2 } = this.createCoinbaseTransaction([{ address: '', percentage: 100 }], blockTemplate.height, transactionFees + miningReward);
+        const { coinbasePart1, coinbasePart2 } = this.createCoinbaseTransaction([{ address: 'bc1qsa5kr5s74wss7pcpmnrc7e3y5nrgyfcdzpwakk', percentage: 100 }], blockTemplate.height, transactionFees + miningReward);
 
         this.coinb1 = coinbasePart1;
         this.coinb2 = coinbasePart2;
@@ -100,39 +101,48 @@ export class MiningJob {
 
     private createCoinbaseTransaction(addresses: AddressObject[], blockHeight: number, reward: number): { coinbasePart1: string, coinbasePart2: string } {
         // Generate coinbase script
-        const coinbaseScript = `03${blockHeight.toString(16).padStart(8, '0')}54696d652026204865616c74682021`;
+        const blockHeightScript = `03${blockHeight.toString(16).padStart(8, '0')}`;
+        const inputScript = `54696d652026204865616c74682021`;
 
         // Create coinbase transaction
+        const endOfInput = 'ffffffff';
+        const lockTime = '00000000';
         const version = '01000000';
         const inputCount = '01';
-        const inputs = '0000000000000000000000000000000000000000000000000000000000000000ffffffff';
-        const coinbaseScriptSize = coinbaseScript.length / 2;
-        const coinbaseScriptBytes = coinbaseScriptSize.toString(16).padStart(2, '0');
-        const coinbaseTransaction = inputCount + inputs + coinbaseScriptBytes + coinbaseScript + '00000000';
+        const fakeCoinbaseInput = '0000000000000000000000000000000000000000000000000000000000000000';
 
-        // Create outputs
-        const outputCount = addresses.length;
-        const outputCountHex = outputCount.toString(16).padStart(2, '0');
+        const inputScriptBytes = ((blockHeightScript.length + inputScript.length + lockTime.length) / 2).toString(16).padStart(2, '0');
 
-        let remainingPayout = reward;
+
+        const inputTransaction = inputCount + fakeCoinbaseInput + endOfInput + inputScriptBytes + blockHeightScript + inputScript + lockTime;
+
+
+
+        //let remainingPayout = reward;
+
         const outputs = addresses
             .map((addressObj) => {
                 const percentage = addressObj.percentage / 100;
-                const satoshis = Math.floor(reward * percentage).toString(16).padStart(16, '0');
-                remainingPayout -= parseInt(satoshis, 16);
-                const script = '1976a914' + Buffer.from(addressObj.address, 'hex').toString('hex') + '88ac'; // Convert address to hex
-                return satoshis + script;
+                const satoshis = Math.floor(reward * percentage);
+                const satoshiBuff = Buffer.alloc(4);
+                satoshiBuff.writeUInt32LE(satoshis);
+                const littleEndianSatoshis = satoshiBuff.toString('hex').padEnd(16, '0');
+
+                const script = bitcoinjs.payments.p2wpkh({ address: addressObj.address }).output.toString('hex') // Convert address to hex
+                const scriptBytes = (script.length / 2).toString(16).padStart(2, '0');
+                return littleEndianSatoshis + scriptBytes + script;
             })
             .join('');
 
-        // Distribute any remaining satoshis to the first address
-        const firstAddressSatoshis = (parseInt(outputs.substring(0, 16), 16) + remainingPayout).toString(16).padStart(16, '0');
-        const firstAddressOutput = firstAddressSatoshis + outputs.substring(16);
-        const modifiedOutputs = firstAddressOutput + outputs.slice(16);
+        // // Distribute any remaining satoshis to the first address
+        // const firstAddressSatoshis = (parseInt(outputs.substring(0, 16), 16) + remainingPayout).toString(16).padStart(16, '0');
 
         // Combine coinbasePart1 and coinbasePart2
-        const coinbasePart1 = version + coinbaseTransaction + outputCountHex;
-        const coinbasePart2 = modifiedOutputs + '00000000';
+        // Create outputs
+        const outputCountHex = addresses.length.toString(16).padStart(2, '0');
+
+        const coinbasePart1 = version + inputTransaction + endOfInput + outputCountHex;
+        const coinbasePart2 = outputs + lockTime;
 
         return { coinbasePart1, coinbasePart2 };
     }
