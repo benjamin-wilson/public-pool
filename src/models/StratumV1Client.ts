@@ -2,8 +2,11 @@ import { plainToInstance } from 'class-transformer';
 import { validate, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
 import { Socket } from 'net';
+import { combineLatest, interval, startWith } from 'rxjs';
 
+import { BlockTemplateService } from '../BlockTemplateService';
 import { StratumV1JobsService } from '../stratum-v1-jobs.service';
+import { EasyUnsubscribe } from '../utils/AutoUnsubscribe';
 import { eRequestMethod } from './enums/eRequestMethod';
 import { MiningJob } from './MiningJob';
 import { AuthorizationMessage } from './stratum-messages/AuthorizationMessage';
@@ -13,7 +16,7 @@ import { SubscriptionMessage } from './stratum-messages/SubscriptionMessage';
 import { SuggestDifficulty } from './stratum-messages/SuggestDifficultyMessage';
 
 
-export class StratumV1Client {
+export class StratumV1Client extends EasyUnsubscribe {
 
     private clientSubscription: SubscriptionMessage;
     private clientConfiguration: ConfigurationMessage;
@@ -29,11 +32,15 @@ export class StratumV1Client {
 
     public clientDifficulty: number = 512;
 
+    public jobRefreshInterval: NodeJS.Timer;
+
+
     constructor(
         public readonly socket: Socket,
-        private readonly stratumV1JobsService: StratumV1JobsService
+        private readonly stratumV1JobsService: StratumV1JobsService,
+        private readonly blockTemplateService: BlockTemplateService
     ) {
-
+        super();
         this.id = this.getRandomHexString();
 
         console.log(`id: ${this.id}`);
@@ -181,7 +188,6 @@ export class StratumV1Client {
 
                 if (errors.length === 0) {
                     this.handleMiningSubmission(miningSubmitMessage);
-                    //this.clientSubmission.next(miningSubmitMessage)
                     socket.write(JSON.stringify(miningSubmitMessage.response()) + '\n');
                 } else {
                     console.error(errors);
@@ -199,35 +205,44 @@ export class StratumV1Client {
 
             this.stratumInitialized = true;
 
-            this.newBlock(this.stratumV1JobsService.getLatestJob());
 
-        }
-    }
+            let lastIntervalCount = undefined;
+            combineLatest([this.blockTemplateService.currentBlockTemplate$, interval(60000).pipe(startWith(-1))]).subscribe(([{ miningInfo, blockTemplate }, interValCount]) => {
+                let clearJobs = false;
+                if (lastIntervalCount === interValCount) {
+                    clearJobs = true;
+                }
+                lastIntervalCount = interValCount;
 
-    public newBlock(job: MiningJob) {
-        this.newJob(job);
+                const job = new MiningJob(this.stratumV1JobsService.getNextId(), [{ address: this.clientAuthorization.address, percent: 100 }], blockTemplate, miningInfo.difficulty, clearJobs);
 
-        clearInterval(this.refreshInterval);
-        this.refreshInterval = setInterval(async () => {
-            this.newJob(this.stratumV1JobsService.getLatestJob());
-        }, 60000);
-    }
+                this.stratumV1JobsService.addJob(job, clearJobs);
 
-    private newJob(job: MiningJob) {
-        if (this.stratumInitialized && job != null) {
-            this.socket.write(job.response + '\n');
+                this.socket.write(job.response + '\n');
+            })
+
+
+
+
         }
     }
 
 
     private handleMiningSubmission(submission: MiningSubmitMessage) {
-        const networkDifficulty = 0;
+
         const job = this.stratumV1JobsService.getJobById(submission.jobId);
-        const diff = submission.testNonceValue(this.id, job, submission);
+        const diff = submission.calculateDifficulty(this.id, job, submission);
         console.log(`DIFF: ${diff}`);
-        if (networkDifficulty < diff) {
-            //this.clientSubmission.next(true);
+        if (diff >= this.clientDifficulty) {
+
+            if (diff >= job.networkDifficulty) {
+                console.log('!!! BOCK FOUND !!!');
+            }
+        } else {
+            console.log(`Difficulty too low`);
         }
+
+
     }
 
 }

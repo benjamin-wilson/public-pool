@@ -14,9 +14,17 @@ export class AuthorizationMessage extends StratumBaseMessage {
     @Expose()
     @IsString()
     @Transform(({ value, key, obj, type }) => {
-        return obj.params[0];
+        return obj.params[0].split('.')[0];
     })
-    public username: string;
+    public address: string;
+
+    @Expose()
+    @IsString()
+    @Transform(({ value, key, obj, type }) => {
+        return obj.params[0].split('.')[1];
+    })
+    public worker: string;
+
 
     @Expose()
     @IsString()

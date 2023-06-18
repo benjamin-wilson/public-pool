@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RPCClient } from 'rpc-bitcoin';
-import { BehaviorSubject, Observable } from 'rxjs';
+import { BehaviorSubject, filter } from 'rxjs';
 
 import { IBlockTemplate } from './models/bitcoin-rpc/IBlockTemplate';
 import { IMiningInfo } from './models/bitcoin-rpc/IMiningInfo';
@@ -12,7 +12,8 @@ export class BitcoinRpcService {
 
     private blockHeight = 0;
     private client: RPCClient;
-    private newBlock$: BehaviorSubject<number> = new BehaviorSubject(0);
+    private _newBlock$: BehaviorSubject<IMiningInfo> = new BehaviorSubject(undefined);
+    public newBlock$ = this._newBlock$.pipe(filter(block => block != null));
 
     constructor(configService: ConfigService) {
         const url = configService.get('BITCOIN_RPC_URL');
@@ -26,14 +27,14 @@ export class BitcoinRpcService {
 
         console.log('Bitcoin RPC connected');
 
+
         // Maybe use ZeroMQ ?
         setInterval(async () => {
             const miningInfo = await this.getMiningInfo();
             if (miningInfo.blocks > this.blockHeight) {
-                // console.log(miningInfo);
-                if (this.blockHeight != 0) {
-                    this.newBlock$.next(miningInfo.blocks + 1);
-                }
+
+                this._newBlock$.next(miningInfo);
+
                 this.blockHeight = miningInfo.blocks;
 
             }
@@ -43,9 +44,6 @@ export class BitcoinRpcService {
     }
 
 
-    public newBlock(): Observable<any> {
-        return this.newBlock$.asObservable();
-    }
 
 
     public async getBlockTemplate(): Promise<IBlockTemplate> {

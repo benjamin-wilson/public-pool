@@ -65,7 +65,7 @@ export class MiningSubmitMessage extends StratumBaseMessage {
     }
 
 
-    public testNonceValue(clientId: string, job: MiningJob, submission: MiningSubmitMessage): number {
+    public calculateDifficulty(clientId: string, job: MiningJob, submission: MiningSubmitMessage): number {
 
         const nonce = parseInt(submission.nonce, 16);
         const versionMask = parseInt(submission.versionMask, 16);
@@ -76,12 +76,9 @@ export class MiningSubmitMessage extends StratumBaseMessage {
 
         const newRoot = this.calculateMerkleRootHash(coinbaseTx, job.merkle_branch)
 
-
         const truediffone = Big('26959535291011309493156476344723991336010898738574164086137773096960');
 
         const header = Buffer.alloc(80);
-
-        // TODO: Use the midstate hash instead of hashing the whole header
 
         let version = job.version;
         if (versionMask !== undefined && versionMask != 0) {
@@ -97,10 +94,6 @@ export class MiningSubmitMessage extends StratumBaseMessage {
         header.writeBigUint64LE(BigInt(job.nbits), 72);
         header.writeUInt32LE(nonce, 76);
 
-        // for (let i = 0; i < 80; i++) {
-        //     console.log(header[i].toString(10));
-        // }
-
 
         const hashBuffer: Buffer = crypto.createHash('sha256').update(header).digest();
         const hashResult: Buffer = crypto.createHash('sha256').update(hashBuffer).digest();
@@ -108,7 +101,7 @@ export class MiningSubmitMessage extends StratumBaseMessage {
 
         let s64 = this.le256todouble(hashResult);
 
-        return parseInt(truediffone.div(s64.toString()).toString());
+        return truediffone.div(s64.toString()).toNumber();
 
 
     }
@@ -132,7 +125,6 @@ export class MiningSubmitMessage extends StratumBaseMessage {
         }, BigInt(0));
 
         return number;
-
     }
 
     private calculateMerkleRootHash(coinbaseTx: string, merkleBranches: string[]): Buffer {

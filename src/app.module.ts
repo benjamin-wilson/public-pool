@@ -4,8 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
-import { CoinbaseConstructorService } from './coinbase-constructor.service';
-import { StratumV1JobsService } from './stratum-v1-jobs.service';
+import { BlockTemplateService } from './BlockTemplateService';
 import { StratumV1Service } from './stratum-v1.service';
 
 
@@ -19,8 +18,7 @@ import { StratumV1Service } from './stratum-v1.service';
         AppService,
         StratumV1Service,
         BitcoinRpcService,
-        CoinbaseConstructorService,
-        StratumV1JobsService
+        BlockTemplateService
     ],
 })
 export class AppModule {

@@ -2,7 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Server, Socket } from 'net';
 
 import { BitcoinRpcService } from './bitcoin-rpc.service';
-import { MiningJob } from './models/MiningJob';
+import { BlockTemplateService } from './BlockTemplateService';
 import { StratumV1Client } from './models/StratumV1Client';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
 
@@ -19,7 +19,7 @@ export class StratumV1Service implements OnModuleInit {
 
   constructor(
     private readonly bitcoinRpcService: BitcoinRpcService,
-    private readonly stratumV1JobsService: StratumV1JobsService
+    private readonly blockTemplateService: BlockTemplateService
   ) {
   }
 
@@ -28,7 +28,7 @@ export class StratumV1Service implements OnModuleInit {
 
     this.startSocketServer();
 
-    this.listenForNewBlocks();
+    //this.listenForNewBlocks();
 
   }
 
@@ -37,7 +37,7 @@ export class StratumV1Service implements OnModuleInit {
 
       console.log('New client connected:', socket.remoteAddress);
 
-      const client = new StratumV1Client(socket, this.stratumV1JobsService);
+      const client = new StratumV1Client(socket, new StratumV1JobsService(), this.blockTemplateService);
       this.clients.push(client);
 
 
@@ -59,37 +59,6 @@ export class StratumV1Service implements OnModuleInit {
 
   }
 
-  private listenForNewBlocks() {
-    this.bitcoinRpcService.newBlock().subscribe(async () => {
-      console.log('NEW BLOCK')
-      this.resetMiningNotifyInterval();
 
-      const blockTemplate = await this.bitcoinRpcService.getBlockTemplate();
-      const job = new MiningJob(this.stratumV1JobsService.getNextId(), blockTemplate, true);
-      this.stratumV1JobsService.addJob(job, true);
-
-
-      this.clients
-        .filter(client => client.stratumInitialized)
-        .forEach(client => {
-          client.newBlock(job);
-        });
-
-    });
-  }
-
-
-
-
-  private resetMiningNotifyInterval() {
-    clearInterval(this.miningNotifyInterval);
-    this.miningNotifyInterval = setInterval(async () => {
-
-      const blockTemplate = await this.bitcoinRpcService.getBlockTemplate();
-      const job = new MiningJob(this.stratumV1JobsService.getNextId(), blockTemplate, false);
-      this.stratumV1JobsService.addJob(job, false);
-
-    }, 60000);
-  }
 
 }

@@ -1,8 +1,6 @@
-import { Injectable } from '@nestjs/common';
-
 import { MiningJob } from './models/MiningJob';
 
-@Injectable()
+
 export class StratumV1JobsService {
 
     public latestJobId: number = 1;
