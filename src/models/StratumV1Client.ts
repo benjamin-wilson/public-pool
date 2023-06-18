@@ -1,9 +1,11 @@
+import { Block, Transaction } from 'bitcoinjs-lib';
 import { plainToInstance } from 'class-transformer';
 import { validate, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
 import { Socket } from 'net';
 import { combineLatest, interval, startWith } from 'rxjs';
 
+import { BitcoinRpcService } from '../bitcoin-rpc.service';
 import { BlockTemplateService } from '../BlockTemplateService';
 import { StratumV1JobsService } from '../stratum-v1-jobs.service';
 import { EasyUnsubscribe } from '../utils/AutoUnsubscribe';
@@ -38,7 +40,8 @@ export class StratumV1Client extends EasyUnsubscribe {
     constructor(
         public readonly socket: Socket,
         private readonly stratumV1JobsService: StratumV1JobsService,
-        private readonly blockTemplateService: BlockTemplateService
+        private readonly blockTemplateService: BlockTemplateService,
+        private readonly bitcoinRpcService: BitcoinRpcService
     ) {
         super();
         this.id = this.getRandomHexString();
@@ -234,14 +237,34 @@ export class StratumV1Client extends EasyUnsubscribe {
         const diff = submission.calculateDifficulty(this.id, job, submission);
         console.log(`DIFF: ${diff}`);
         if (diff >= this.clientDifficulty) {
-
             if (diff >= job.networkDifficulty) {
                 console.log('!!! BOCK FOUND !!!');
+                this.constructBlockAndBroadcast(job, submission);
             }
         } else {
             console.log(`Difficulty too low`);
         }
 
+    }
+
+    private constructBlockAndBroadcast(job: MiningJob, submission: MiningSubmitMessage) {
+        const block = new Block();
+
+        block.version = job.blockTemplate.version;
+        block.prevHash = Buffer.from(job.prevhash, 'hex');
+        block.merkleRoot = Buffer.from(job.merkleRoot, 'hex');
+        block.timestamp = job.ntime;
+        block.bits = job.nbits;
+        block.nonce = parseInt(submission.nonce, 16);
+        block.transactions = job.blockTemplate.transactions.map(tx => {
+            return Transaction.fromHex(tx.data);
+        });
+
+        const coinbaseTx = `${job.coinb1}${this.id}${submission.extraNonce2}${job.coinb2}`;
+        block.transactions.unshift(Transaction.fromHex(coinbaseTx));
+
+        const blockHex = block.toHex(false);
+        this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
 
     }
 

@@ -37,7 +37,7 @@ export class StratumV1Service implements OnModuleInit {
 
       console.log('New client connected:', socket.remoteAddress);
 
-      const client = new StratumV1Client(socket, new StratumV1JobsService(), this.blockTemplateService);
+      const client = new StratumV1Client(socket, new StratumV1JobsService(), this.blockTemplateService, this.bitcoinRpcService);
       this.clients.push(client);
 
 
