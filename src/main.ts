@@ -3,7 +3,7 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 
 import { AppModule } from './app.module';
 
-const PORT = 3334;
+const PORT = 40557;
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter());
   await app.listen(PORT, '0.0.0.0');
