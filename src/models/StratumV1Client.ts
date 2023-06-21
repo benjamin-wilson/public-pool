@@ -16,16 +16,17 @@ import { ConfigurationMessage } from './stratum-messages/ConfigurationMessage';
 import { MiningSubmitMessage } from './stratum-messages/MiningSubmitMessage';
 import { SubscriptionMessage } from './stratum-messages/SubscriptionMessage';
 import { SuggestDifficulty } from './stratum-messages/SuggestDifficultyMessage';
+import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
 
 
 export class StratumV1Client extends EasyUnsubscribe {
 
-    private clientSubscription: SubscriptionMessage;
-    private clientConfiguration: ConfigurationMessage;
-    private clientAuthorization: AuthorizationMessage;
-    private clientSuggestedDifficulty: SuggestDifficulty;
+    public clientSubscription: SubscriptionMessage;
+    public clientConfiguration: ConfigurationMessage;
+    public clientAuthorization: AuthorizationMessage;
+    public clientSuggestedDifficulty: SuggestDifficulty;
 
-    // public clientSubmission: BehaviorSubject<any> = new BehaviorSubject(null);
+    public statistics: StratumV1ClientStatistics = new StratumV1ClientStatistics();
 
     public id: string;
     public stratumInitialized = false;
@@ -37,6 +38,8 @@ export class StratumV1Client extends EasyUnsubscribe {
     public jobRefreshInterval: NodeJS.Timer;
 
 
+
+
     constructor(
         public readonly socket: Socket,
         private readonly stratumV1JobsService: StratumV1JobsService,
@@ -46,7 +49,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         super();
         this.id = this.getRandomHexString();
 
-        console.log(`id: ${this.id}`);
+        console.log(`New client ID: : ${this.id}`);
 
         this.socket.on('data', this.handleData.bind(this, this.socket));
 
@@ -234,10 +237,17 @@ export class StratumV1Client extends EasyUnsubscribe {
     private handleMiningSubmission(submission: MiningSubmitMessage) {
 
         const job = this.stratumV1JobsService.getJobById(submission.jobId);
+        // a miner may submit a job that doesn't exist anymore if it was removed by a new block notification 
+        if (job == null) {
+            return;
+        }
         const diff = submission.calculateDifficulty(this.id, job, submission);
         console.log(`DIFF: ${diff}`);
+
         if (diff >= this.clientDifficulty) {
-            if (diff >= job.networkDifficulty) {
+            const networkDifficulty = this.calculateNetworkDifficulty(parseInt(job.blockTemplate.bits, 16));
+            this.statistics.addSubmission(this.clientDifficulty, diff, networkDifficulty);
+            if (diff >= networkDifficulty) {
                 console.log('!!! BOCK FOUND !!!');
                 this.constructBlockAndBroadcast(job, submission);
             }
@@ -245,6 +255,17 @@ export class StratumV1Client extends EasyUnsubscribe {
             console.log(`Difficulty too low`);
         }
 
+    }
+
+    private calculateNetworkDifficulty(nBits: number) {
+        const mantissa: number = nBits & 0x007fffff;       // Extract the mantissa from nBits
+        const exponent: number = (nBits >> 24) & 0xff;       // Extract the exponent from nBits
+
+        const target: number = mantissa * Math.pow(256, (exponent - 3));   // Calculate the target value
+
+        const difficulty: number = (Math.pow(2, 208) * 65535) / target;    // Calculate the difficulty
+
+        return difficulty;
     }
 
     private constructBlockAndBroadcast(job: MiningJob, submission: MiningSubmitMessage) {

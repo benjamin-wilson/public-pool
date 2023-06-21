@@ -10,12 +10,7 @@ import { StratumV1JobsService } from './stratum-v1-jobs.service';
 @Injectable()
 export class StratumV1Service implements OnModuleInit {
 
-  private miningNotifyInterval: NodeJS.Timer;
-
-
   public clients: StratumV1Client[] = [];
-
-
 
   constructor(
     private readonly bitcoinRpcService: BitcoinRpcService,
@@ -28,29 +23,29 @@ export class StratumV1Service implements OnModuleInit {
 
     this.startSocketServer();
 
-    //this.listenForNewBlocks();
-
   }
 
   private startSocketServer() {
     new Server((socket: Socket) => {
 
-      console.log('New client connected:', socket.remoteAddress);
+
 
       const client = new StratumV1Client(socket, new StratumV1JobsService(), this.blockTemplateService, this.bitcoinRpcService);
       this.clients.push(client);
 
+      console.log(`New client connected: ${socket.remoteAddress}, ${this.clients.length} total clients`);
 
       socket.on('end', () => {
         // Handle socket disconnection
-        console.log('Client disconnected:', socket.remoteAddress);
         this.clients = this.clients.filter(c => c.id == client.id);
+        console.log(`Client disconnected: ${socket.remoteAddress}, ${this.clients.length} total clients`);
       });
 
       socket.on('error', (error: Error) => {
         // Handle socket error
-        console.error('Socket error:', error);
+        console.error(`Socket error:`, error);
         this.clients = this.clients.filter(c => c.id == client.id);
+        console.log(`Client disconnected: ${socket.remoteAddress}, ${this.clients.length} total clients`);
       });
 
     }).listen(3333, () => {
