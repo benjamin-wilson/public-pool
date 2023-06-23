@@ -25,6 +25,7 @@ export class AppController {
           name: worker.clientAuthorization.worker,
           bestDifficulty: Math.floor(worker.statistics.bestDifficulty),
           hashRate: Math.floor(worker.statistics.getHashRate()),
+          startTime: worker.startTime
         }
       })
     }
@@ -37,7 +38,8 @@ export class AppController {
       id: worker.id,
       name: worker.clientAuthorization.worker,
       bestDifficulty: Math.floor(worker.statistics.bestDifficulty),
-      hashData: worker.statistics.historicSubmissions
+      hashData: worker.statistics.historicSubmissions,
+      startTime: worker.startTime
     }
   }
 }

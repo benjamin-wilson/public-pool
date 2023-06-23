@@ -12,8 +12,6 @@ export class SubscriptionMessage extends StratumBaseMessage {
     constructor() {
         super();
         this.method = eRequestMethod.SUBSCRIBE;
-
-        console.log('constructor SubscriptionMessage');
     }
 
     public response(clientId: string) {

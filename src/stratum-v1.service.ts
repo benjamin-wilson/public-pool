@@ -42,10 +42,8 @@ export class StratumV1Service implements OnModuleInit {
       });
 
       socket.on('error', (error: Error) => {
-        // Handle socket error
+        // Handle socket error, usually a reset?
         console.error(`Socket error:`, error);
-        this.clients = this.clients.filter(c => c.id == client.id);
-        console.log(`Client disconnected: ${socket.remoteAddress}, ${this.clients.length} total clients`);
       });
 
     }).listen(3333, () => {

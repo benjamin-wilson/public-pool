@@ -95,9 +95,6 @@ export class MiningSubmitMessage extends StratumBaseMessage {
         header.writeBigUint64LE(BigInt(job.nbits), 72);
         header.writeUInt32LE(nonce, 76);
 
-        console.log(header.toString('hex'))
-
-
         const hashBuffer: Buffer = crypto.createHash('sha256').update(header).digest();
         const hashResult: Buffer = crypto.createHash('sha256').update(hashBuffer).digest();
 
