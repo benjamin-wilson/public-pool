@@ -18,12 +18,13 @@ export class AppController {
   getClientInfo(@Param('clientId') clientId: string) {
     const workers = this.stratumV1Service.clients.filter(client => client.clientAuthorization.address === clientId);
     return {
-      workers: workers.length,
-      workerIds: workers.map(worker => {
+      workersCount: workers.length,
+      workers: workers.map(worker => {
         return {
           id: worker.id,
-          bestDifficulty: worker.statistics.bestDifficulty,
-          hashrate: worker.statistics.getHashrate()
+          name: worker.clientAuthorization.worker,
+          bestDifficulty: Math.floor(worker.statistics.bestDifficulty),
+          hashRate: Math.floor(worker.statistics.getHashRate()),
         }
       })
     }
@@ -33,7 +34,10 @@ export class AppController {
   getWorkerInfo(@Param('clientId') clientId: string, @Param('workerId') workerId: string) {
     const worker = this.stratumV1Service.clients.find(client => client.clientAuthorization.address === clientId && client.id === workerId);
     return {
-      id: worker.id
+      id: worker.id,
+      name: worker.clientAuthorization.worker,
+      bestDifficulty: Math.floor(worker.statistics.bestDifficulty),
+      hashData: worker.statistics.historicSubmissions
     }
   }
 }

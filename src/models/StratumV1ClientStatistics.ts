@@ -24,7 +24,7 @@ export class StratumV1ClientStatistics {
         }
     }
 
-    public getHashrate() {
+    public getHashRate() {
         return this.historicSubmissions.reduce((pre, cur, idx, arr) => {
             if (idx === 0) {
                 pre.time = cur.time;
