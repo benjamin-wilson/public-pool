@@ -1,4 +1,5 @@
 import { Block, Transaction } from 'bitcoinjs-lib';
+import * as bitcoinjs from 'bitcoinjs-lib';
 import { plainToInstance } from 'class-transformer';
 import { validate, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
@@ -271,18 +272,36 @@ export class StratumV1Client extends EasyUnsubscribe {
     private constructBlockAndBroadcast(job: MiningJob, submission: MiningSubmitMessage) {
         const block = new Block();
 
-        block.version = job.blockTemplate.version;
+        const blockHeightScript = `03${job.blockTemplate.height.toString(16).padStart(8, '0')}${job.id}${submission.extraNonce2}`;
+
+        const inputScript = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.from(blockHeightScript, 'hex')]);
+        job.coinbaseTransaction.ins[0].script = inputScript;
+
+
+        const versionMask = parseInt(submission.versionMask, 16);
+        let version = job.version;
+        if (versionMask !== undefined && versionMask != 0) {
+            version = (version ^ versionMask);
+        }
+
+        block.version = version;
         block.prevHash = Buffer.from(job.prevhash, 'hex');
-        block.merkleRoot = Buffer.from(job.merkleRoot, 'hex');
+
         block.timestamp = job.ntime;
         block.bits = job.nbits;
         block.nonce = parseInt(submission.nonce, 16);
+
         block.transactions = job.blockTemplate.transactions.map(tx => {
             return Transaction.fromHex(tx.data);
         });
+        block.transactions.unshift(job.coinbaseTransaction);
 
-        const coinbaseTx = `${job.coinb1}${this.id}${submission.extraNonce2}${job.coinb2}`;
-        block.transactions.unshift(Transaction.fromHex(coinbaseTx));
+        block.merkleRoot = bitcoinjs.Block.calculateMerkleRoot(block.transactions, false);
+        block.witnessCommit = bitcoinjs.Block.calculateMerkleRoot(block.transactions, true);
+
+        // const test1 = block.getWitnessCommit();
+        // const test2 = block.checkTxRoots();
+
 
         const blockHex = block.toHex(false);
         this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);

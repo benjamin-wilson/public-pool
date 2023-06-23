@@ -74,6 +74,7 @@ export class MiningSubmitMessage extends StratumBaseMessage {
 
         const coinbaseTx = `${job.coinb1}${extraNonce}${extraNonce2}${job.coinb2}`;
 
+
         const newRoot = this.calculateMerkleRootHash(coinbaseTx, job.merkle_branch)
 
         const truediffone = Big('26959535291011309493156476344723991336010898738574164086137773096960');
@@ -93,6 +94,8 @@ export class MiningSubmitMessage extends StratumBaseMessage {
         header.writeUInt32LE(job.ntime, 68);
         header.writeBigUint64LE(BigInt(job.nbits), 72);
         header.writeUInt32LE(nonce, 76);
+
+        console.log(header.toString('hex'))
 
 
         const hashBuffer: Buffer = crypto.createHash('sha256').update(header).digest();
@@ -142,7 +145,7 @@ export class MiningSubmitMessage extends StratumBaseMessage {
             bothMerkles.set(newRoot);
         }
 
-        return bothMerkles;
+        return bothMerkles.subarray(0, 32)
     }
 
     private sha256(data: Buffer) {
