@@ -4,17 +4,21 @@ import { Server, Socket } from 'net';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 import { BlockTemplateService } from './BlockTemplateService';
 import { StratumV1Client } from './models/StratumV1Client';
+import { ClientStatisticsService } from './ORM/client-statistics/client-statistics.service';
+import { ClientService } from './ORM/client/client.service';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
 
 
 @Injectable()
 export class StratumV1Service implements OnModuleInit {
 
-  public clients: StratumV1Client[] = [];
+  // public clients: StratumV1Client[] = [];
 
   constructor(
     private readonly bitcoinRpcService: BitcoinRpcService,
-    private readonly blockTemplateService: BlockTemplateService
+    private readonly blockTemplateService: BlockTemplateService,
+    private readonly clientService: ClientService,
+    private readonly clientStatisticsService: ClientStatisticsService
   ) {
   }
 
@@ -26,19 +30,24 @@ export class StratumV1Service implements OnModuleInit {
   }
 
   private startSocketServer() {
-    new Server((socket: Socket) => {
+    new Server(async (socket: Socket) => {
 
 
+      const client = new StratumV1Client(socket, new StratumV1JobsService(), this.blockTemplateService, this.bitcoinRpcService, this.clientService, this.clientStatisticsService);
 
-      const client = new StratumV1Client(socket, new StratumV1JobsService(), this.blockTemplateService, this.bitcoinRpcService);
-      this.clients.push(client);
 
-      console.log(`New client connected: ${socket.remoteAddress}, ${this.clients.length} total clients`);
+      const clientCount = await this.clientService.connectedClientCount();
 
-      socket.on('end', () => {
+      //this.clients.push(client);
+
+      console.log(`New client connected: ${socket.remoteAddress}, ${clientCount} total clients`);
+
+      socket.on('end', async () => {
         // Handle socket disconnection
-        this.clients = this.clients.filter(c => c.id == client.id);
-        console.log(`Client disconnected: ${socket.remoteAddress}, ${this.clients.length} total clients`);
+        await this.clientService.delete(client.id);
+
+        const clientCount = await this.clientService.connectedClientCount();
+        console.log(`Client disconnected: ${socket.remoteAddress}, ${clientCount} total clients`);
       });
 
       socket.on('error', (error: Error) => {

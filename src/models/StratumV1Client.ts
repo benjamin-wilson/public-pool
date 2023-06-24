@@ -8,6 +8,9 @@ import { combineLatest, interval, startWith } from 'rxjs';
 
 import { BitcoinRpcService } from '../bitcoin-rpc.service';
 import { BlockTemplateService } from '../BlockTemplateService';
+import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
+import { ClientEntity } from '../ORM/client/client.entity';
+import { ClientService } from '../ORM/client/client.service';
 import { StratumV1JobsService } from '../stratum-v1-jobs.service';
 import { EasyUnsubscribe } from '../utils/AutoUnsubscribe';
 import { eRequestMethod } from './enums/eRequestMethod';
@@ -22,12 +25,14 @@ import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
 
 export class StratumV1Client extends EasyUnsubscribe {
 
+    public startTime: Date;
+
     public clientSubscription: SubscriptionMessage;
     public clientConfiguration: ConfigurationMessage;
     public clientAuthorization: AuthorizationMessage;
     public clientSuggestedDifficulty: SuggestDifficulty;
 
-    public statistics: StratumV1ClientStatistics = new StratumV1ClientStatistics();
+    public statistics: StratumV1ClientStatistics;
 
     public id: string;
     public stratumInitialized = false;
@@ -38,16 +43,20 @@ export class StratumV1Client extends EasyUnsubscribe {
 
     public jobRefreshInterval: NodeJS.Timer;
 
-
+    public entity: ClientEntity;
 
 
     constructor(
         public readonly socket: Socket,
         private readonly stratumV1JobsService: StratumV1JobsService,
         private readonly blockTemplateService: BlockTemplateService,
-        private readonly bitcoinRpcService: BitcoinRpcService
+        private readonly bitcoinRpcService: BitcoinRpcService,
+        private readonly clientService: ClientService,
+        private readonly clientStatisticsService: ClientStatisticsService
     ) {
         super();
+        this.startTime = new Date();
+        this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService);
         this.id = this.getRandomHexString();
 
         console.log(`New client ID: : ${this.id}`);
@@ -194,7 +203,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                 const errors = await validate(miningSubmitMessage, validatorOptions);
 
                 if (errors.length === 0) {
-                    this.handleMiningSubmission(miningSubmitMessage);
+                    await this.handleMiningSubmission(miningSubmitMessage);
                     socket.write(JSON.stringify(miningSubmitMessage.response()) + '\n');
                 } else {
                     console.error(errors);
@@ -211,6 +220,15 @@ export class StratumV1Client extends EasyUnsubscribe {
             && this.stratumInitialized == false) {
 
             this.stratumInitialized = true;
+
+
+            this.entity = await this.clientService.save({
+                id: this.id,
+                address: this.clientAuthorization.address,
+                clientName: this.clientAuthorization.worker,
+                startTime: new Date(),
+            });
+
 
 
             let lastIntervalCount = undefined;
@@ -235,7 +253,7 @@ export class StratumV1Client extends EasyUnsubscribe {
     }
 
 
-    private handleMiningSubmission(submission: MiningSubmitMessage) {
+    private async handleMiningSubmission(submission: MiningSubmitMessage) {
 
         const job = this.stratumV1JobsService.getJobById(submission.jobId);
         // a miner may submit a job that doesn't exist anymore if it was removed by a new block notification 
@@ -247,8 +265,11 @@ export class StratumV1Client extends EasyUnsubscribe {
 
         if (diff >= this.clientDifficulty) {
             const networkDifficulty = this.calculateNetworkDifficulty(parseInt(job.blockTemplate.bits, 16));
-            this.statistics.addSubmission(this.clientDifficulty, diff, networkDifficulty);
-            if (diff >= networkDifficulty) {
+            await this.statistics.addSubmission(this.entity, this.clientDifficulty);
+            if (diff > this.entity.bestDifficulty) {
+                await this.clientService.updateBestDifficulty(this.id, diff);
+            }
+            if (diff >= (networkDifficulty / 2)) {
                 console.log('!!! BOCK FOUND !!!');
                 this.constructBlockAndBroadcast(job, submission);
             }

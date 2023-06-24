@@ -70,8 +70,8 @@ export class BitcoinRpcService {
                 hexdata
             });
             console.log(`BLOCK SUBMISSION RESPONSE: ${res}`);
-            // console.log(JSON.stringify(res));
-            // process.exit();
+            console.log(JSON.stringify(res));
+            process.exit();
         } catch (e) {
             console.log(`BLOCK SUBMISSION RESPONSE ERROR: ${e}`);
         }
