@@ -25,6 +25,9 @@ export class StratumV1Service implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
 
+    //await this.clientStatisticsService.deleteAll();
+    await this.clientService.deleteAll();
+
     this.startSocketServer();
 
   }
@@ -50,9 +53,14 @@ export class StratumV1Service implements OnModuleInit {
         console.log(`Client disconnected: ${socket.remoteAddress}, ${clientCount} total clients`);
       });
 
-      socket.on('error', (error: Error) => {
-        // Handle socket error, usually a reset?
+      socket.on('error', async (error: Error) => {
+
+        await this.clientService.delete(client.id);
+
+        const clientCount = await this.clientService.connectedClientCount();
         console.error(`Socket error:`, error);
+        console.log(`Client disconnected: ${socket.remoteAddress}, ${clientCount} total clients`);
+
       });
 
     }).listen(3333, () => {

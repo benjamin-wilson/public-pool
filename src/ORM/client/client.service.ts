@@ -21,12 +21,12 @@ export class ClientService {
         return await this.clientRepository.save(client);
     }
 
-    public async delete(id: string) {
-        return await this.clientRepository.softDelete({ id });
+    public async delete(sessionId: string) {
+        return await this.clientRepository.softDelete({ sessionId });
     }
 
-    public async updateBestDifficulty(id: string, bestDifficulty: number) {
-        return await this.clientRepository.update(id, { bestDifficulty });
+    public async updateBestDifficulty(sessionId: string, bestDifficulty: number) {
+        return await this.clientRepository.update({ sessionId }, { bestDifficulty });
     }
     public async connectedClientCount(): Promise<number> {
         return await this.clientRepository.count();
@@ -40,12 +40,17 @@ export class ClientService {
         })
     }
 
-    public async getByAddressAndName(address: string, id: string): Promise<ClientEntity> {
+    public async getById(address: string, clientName: string, sessionId: string): Promise<ClientEntity> {
         return await this.clientRepository.findOne({
             where: {
                 address,
-                id
+                clientName,
+                sessionId
             }
         })
+    }
+
+    public async deleteAll() {
+        return await this.clientRepository.softDelete({})
     }
 }

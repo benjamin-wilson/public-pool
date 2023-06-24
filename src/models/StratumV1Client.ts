@@ -223,7 +223,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
 
             this.entity = await this.clientService.save({
-                id: this.id,
+                sessionId: this.id,
                 address: this.clientAuthorization.address,
                 clientName: this.clientAuthorization.worker,
                 startTime: new Date(),
@@ -268,6 +268,7 @@ export class StratumV1Client extends EasyUnsubscribe {
             await this.statistics.addSubmission(this.entity, this.clientDifficulty);
             if (diff > this.entity.bestDifficulty) {
                 await this.clientService.updateBestDifficulty(this.id, diff);
+                this.entity.bestDifficulty = diff;
             }
             if (diff >= (networkDifficulty / 2)) {
                 console.log('!!! BOCK FOUND !!!');

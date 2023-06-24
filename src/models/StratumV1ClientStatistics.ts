@@ -13,7 +13,10 @@ export class StratumV1ClientStatistics {
         await this.clientStatisticsService.save({
             time: new Date(),
             difficulty: targetDifficulty,
-            client
+            address: client.address,
+            clientName: client.clientName,
+            sessionId: client.sessionId,
+
         });
 
     }

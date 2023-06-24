@@ -1,12 +1,21 @@
-import { Column, Entity, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
-import { ClientEntity } from '../client/client.entity';
+import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
 @Entity()
-export class ClientStatisticsEntity {
+export class ClientStatisticsEntity extends TrackedEntity {
 
     @PrimaryGeneratedColumn()
     id: number;
+
+    @Column({ length: 62, type: 'varchar' })
+    address: string;
+
+    @Column()
+    clientName: string;
+
+    @Column({ length: 8, type: 'varchar' })
+    sessionId: string;
 
     @Column({ type: 'datetime' })
     time: Date;
@@ -15,10 +24,6 @@ export class ClientStatisticsEntity {
     difficulty: number;
 
 
-    @ManyToOne(
-        () => ClientEntity,
-        client => client.clientStatistics
-    )
-    client: ClientEntity;
+
 
 }

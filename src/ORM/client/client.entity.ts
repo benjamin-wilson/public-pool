@@ -1,29 +1,32 @@
-import { Column, Entity, OneToMany, PrimaryColumn } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
-import { ClientStatisticsEntity } from '../client-statistics/client-statistics.entity';
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
 @Entity()
 export class ClientEntity extends TrackedEntity {
-    @PrimaryColumn({ length: 8, type: 'varchar' })
-    id: string;
 
-    @Column({ type: 'datetime' })
-    startTime: Date;
+    @PrimaryGeneratedColumn()
+    id: number;
 
-    @Column()
-    clientName: string;
 
     @Column({ length: 62, type: 'varchar' })
     address: string;
 
+    @Column()
+    clientName: string;
+
+    @Column({ length: 8, type: 'varchar' })
+    sessionId: string;
+
+    @Column({ type: 'datetime' })
+    startTime: Date;
+
+
+
     @Column({ default: 0 })
     bestDifficulty: number
 
-    @OneToMany(
-        () => ClientStatisticsEntity,
-        clientStatistic => clientStatistic.client
-    )
-    clientStatistics?: ClientStatisticsEntity[];
+
 
 }
+

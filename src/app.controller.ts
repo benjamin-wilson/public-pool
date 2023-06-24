@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
 
 import { AppService } from './app.service';
 import { ClientStatisticsService } from './ORM/client-statistics/client-statistics.service';
@@ -21,21 +21,21 @@ export class AppController {
     }
   }
 
-  @Get('client/:clientId')
-  async getClientInfo(@Param('clientId') clientId: string) {
+  @Get('client/:address')
+  async getClientInfo(@Param('address') address: string) {
 
-    const workers = await this.clientService.getByAddress(clientId);
+    const workers = await this.clientService.getByAddress(address);
 
-    //const workers = this.stratumV1Service.clients.filter(client => client.clientAuthorization.address === clientId);
+
     return {
       workersCount: workers.length,
       workers: await Promise.all(
         workers.map(async (worker) => {
           return {
-            id: worker.id,
+            sessionId: worker.sessionId,
             name: worker.clientName,
             bestDifficulty: Math.floor(worker.bestDifficulty),
-            hashRate: Math.floor(await this.clientStatisticsService.getHashRate(worker.id)),
+            hashRate: Math.floor(await this.clientStatisticsService.getHashRate(worker.sessionId)),
             startTime: worker.startTime
           };
         })
@@ -43,17 +43,25 @@ export class AppController {
     }
   }
 
-  @Get('client/:clientId/:workerId')
-  async getWorkerInfo(@Param('clientId') clientId: string, @Param('workerId') workerId: string) {
+  @Get('client/:address/:workerName')
+  async getWorkerGroupInfo(@Param('address') address: string, @Param('address') workerName: string) {
 
-    const worker = await this.clientService.getByAddressAndName(clientId, workerId);
+  }
 
-    //const worker = this.stratumV1Service.clients.find(client => client.clientAuthorization.address === clientId && client.id === workerId);
+  @Get('client/:address/:workerName/:sessionId')
+  async getWorkerInfo(@Param('address') address: string, @Param('workerName') workerName: string, @Param('sessionId') sessionId: string) {
+
+    const worker = await this.clientService.getById(address, workerName, sessionId);
+    if (worker == null) {
+      return new NotFoundException();
+    }
+    const chartData = await this.clientStatisticsService.getChartData(sessionId);
+
     return {
-      id: worker.id,
+      sessionId: worker.sessionId,
       name: worker.clientName,
       bestDifficulty: Math.floor(worker.bestDifficulty),
-      //hashData: worker.statistics.historicSubmissions,
+      chartData: chartData,
       startTime: worker.startTime
     }
   }
