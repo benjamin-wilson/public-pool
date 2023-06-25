@@ -244,7 +244,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         if (job == null) {
             return;
         }
-        const updatedJobBlock = job.tryBlock(
+        const updatedJobBlock = job.copyAndUpdateBlock(
             parseInt(submission.versionMask, 16),
             parseInt(submission.nonce, 16),
             this.extraNonce,
@@ -255,16 +255,18 @@ export class StratumV1Client extends EasyUnsubscribe {
 
         if (diff >= this.clientDifficulty) {
 
-            await this.statistics.addSubmission(this.entity, this.clientDifficulty);
-            if (diff > this.entity.bestDifficulty) {
-                await this.clientService.updateBestDifficulty(this.extraNonce, diff);
-                this.entity.bestDifficulty = diff;
-            }
             if (diff >= (job.networkDifficulty / 2)) {
                 console.log('!!! BOCK FOUND !!!');
                 const blockHex = updatedJobBlock.toHex(false);
                 this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
             }
+
+            await this.statistics.addSubmission(this.entity, this.clientDifficulty);
+            if (diff > this.entity.bestDifficulty) {
+                await this.clientService.updateBestDifficulty(this.extraNonce, diff);
+                this.entity.bestDifficulty = diff;
+            }
+
         } else {
             console.log(`Difficulty too low`);
         }
