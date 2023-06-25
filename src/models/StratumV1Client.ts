@@ -1,5 +1,4 @@
-import { Block, Transaction } from 'bitcoinjs-lib';
-import * as bitcoinjs from 'bitcoinjs-lib';
+import Big from 'big.js';
 import { plainToInstance } from 'class-transformer';
 import { validate, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
@@ -25,26 +24,17 @@ import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
 
 export class StratumV1Client extends EasyUnsubscribe {
 
-    public startTime: Date;
+    private clientSubscription: SubscriptionMessage;
+    private clientConfiguration: ConfigurationMessage;
+    private clientAuthorization: AuthorizationMessage;
+    private clientSuggestedDifficulty: SuggestDifficulty;
 
-    public clientSubscription: SubscriptionMessage;
-    public clientConfiguration: ConfigurationMessage;
-    public clientAuthorization: AuthorizationMessage;
-    public clientSuggestedDifficulty: SuggestDifficulty;
-
-    public statistics: StratumV1ClientStatistics;
+    private statistics: StratumV1ClientStatistics;
+    private stratumInitialized = false;
+    private clientDifficulty: number = 512;
+    private entity: ClientEntity;
 
     public extraNonce: string;
-    public stratumInitialized = false;
-
-    public refreshInterval: NodeJS.Timer;
-
-    public clientDifficulty: number = 512;
-
-    public jobRefreshInterval: NodeJS.Timer;
-
-    public entity: ClientEntity;
-
 
     constructor(
         public readonly socket: Socket,
@@ -55,7 +45,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         private readonly clientStatisticsService: ClientStatisticsService
     ) {
         super();
-        this.startTime = new Date();
+
         this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService);
         this.extraNonce = this.getRandomHexString();
 
@@ -221,7 +211,6 @@ export class StratumV1Client extends EasyUnsubscribe {
 
             this.stratumInitialized = true;
 
-
             this.entity = await this.clientService.save({
                 sessionId: this.extraNonce,
                 address: this.clientAuthorization.address,
@@ -229,25 +218,20 @@ export class StratumV1Client extends EasyUnsubscribe {
                 startTime: new Date(),
             });
 
-
-
             let lastIntervalCount = undefined;
-            combineLatest([this.blockTemplateService.currentBlockTemplate$, interval(60000).pipe(startWith(-1))]).subscribe(([{ miningInfo, blockTemplate }, interValCount]) => {
+            combineLatest([this.blockTemplateService.currentBlockTemplate$, interval(60000).pipe(startWith(-1))]).subscribe(([{ blockTemplate }, interValCount]) => {
                 let clearJobs = false;
                 if (lastIntervalCount === interValCount) {
                     clearJobs = true;
                 }
                 lastIntervalCount = interValCount;
 
-                const job = new MiningJob(this.stratumV1JobsService.getNextId(), [{ address: this.clientAuthorization.address, percent: 100 }], blockTemplate, miningInfo.difficulty, clearJobs);
+                const job = new MiningJob(this.stratumV1JobsService.getNextId(), [{ address: this.clientAuthorization.address, percent: 100 }], blockTemplate, clearJobs);
 
                 this.stratumV1JobsService.addJob(job, clearJobs);
 
                 this.socket.write(job.response + '\n');
             })
-
-
-
 
         }
     }
@@ -260,74 +244,52 @@ export class StratumV1Client extends EasyUnsubscribe {
         if (job == null) {
             return;
         }
-        const diff = submission.calculateDifficulty(this.extraNonce, job, submission);
+        const updatedJobBlock = job.tryBlock(
+            parseInt(submission.versionMask, 16),
+            parseInt(submission.nonce, 16),
+            this.extraNonce,
+            submission.extraNonce2
+        );
+        const diff = this.calculateDifficulty(updatedJobBlock.toBuffer(true));
         console.log(`DIFF: ${diff}`);
 
         if (diff >= this.clientDifficulty) {
-            const networkDifficulty = this.calculateNetworkDifficulty(parseInt(job.blockTemplate.bits, 16));
+
             await this.statistics.addSubmission(this.entity, this.clientDifficulty);
             if (diff > this.entity.bestDifficulty) {
                 await this.clientService.updateBestDifficulty(this.extraNonce, diff);
                 this.entity.bestDifficulty = diff;
             }
-            if (diff >= (networkDifficulty / 2)) {
+            if (diff >= (job.networkDifficulty / 2)) {
                 console.log('!!! BOCK FOUND !!!');
-                this.constructBlockAndBroadcast(job, submission);
+                const blockHex = updatedJobBlock.toHex(false);
+                this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
             }
         } else {
             console.log(`Difficulty too low`);
         }
-
     }
 
-    private calculateNetworkDifficulty(nBits: number) {
-        const mantissa: number = nBits & 0x007fffff;       // Extract the mantissa from nBits
-        const exponent: number = (nBits >> 24) & 0xff;       // Extract the exponent from nBits
+    public calculateDifficulty(header: Buffer): number {
 
-        const target: number = mantissa * Math.pow(256, (exponent - 3));   // Calculate the target value
+        const hashBuffer: Buffer = crypto.createHash('sha256').update(header).digest();
+        const hashResult: Buffer = crypto.createHash('sha256').update(hashBuffer).digest();
 
-        const difficulty: number = (Math.pow(2, 208) * 65535) / target;    // Calculate the difficulty
+        let s64 = this.le256todouble(hashResult);
 
-        return difficulty;
+        const truediffone = Big('26959535291011309493156476344723991336010898738574164086137773096960');
+        return truediffone.div(s64.toString()).toNumber();
     }
 
-    private constructBlockAndBroadcast(job: MiningJob, submission: MiningSubmitMessage) {
-        const block = new Block();
 
-        const blockHeightScript = `03${job.blockTemplate.height.toString(16).padStart(8, '0')}${this.extraNonce}${submission.extraNonce2}`;
+    private le256todouble(target: Buffer): bigint {
 
-        const inputScript = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.from(blockHeightScript, 'hex')]);
-        job.coinbaseTransaction.ins[0].script = inputScript;
+        const number = target.reduceRight((acc, byte) => {
+            // Shift the number 8 bits to the left and OR with the current byte
+            return (acc << BigInt(8)) | BigInt(byte);
+        }, BigInt(0));
 
-
-        const versionMask = parseInt(submission.versionMask, 16);
-        let version = job.version;
-        if (versionMask !== undefined && versionMask != 0) {
-            version = (version ^ versionMask);
-        }
-
-        block.version = version;
-        block.prevHash = Buffer.from(job.prevhash, 'hex');
-
-        block.timestamp = job.ntime;
-        block.bits = job.nbits;
-        block.nonce = parseInt(submission.nonce, 16);
-
-        block.transactions = job.blockTemplate.transactions.map(tx => {
-            return Transaction.fromHex(tx.data);
-        });
-        block.transactions.unshift(job.coinbaseTransaction);
-
-        block.merkleRoot = bitcoinjs.Block.calculateMerkleRoot(block.transactions, false);
-        block.witnessCommit = bitcoinjs.Block.calculateMerkleRoot(block.transactions, true);
-
-        // const test1 = block.getWitnessCommit();
-        // const test2 = block.checkTxRoots();
-
-
-        const blockHex = block.toHex(false);
-        this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
-
+        return number;
     }
 
 }
