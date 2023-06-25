@@ -21,7 +21,7 @@ export class StratumV1JobsService {
     }
 
     public getJobById(jobId: string) {
-        return this.jobs.find(job => job.job_id == jobId);
+        return this.jobs.find(job => job.jobId == jobId);
     }
 
     public getNextId() {

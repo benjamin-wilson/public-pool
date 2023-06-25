@@ -10,14 +10,8 @@ interface AddressObject {
     percent: number;
 }
 export class MiningJob {
-    public id: number;
-    public method: eResponseMethod.MINING_NOTIFY;
-    public params: string[];
 
-    public target: string;
-    public merkleRoot: string;
-
-    public job_id: string; // ID of the job. Use this ID while submitting share generated from this job.
+    public jobId: string; // ID of the job. Use this ID while submitting share generated from this job.
     public prevhash: string; // The hex-encoded previous block hash.
     public coinb1: string; // The hex-encoded prefix of the coinbase transaction (to precede extra nonce 2).
     public coinb2: string; //The hex-encoded suffix of the coinbase transaction (to follow extra nonce 2).
@@ -25,20 +19,21 @@ export class MiningJob {
     public version: number; // The hex-encoded block version.
     public nbits: number; // The hex-encoded network difficulty required for the block.
     public ntime: number; // Current ntime/
-    //public clean_jobs: boolean; // When true, server indicates that submitting shares from previous jobs don't have a sense and such shares will be rejected. When this flag is set, miner should also drop all previous jobs too.
 
     public response: string;
 
-    public versionMask: string;
 
-    public tree: MerkleTree;
+    private tree: MerkleTree;
+
     public coinbaseTransaction: bitcoinjs.Transaction;
+
+    public block: bitcoinjs.Block = new bitcoinjs.Block();
 
     constructor(id: string, payoutInformation: AddressObject[], public blockTemplate: IBlockTemplate, public networkDifficulty: number, public clean_jobs: boolean) {
 
 
-        this.job_id = id;
-        this.target = blockTemplate.target;
+        this.jobId = id;
+        //this.target = blockTemplate.target;
         this.prevhash = this.convertToLittleEndian(blockTemplate.previousblockhash);
 
         this.version = blockTemplate.version;
@@ -81,8 +76,6 @@ export class MiningJob {
 
         this.tree = new MerkleTree(transactionBuffers, this.sha256, { isBitcoinTree: true });
 
-        const rootBuffer = this.tree.getRoot();
-        this.merkleRoot = rootBuffer.toString('hex');
         this.merkle_branch = this.tree.getProof(this.coinbaseTransaction.getHash(false)).map(p => p.data.toString('hex'));
 
 
@@ -92,41 +85,36 @@ export class MiningJob {
 
     private createCoinbaseTransaction(addresses: AddressObject[], blockHeight: number, reward: number): bitcoinjs.Transaction {
         // Part 1
-        const tx = new bitcoinjs.Transaction();
+        const coinbaseTransaction = new bitcoinjs.Transaction();
 
         // Set the version of the transaction
-        tx.version = 2;
+        coinbaseTransaction.version = 2;
 
         const blockHeightScript = `03${blockHeight.toString(16).padStart(8, '0')}` + '00000000' + '00000000';
-        // const inputScriptBytes = ((blockHeightScript.length + 16) / 2).toString(16).padStart(2, '0');
-        // const OP_RETURN = '6a';
-        // const inputScript = `${OP_RETURN}${inputScriptBytes}${blockHeightScript}`
 
         const inputScript = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.from(blockHeightScript, 'hex')])
 
         // Add the coinbase input (input with no previous output)
-        tx.addInput(Buffer.from('0000000000000000000000000000000000000000000000000000000000000000', 'hex'), 0xffffffff, 0xffffffff, inputScript);
+        coinbaseTransaction.addInput(Buffer.from('0000000000000000000000000000000000000000000000000000000000000000', 'hex'), 0xffffffff, 0xffffffff, inputScript);
 
         // Add an output
-        const recipientAddress = addresses[0].address;
+        let rewardBalance = reward;
 
-        const scriptPubKey = bitcoinjs.payments.p2wpkh({ address: recipientAddress, network: bitcoinjs.networks.testnet });
-        tx.addOutput(scriptPubKey.output, reward);
-
-
-
+        addresses.forEach(recipientAddress => {
+            const scriptPubKey = bitcoinjs.payments.p2wpkh({ address: recipientAddress.address, network: bitcoinjs.networks.testnet });
+            const amount = Math.floor((recipientAddress.percent / 100) * reward);
+            rewardBalance -= amount;
+            coinbaseTransaction.addOutput(scriptPubKey.output, amount);
+        })
 
 
         const segwitWitnessReservedValue = Buffer.alloc(32, 0);
 
 
         //and the coinbase's input's witness must consist of a single 32-byte array for the witness reserved value
+        coinbaseTransaction.ins[0].witness = [segwitWitnessReservedValue];
 
-        tx.ins[0].witness = [segwitWitnessReservedValue];
-
-
-
-        return tx;
+        return coinbaseTransaction;
     }
 
     private sha256(data) {
@@ -140,7 +128,7 @@ export class MiningJob {
             id: null,
             method: eResponseMethod.MINING_NOTIFY,
             params: [
-                this.job_id,
+                this.jobId,
                 this.prevhash,
                 this.coinb1,
                 this.coinb2,

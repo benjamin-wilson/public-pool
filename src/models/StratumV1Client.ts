@@ -34,7 +34,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
     public statistics: StratumV1ClientStatistics;
 
-    public id: string;
+    public extraNonce: string;
     public stratumInitialized = false;
 
     public refreshInterval: NodeJS.Timer;
@@ -57,9 +57,9 @@ export class StratumV1Client extends EasyUnsubscribe {
         super();
         this.startTime = new Date();
         this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService);
-        this.id = this.getRandomHexString();
+        this.extraNonce = this.getRandomHexString();
 
-        console.log(`New client ID: : ${this.id}`);
+        console.log(`New client ID: : ${this.extraNonce}`);
 
         this.socket.on('data', this.handleData.bind(this, this.socket));
 
@@ -110,7 +110,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                 if (errors.length === 0) {
                     this.clientSubscription = subscriptionMessage;
 
-                    socket.write(JSON.stringify(this.clientSubscription.response(this.id)) + '\n');
+                    socket.write(JSON.stringify(this.clientSubscription.response(this.extraNonce)) + '\n');
                 } else {
                     console.error(errors);
                 }
@@ -223,7 +223,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
 
             this.entity = await this.clientService.save({
-                sessionId: this.id,
+                sessionId: this.extraNonce,
                 address: this.clientAuthorization.address,
                 clientName: this.clientAuthorization.worker,
                 startTime: new Date(),
@@ -260,14 +260,14 @@ export class StratumV1Client extends EasyUnsubscribe {
         if (job == null) {
             return;
         }
-        const diff = submission.calculateDifficulty(this.id, job, submission);
+        const diff = submission.calculateDifficulty(this.extraNonce, job, submission);
         console.log(`DIFF: ${diff}`);
 
         if (diff >= this.clientDifficulty) {
             const networkDifficulty = this.calculateNetworkDifficulty(parseInt(job.blockTemplate.bits, 16));
             await this.statistics.addSubmission(this.entity, this.clientDifficulty);
             if (diff > this.entity.bestDifficulty) {
-                await this.clientService.updateBestDifficulty(this.id, diff);
+                await this.clientService.updateBestDifficulty(this.extraNonce, diff);
                 this.entity.bestDifficulty = diff;
             }
             if (diff >= (networkDifficulty / 2)) {
@@ -294,7 +294,7 @@ export class StratumV1Client extends EasyUnsubscribe {
     private constructBlockAndBroadcast(job: MiningJob, submission: MiningSubmitMessage) {
         const block = new Block();
 
-        const blockHeightScript = `03${job.blockTemplate.height.toString(16).padStart(8, '0')}${job.id}${submission.extraNonce2}`;
+        const blockHeightScript = `03${job.blockTemplate.height.toString(16).padStart(8, '0')}${this.extraNonce}${submission.extraNonce2}`;
 
         const inputScript = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.from(blockHeightScript, 'hex')]);
         job.coinbaseTransaction.ins[0].script = inputScript;

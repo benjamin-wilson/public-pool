@@ -40,7 +40,17 @@ export class ClientService {
         })
     }
 
-    public async getById(address: string, clientName: string, sessionId: string): Promise<ClientEntity> {
+
+    public async getByName(address: string, clientName: string): Promise<ClientEntity[]> {
+        return await this.clientRepository.find({
+            where: {
+                address,
+                clientName
+            }
+        })
+    }
+
+    public async getBySessionId(address: string, clientName: string, sessionId: string): Promise<ClientEntity> {
         return await this.clientRepository.findOne({
             where: {
                 address,
