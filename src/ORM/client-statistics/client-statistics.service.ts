@@ -19,6 +19,17 @@ export class ClientStatisticsService {
         return await this.clientStatisticsRepository.save(clientStatistic);
     }
 
+    public async deleteOldStatistics() {
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+        return await this.clientStatisticsRepository
+            .createQueryBuilder()
+            .delete()
+            .from(ClientStatisticsEntity)
+            .where('time < :time', { time: oneDayAgo })
+            .execute();
+    }
+
     public async getHashRateForAddress(address: string) {
 
         const query = `

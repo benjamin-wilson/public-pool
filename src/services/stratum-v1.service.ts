@@ -1,11 +1,11 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Server, Socket } from 'net';
 
+import { StratumV1Client } from '../models/StratumV1Client';
+import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
+import { ClientService } from '../ORM/client/client.service';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
-import { BlockTemplateService } from './BlockTemplateService';
-import { StratumV1Client } from './models/StratumV1Client';
-import { ClientStatisticsService } from './ORM/client-statistics/client-statistics.service';
-import { ClientService } from './ORM/client/client.service';
+import { BlockTemplateService } from './block-template.service';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
 
 

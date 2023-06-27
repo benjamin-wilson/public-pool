@@ -1,14 +1,16 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { BitcoinRpcService } from './bitcoin-rpc.service';
-import { BlockTemplateService } from './BlockTemplateService';
 import { ClientStatisticsModule } from './ORM/client-statistics/client-statistics.module';
 import { ClientModule } from './ORM/client/client.module';
-import { StratumV1Service } from './stratum-v1.service';
+import { BitcoinRpcService } from './services/bitcoin-rpc.service';
+import { BlockTemplateService } from './services/block-template.service';
+import { CleanupService } from './services/cleanup.service';
+import { StratumV1Service } from './services/stratum-v1.service';
+
 
 const ORMModules = [
     ClientStatisticsModule,
@@ -23,12 +25,15 @@ const ORMModules = [
             database: './DB/public-pool.sqlite',
             synchronize: true,
             autoLoadEntities: true,
+            logging: false
         }),
+        ScheduleModule.forRoot(),
         ...ORMModules
     ],
     controllers: [AppController],
     providers: [
-        AppService,
+
+        CleanupService,
         StratumV1Service,
         BitcoinRpcService,
         BlockTemplateService

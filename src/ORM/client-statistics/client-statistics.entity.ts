@@ -1,4 +1,4 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 import { DateTimeTransformer } from '../utils/DateTimeTransformer';
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
@@ -15,9 +15,11 @@ export class ClientStatisticsEntity extends TrackedEntity {
     @Column()
     clientName: string;
 
+    @Index()
     @Column({ length: 8, type: 'varchar' })
     sessionId: string;
 
+    @Index()
     @Column({
         type: 'datetime',
         transformer: new DateTimeTransformer()

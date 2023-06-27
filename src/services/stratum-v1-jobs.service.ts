@@ -1,4 +1,4 @@
-import { MiningJob } from './models/MiningJob';
+import { MiningJob } from '../models/MiningJob';
 
 
 export class StratumV1JobsService {

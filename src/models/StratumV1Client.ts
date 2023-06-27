@@ -5,12 +5,12 @@ import * as crypto from 'crypto';
 import { Socket } from 'net';
 import { combineLatest, interval, startWith } from 'rxjs';
 
-import { BitcoinRpcService } from '../bitcoin-rpc.service';
-import { BlockTemplateService } from '../BlockTemplateService';
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientEntity } from '../ORM/client/client.entity';
 import { ClientService } from '../ORM/client/client.service';
-import { StratumV1JobsService } from '../stratum-v1-jobs.service';
+import { BitcoinRpcService } from '../services/bitcoin-rpc.service';
+import { BlockTemplateService } from '../services/block-template.service';
+import { StratumV1JobsService } from '../services/stratum-v1-jobs.service';
 import { EasyUnsubscribe } from '../utils/AutoUnsubscribe';
 import { eRequestMethod } from './enums/eRequestMethod';
 import { MiningJob } from './MiningJob';
@@ -20,6 +20,7 @@ import { MiningSubmitMessage } from './stratum-messages/MiningSubmitMessage';
 import { SubscriptionMessage } from './stratum-messages/SubscriptionMessage';
 import { SuggestDifficulty } from './stratum-messages/SuggestDifficultyMessage';
 import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
+
 
 
 export class StratumV1Client extends EasyUnsubscribe {

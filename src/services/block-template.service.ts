@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { from, map, Observable, shareReplay, switchMap, tap } from 'rxjs';
 
+import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
-import { IBlockTemplate } from './models/bitcoin-rpc/IBlockTemplate';
 
 @Injectable()
 export class BlockTemplateService {

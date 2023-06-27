@@ -1,3 +1,4 @@
+import { AddressType, getAddressInfo } from 'bitcoin-address-validation';
 import * as bitcoinjs from 'bitcoinjs-lib';
 import * as crypto from 'crypto';
 import { MerkleTree } from 'merkletreejs';
@@ -134,10 +135,9 @@ export class MiningJob {
         let rewardBalance = reward;
 
         addresses.forEach(recipientAddress => {
-            const scriptPubKey = bitcoinjs.payments.p2wpkh({ address: recipientAddress.address, network: bitcoinjs.networks.testnet });
             const amount = Math.floor((recipientAddress.percent / 100) * reward);
             rewardBalance -= amount;
-            coinbaseTransaction.addOutput(scriptPubKey.output, amount);
+            coinbaseTransaction.addOutput(this.getPaymentScript(recipientAddress.address), amount);
         })
 
         //Add any remaining sats from the Math.floor 
@@ -149,6 +149,30 @@ export class MiningJob {
         coinbaseTransaction.ins[0].witness = [segwitWitnessReservedValue];
 
         return coinbaseTransaction;
+    }
+
+    private getPaymentScript(address: string): Buffer {
+        const addressInfo = getAddressInfo(address);
+        switch (addressInfo.type) {
+            case AddressType.p2wpkh: {
+                return bitcoinjs.payments.p2wpkh({ address, network: bitcoinjs.networks.testnet }).output;
+            }
+            case AddressType.p2pkh: {
+                return bitcoinjs.payments.p2pkh({ address }).output;;
+            }
+            case AddressType.p2sh: {
+                return bitcoinjs.payments.p2sh({ address }).output;;
+            }
+            case AddressType.p2tr: {
+                return bitcoinjs.payments.p2tr({ address }).output;;
+            }
+            case AddressType.p2wsh: {
+                return bitcoinjs.payments.p2wsh({ address }).output;
+            }
+            default: {
+                return Buffer.alloc(0);
+            }
+        }
     }
 
     private sha256(data) {

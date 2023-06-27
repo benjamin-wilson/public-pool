@@ -1,15 +1,13 @@
 import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
 
-import { AppService } from './app.service';
 import { ClientStatisticsService } from './ORM/client-statistics/client-statistics.service';
 import { ClientService } from './ORM/client/client.service';
-import { StratumV1Service } from './stratum-v1.service';
+
+
 
 @Controller()
 export class AppController {
   constructor(
-    private readonly appService: AppService,
-    private readonly stratumV1Service: StratumV1Service,
     private readonly clientService: ClientService,
     private readonly clientStatisticsService: ClientStatisticsService
   ) { }

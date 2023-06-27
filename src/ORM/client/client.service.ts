@@ -25,6 +25,19 @@ export class ClientService {
         return await this.clientRepository.softDelete({ sessionId });
     }
 
+    public async deleteOldClients() {
+
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+        return await this.clientRepository
+            .createQueryBuilder()
+            .delete()
+            .from(ClientEntity)
+            .where('deletedAt < :time', { time: oneDayAgo })
+            .execute();
+
+    }
+
     public async updateBestDifficulty(sessionId: string, bestDifficulty: number) {
         return await this.clientRepository.update({ sessionId }, { bestDifficulty });
     }

@@ -3,8 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { RPCClient } from 'rpc-bitcoin';
 import { BehaviorSubject, filter } from 'rxjs';
 
-import { IBlockTemplate } from './models/bitcoin-rpc/IBlockTemplate';
-import { IMiningInfo } from './models/bitcoin-rpc/IMiningInfo';
+import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
+import { IMiningInfo } from '../models/bitcoin-rpc/IMiningInfo';
+
 
 
 @Injectable()
