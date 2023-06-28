@@ -77,7 +77,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
 
     private async handleMessage(socket: Socket, message: string) {
-        console.log('Received:', message);
+        //console.log('Received:', message);
 
         // Parse the message and check if it's the initial subscription message
         let parsedMessage = null;
@@ -233,6 +233,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                 let clearJobs = false;
                 if (lastIntervalCount === interValCount) {
                     clearJobs = true;
+                    console.log('new block')
                 }
                 lastIntervalCount = interValCount;
 
@@ -263,7 +264,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
         this.socket.write(job.response + '\n');
 
-
+        console.log(`Sent new job to ${this.extraNonce}. (clearJobs: ${clearJobs})`)
 
     }
 
@@ -284,7 +285,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         );
         const submissionDifficulty = this.calculateDifficulty(updatedJobBlock.toBuffer(true));
 
-        console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty}`);
+        console.log(`DIFF: ${Math.round(submissionDifficulty)} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonce}`);
 
         if (submissionDifficulty >= this.sessionDifficulty) {
 
@@ -323,12 +324,14 @@ export class StratumV1Client extends EasyUnsubscribe {
                     method: eResponseMethod.SET_DIFFICULTY,
                     params: [targetDiff]
                 }
-            ) + '\n');
+            ) + '\n', () => {
 
-            // we need to clear the jobs so that the difficulty set takes effect. Otherwise the different miner implementations can cause issues
-            this.blockTemplateService.currentBlockTemplate$.pipe(take(1)).subscribe(({ blockTemplate }) => {
-                this.sendNewMiningJob(blockTemplate, true);
+                // we need to clear the jobs so that the difficulty set takes effect. Otherwise the different miner implementations can cause issues
+                this.blockTemplateService.currentBlockTemplate$.pipe(take(1)).subscribe(({ blockTemplate }) => {
+                    this.sendNewMiningJob(blockTemplate, true);
+                });
             });
+
 
 
         }

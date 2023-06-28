@@ -63,18 +63,18 @@ export class StratumV1ClientStatistics {
 
     }
 
-    private blpo2(x) {
-        x = x | (x >> 1);
+    private blpo2(val) {
+        let x = val | (val >> 1);
         x = x | (x >> 2);
         x = x | (x >> 4);
         x = x | (x >> 8);
         x = x | (x >> 16);
         x = x | (x >> 32);
-        const val = x - (x >> 1);
-        if (val < 1) {
-            return 1;
+        const res = x - (x >> 1);
+        if (res < 1) {
+            return this.blpo2(val * 100) / 100;
         }
-        return val;
+        return res;
     }
 
 
