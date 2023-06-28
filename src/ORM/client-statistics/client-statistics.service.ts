@@ -63,7 +63,7 @@ export class ClientStatisticsService {
                 WHERE
                 entry.address = ? AND entry.time > datetime("now", "-1 day")
                 GROUP BY
-                    strftime('%Y-%m-%d %H', time, 'localtime') || (strftime('%M', time, 'localtime') / 5)
+                    strftime('%Y-%m-%d %H', time, 'localtime') || (strftime('%M', time, 'localtime') / 10)
                 ORDER BY
                 time
             )
@@ -111,7 +111,7 @@ export class ClientStatisticsService {
                 WHERE
                 entry.address = ? AND entry.clientName = ? AND entry.time > datetime("now", "-1 day")
                 GROUP BY
-                    strftime('%Y-%m-%d %H', time, 'localtime') || (strftime('%M', time, 'localtime') / 5)
+                    strftime('%Y-%m-%d %H', time, 'localtime') || (strftime('%M', time, 'localtime') / 10)
                 ORDER BY
                 time
             )
@@ -160,7 +160,7 @@ export class ClientStatisticsService {
                 WHERE
                 entry.address = ? AND entry.clientName = ? AND entry.sessionId = ? AND entry.time > datetime("now", "-1 day")
                 GROUP BY
-                    strftime('%Y-%m-%d %H', time, 'localtime') || (strftime('%M', time, 'localtime') / 5)
+                    strftime('%Y-%m-%d %H', time, 'localtime') || (strftime('%M', time, 'localtime') / 10)
                 ORDER BY
                     time
             )
