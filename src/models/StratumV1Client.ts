@@ -3,7 +3,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
 import { Socket } from 'net';
-import { combineLatest, interval, startWith } from 'rxjs';
+import { combineLatest, interval, startWith, take } from 'rxjs';
 
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientEntity } from '../ORM/client/client.entity';
@@ -12,7 +12,9 @@ import { BitcoinRpcService } from '../services/bitcoin-rpc.service';
 import { BlockTemplateService } from '../services/block-template.service';
 import { StratumV1JobsService } from '../services/stratum-v1-jobs.service';
 import { EasyUnsubscribe } from '../utils/AutoUnsubscribe';
+import { IBlockTemplate } from './bitcoin-rpc/IBlockTemplate';
 import { eRequestMethod } from './enums/eRequestMethod';
+import { eResponseMethod } from './enums/eResponseMethod';
 import { MiningJob } from './MiningJob';
 import { AuthorizationMessage } from './stratum-messages/AuthorizationMessage';
 import { ConfigurationMessage } from './stratum-messages/ConfigurationMessage';
@@ -32,7 +34,8 @@ export class StratumV1Client extends EasyUnsubscribe {
 
     private statistics: StratumV1ClientStatistics;
     private stratumInitialized = false;
-    private clientDifficulty: number = 512;
+    private usedSuggestedDifficulty = false;
+    private sessionDifficulty: number = 524288;
     private entity: ClientEntity;
 
     public extraNonce: string;
@@ -157,6 +160,9 @@ export class StratumV1Client extends EasyUnsubscribe {
                 break;
             }
             case eRequestMethod.SUGGEST_DIFFICULTY: {
+                if (this.usedSuggestedDifficulty == true) {
+                    return;
+                }
 
                 const suggestDifficultyMessage = plainToInstance(
                     SuggestDifficulty,
@@ -173,8 +179,9 @@ export class StratumV1Client extends EasyUnsubscribe {
                 if (errors.length === 0) {
 
                     this.clientSuggestedDifficulty = suggestDifficultyMessage;
-                    this.clientDifficulty = suggestDifficultyMessage.suggestedDifficulty;
-                    socket.write(JSON.stringify(this.clientSuggestedDifficulty.response(this.clientDifficulty)) + '\n');
+                    this.sessionDifficulty = suggestDifficultyMessage.suggestedDifficulty;
+                    socket.write(JSON.stringify(this.clientSuggestedDifficulty.response(this.sessionDifficulty)) + '\n');
+                    this.usedSuggestedDifficulty = true;
                 } else {
                     console.error(errors);
                 }
@@ -196,6 +203,8 @@ export class StratumV1Client extends EasyUnsubscribe {
                 if (errors.length === 0) {
                     await this.handleMiningSubmission(miningSubmitMessage);
                     socket.write(JSON.stringify(miningSubmitMessage.response()) + '\n');
+
+
                 } else {
                     console.error(errors);
                 }
@@ -227,14 +236,35 @@ export class StratumV1Client extends EasyUnsubscribe {
                 }
                 lastIntervalCount = interValCount;
 
-                const job = new MiningJob(this.stratumV1JobsService.getNextId(), [{ address: this.clientAuthorization.address, percent: 100 }], blockTemplate, clearJobs);
+                this.sendNewMiningJob(blockTemplate, clearJobs);
 
-                this.stratumV1JobsService.addJob(job, clearJobs);
+                this.checkDifficulty();
 
-                this.socket.write(job.response + '\n');
-            })
+
+            });
 
         }
+    }
+
+    private sendNewMiningJob(blockTemplate: IBlockTemplate, clearJobs: boolean) {
+
+        // const payoutInformation = [
+        //     { address: 'bc1q99n3pu025yyu0jlywpmwzalyhm36tg5u37w20d', percent: 1.8 },
+        //     { address: this.clientAuthorization.address, percent: 98.2 }
+        // ];
+
+        const payoutInformation = [
+            { address: this.clientAuthorization.address, percent: 100 }
+        ];
+
+        const job = new MiningJob(this.stratumV1JobsService.getNextId(), payoutInformation, blockTemplate, clearJobs);
+
+        this.stratumV1JobsService.addJob(job, clearJobs);
+
+        this.socket.write(job.response + '\n');
+
+
+
     }
 
 
@@ -243,6 +273,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         const job = this.stratumV1JobsService.getJobById(submission.jobId);
         // a miner may submit a job that doesn't exist anymore if it was removed by a new block notification 
         if (job == null) {
+            console.log('job not found')
             return;
         }
         const updatedJobBlock = job.copyAndUpdateBlock(
@@ -251,25 +282,55 @@ export class StratumV1Client extends EasyUnsubscribe {
             this.extraNonce,
             submission.extraNonce2
         );
-        const diff = this.calculateDifficulty(updatedJobBlock.toBuffer(true));
-        console.log(`DIFF: ${diff}`);
+        const submissionDifficulty = this.calculateDifficulty(updatedJobBlock.toBuffer(true));
 
-        if (diff >= this.clientDifficulty) {
+        console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty}`);
 
-            if (diff >= (job.networkDifficulty / 2)) {
+        if (submissionDifficulty >= this.sessionDifficulty) {
+
+            if (submissionDifficulty >= (job.networkDifficulty / 2)) {
                 console.log('!!! BOCK FOUND !!!');
                 const blockHex = updatedJobBlock.toHex(false);
                 this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
             }
 
-            await this.statistics.addSubmission(this.entity, this.clientDifficulty);
-            if (diff > this.entity.bestDifficulty) {
-                await this.clientService.updateBestDifficulty(this.extraNonce, diff);
-                this.entity.bestDifficulty = diff;
+            await this.statistics.addSubmission(this.entity, this.sessionDifficulty);
+            if (submissionDifficulty > this.entity.bestDifficulty) {
+                await this.clientService.updateBestDifficulty(this.extraNonce, submissionDifficulty);
+                this.entity.bestDifficulty = submissionDifficulty;
             }
 
         } else {
             console.log(`Difficulty too low`);
+        }
+
+        this.checkDifficulty();
+
+    }
+
+    private checkDifficulty() {
+        const targetDiff = this.statistics.getSuggestedDifficulty(this.sessionDifficulty);
+        if (targetDiff == null) {
+            return;
+        }
+
+        if (targetDiff != this.sessionDifficulty) {
+            console.log(`Adjusting difficulty from ${this.sessionDifficulty} to ${targetDiff}`);
+            this.sessionDifficulty = targetDiff;
+            this.socket.write(JSON.stringify(
+                {
+                    id: null,
+                    method: eResponseMethod.SET_DIFFICULTY,
+                    params: [targetDiff]
+                }
+            ) + '\n');
+
+            // we need to clear the jobs so that the difficulty set takes effect. Otherwise the different miner implementations can cause issues
+            this.blockTemplateService.currentBlockTemplate$.pipe(take(1)).subscribe(({ blockTemplate }) => {
+                this.sendNewMiningJob(blockTemplate, true);
+            });
+
+
         }
     }
 

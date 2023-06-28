@@ -158,13 +158,13 @@ export class MiningJob {
                 return bitcoinjs.payments.p2wpkh({ address, network: bitcoinjs.networks.testnet }).output;
             }
             case AddressType.p2pkh: {
-                return bitcoinjs.payments.p2pkh({ address }).output;;
+                return bitcoinjs.payments.p2pkh({ address }).output;
             }
             case AddressType.p2sh: {
-                return bitcoinjs.payments.p2sh({ address }).output;;
+                return bitcoinjs.payments.p2sh({ address }).output;
             }
             case AddressType.p2tr: {
-                return bitcoinjs.payments.p2tr({ address }).output;;
+                return bitcoinjs.payments.p2tr({ address }).output;
             }
             case AddressType.p2wsh: {
                 return bitcoinjs.payments.p2wsh({ address }).output;

@@ -12,12 +12,6 @@ export class AppController {
     private readonly clientStatisticsService: ClientStatisticsService
   ) { }
 
-  @Get()
-  async getInfo() {
-    return {
-      clients: await this.clientService.connectedClientCount()
-    }
-  }
 
   @Get('client/:address')
   async getClientInfo(@Param('address') address: string) {
