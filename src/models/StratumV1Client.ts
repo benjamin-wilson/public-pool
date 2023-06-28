@@ -4,7 +4,6 @@ import { validate, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
 import { Socket } from 'net';
 import { combineLatest, firstValueFrom, interval, startWith } from 'rxjs';
-import { promisify } from 'util';
 
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientEntity } from '../ORM/client/client.entity';
@@ -246,7 +245,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
                 lastIntervalCount = interValCount;
 
-                await this.sendNewMiningJob(blockTemplate, clearJobs);
+                this.sendNewMiningJob(blockTemplate, clearJobs);
 
                 await this.checkDifficulty();
 
@@ -256,7 +255,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         }
     }
 
-    private async sendNewMiningJob(blockTemplate: IBlockTemplate, clearJobs: boolean) {
+    private sendNewMiningJob(blockTemplate: IBlockTemplate, clearJobs: boolean) {
 
         // const payoutInformation = [
         //     { address: 'bc1q99n3pu025yyu0jlywpmwzalyhm36tg5u37w20d', percent: 1.8 },
@@ -273,8 +272,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
         const data = job.response + '\n';
 
-        const writeAsync = promisify(this.socket.write).bind(this.socket);
-        await writeAsync(data);
+        this.socket.write(data);
 
         console.log(`Sent new job to ${this.extraNonce}. (clearJobs: ${clearJobs})`)
 
@@ -337,12 +335,11 @@ export class StratumV1Client extends EasyUnsubscribe {
                 params: [targetDiff]
             }) + '\n';
 
-            const writeAsync = promisify(this.socket.write).bind(this.socket);
-            await writeAsync(data);
+            this.socket.write(data);
 
             // we need to clear the jobs so that the difficulty set takes effect. Otherwise the different miner implementations can cause issues
             const { blockTemplate } = await firstValueFrom(this.blockTemplateService.currentBlockTemplate$);
-            await this.sendNewMiningJob(blockTemplate, true);
+            this.sendNewMiningJob(blockTemplate, true);
 
 
 
