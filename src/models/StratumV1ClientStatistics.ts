@@ -72,7 +72,8 @@ export class StratumV1ClientStatistics {
         x = x | (x >> 32);
         const res = x - (x >> 1);
         if (res < 1) {
-            return this.blpo2(val * 100) / 100;
+            return 1;
+            //return this.blpo2(val * 100) / 100;
         }
         return res;
     }
