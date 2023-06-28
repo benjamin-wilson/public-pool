@@ -3,7 +3,8 @@ import { plainToInstance } from 'class-transformer';
 import { validate, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
 import { Socket } from 'net';
-import { combineLatest, interval, startWith, take } from 'rxjs';
+import { combineLatest, firstValueFrom, interval, startWith } from 'rxjs';
+import { promisify } from 'util';
 
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientEntity } from '../ORM/client/client.entity';
@@ -229,17 +230,25 @@ export class StratumV1Client extends EasyUnsubscribe {
             });
 
             let lastIntervalCount = undefined;
-            combineLatest([this.blockTemplateService.currentBlockTemplate$, interval(60000).pipe(startWith(-1))]).subscribe(([{ blockTemplate }, interValCount]) => {
+            let skipNext = false;
+            combineLatest([this.blockTemplateService.currentBlockTemplate$, interval(60000).pipe(startWith(-1))]).subscribe(async ([{ blockTemplate }, interValCount]) => {
                 let clearJobs = false;
                 if (lastIntervalCount === interValCount) {
                     clearJobs = true;
+                    skipNext = true;
                     console.log('new block')
                 }
+
+                if (skipNext == true && clearJobs == false) {
+                    skipNext = false;
+                    return;
+                }
+
                 lastIntervalCount = interValCount;
 
-                this.sendNewMiningJob(blockTemplate, clearJobs);
+                await this.sendNewMiningJob(blockTemplate, clearJobs);
 
-                this.checkDifficulty();
+                await this.checkDifficulty();
 
 
             });
@@ -247,7 +256,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         }
     }
 
-    private sendNewMiningJob(blockTemplate: IBlockTemplate, clearJobs: boolean) {
+    private async sendNewMiningJob(blockTemplate: IBlockTemplate, clearJobs: boolean) {
 
         // const payoutInformation = [
         //     { address: 'bc1q99n3pu025yyu0jlywpmwzalyhm36tg5u37w20d', percent: 1.8 },
@@ -262,7 +271,10 @@ export class StratumV1Client extends EasyUnsubscribe {
 
         this.stratumV1JobsService.addJob(job, clearJobs);
 
-        this.socket.write(job.response + '\n');
+        const data = job.response + '\n';
+
+        const writeAsync = promisify(this.socket.write).bind(this.socket);
+        await writeAsync(data);
 
         console.log(`Sent new job to ${this.extraNonce}. (clearJobs: ${clearJobs})`)
 
@@ -305,11 +317,11 @@ export class StratumV1Client extends EasyUnsubscribe {
             console.log(`Difficulty too low`);
         }
 
-        this.checkDifficulty();
+        await this.checkDifficulty();
 
     }
 
-    private checkDifficulty() {
+    private async checkDifficulty() {
         const targetDiff = this.statistics.getSuggestedDifficulty(this.sessionDifficulty);
         if (targetDiff == null) {
             return;
@@ -318,19 +330,20 @@ export class StratumV1Client extends EasyUnsubscribe {
         if (targetDiff != this.sessionDifficulty) {
             console.log(`Adjusting difficulty from ${this.sessionDifficulty} to ${targetDiff}`);
             this.sessionDifficulty = targetDiff;
-            this.socket.write(JSON.stringify(
-                {
-                    id: null,
-                    method: eResponseMethod.SET_DIFFICULTY,
-                    params: [targetDiff]
-                }
-            ) + '\n', () => {
 
-                // we need to clear the jobs so that the difficulty set takes effect. Otherwise the different miner implementations can cause issues
-                this.blockTemplateService.currentBlockTemplate$.pipe(take(1)).subscribe(({ blockTemplate }) => {
-                    this.sendNewMiningJob(blockTemplate, true);
-                });
-            });
+            const data = JSON.stringify({
+                id: null,
+                method: eResponseMethod.SET_DIFFICULTY,
+                params: [targetDiff]
+            }) + '\n';
+
+            const writeAsync = promisify(this.socket.write).bind(this.socket);
+            await writeAsync(data);
+
+            // we need to clear the jobs so that the difficulty set takes effect. Otherwise the different miner implementations can cause issues
+            const { blockTemplate } = await firstValueFrom(this.blockTemplateService.currentBlockTemplate$);
+            await this.sendNewMiningJob(blockTemplate, true);
+
 
 
 
