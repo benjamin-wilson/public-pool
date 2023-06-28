@@ -47,14 +47,16 @@ export class MiningJob {
         //    32-byte - Commitment hash: Double-SHA256(witness root hash|witness reserved value)
         const commitmentHash = this.sha256(this.sha256(this.block.witnessCommit));
         //    39th byte onwards: Optional data with no consensus meaning
-        coinbaseTransaction.outs[0].script = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, commitmentHash])]);
+        coinbaseTransaction.ins[0].script = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, commitmentHash, Buffer.from('00000000' + '00000000', 'hex')])]);
 
         // get the non-witness coinbase tx
         //@ts-ignore
         const serializedCoinbaseTx = coinbaseTransaction.__toBuffer().toString('hex');
 
-        const blockHeightScript = `03${this.blockTemplate.height.toString(16).padStart(8, '0')}` + '00000000' + '00000000';
-        const partOneIndex = serializedCoinbaseTx.indexOf(blockHeightScript) + blockHeightScript.length;
+        const inputScript = coinbaseTransaction.ins[0].script.toString('hex');
+
+
+        const partOneIndex = serializedCoinbaseTx.indexOf(inputScript) + inputScript.length;
 
         const coinbasePart1 = serializedCoinbaseTx.slice(0, partOneIndex);
         const coinbasePart2 = serializedCoinbaseTx.slice(partOneIndex);
@@ -87,9 +89,7 @@ export class MiningJob {
         }
 
         // set the nonces
-        const blockHeightScript = `03${this.blockTemplate.height.toString(16).padStart(8, '0')}${extraNonce}${extraNonce2}`;
-        const inputScript = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.from(blockHeightScript, 'hex')]);
-        testBlock.transactions[0].ins[0].script = inputScript;
+        testBlock.transactions[0].ins[0].script = Buffer.from(testBlock.transactions[0].ins[0].script.toString('hex').replace('0000000000000000', `${extraNonce}${extraNonce2}`), 'hex');
 
         //@ts-ignore
         //recompute the root
@@ -124,12 +124,11 @@ export class MiningJob {
         // Set the version of the transaction
         coinbaseTransaction.version = 2;
 
-        const blockHeightScript = `03${blockHeight.toString(16).padStart(8, '0')}` + '00000000' + '00000000';
 
-        const inputScript = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.from(blockHeightScript, 'hex')])
+        // const inputScript = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.from('00000000' + '00000000', 'hex')])
 
         // Add the coinbase input (input with no previous output)
-        coinbaseTransaction.addInput(Buffer.from('0000000000000000000000000000000000000000000000000000000000000000', 'hex'), 0xffffffff, 0xffffffff, inputScript);
+        coinbaseTransaction.addInput(Buffer.from('0000000000000000000000000000000000000000000000000000000000000000', 'hex'), 0xffffffff, 0xffffffff);
 
         // Add an output
         let rewardBalance = reward;
