@@ -216,7 +216,6 @@ export class StratumV1Client extends EasyUnsubscribe {
         if (this.clientSubscription != null
             && this.clientConfiguration != null
             && this.clientAuthorization != null
-            && this.clientSuggestedDifficulty != null
             && this.stratumInitialized == false) {
 
             this.stratumInitialized = true;
