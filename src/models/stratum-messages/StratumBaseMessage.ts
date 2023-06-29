@@ -4,7 +4,7 @@ import { eRequestMethod } from '../enums/eRequestMethod';
 
 export class StratumBaseMessage {
     @IsNumber()
-    id: number;
+    id?: number = null;
     @IsEnum(eRequestMethod)
     method: eRequestMethod;
 }

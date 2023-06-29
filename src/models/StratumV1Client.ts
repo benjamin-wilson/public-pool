@@ -219,6 +219,11 @@ export class StratumV1Client extends EasyUnsubscribe {
             && this.clientAuthorization != null
             && this.stratumInitialized == false) {
 
+            if (this.clientSuggestedDifficulty == null) {
+                const setDifficulty = JSON.stringify(new SuggestDifficulty().response(this.sessionDifficulty));
+                this.socket.write(setDifficulty + '\n')
+            }
+
             this.stratumInitialized = true;
 
             this.entity = await this.clientService.save({
