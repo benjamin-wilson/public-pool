@@ -3,7 +3,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
 import { Socket } from 'net';
-import { combineLatest, firstValueFrom, interval, startWith } from 'rxjs';
+import { combineLatest, firstValueFrom, interval, startWith, takeUntil } from 'rxjs';
 
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientEntity } from '../ORM/client/client.entity';
@@ -85,6 +85,7 @@ export class StratumV1Client extends EasyUnsubscribe {
             parsedMessage = JSON.parse(message);
         } catch (e) {
             console.log(e);
+            this.socket.end();
         }
 
         switch (parsedMessage.method) {
@@ -229,27 +230,29 @@ export class StratumV1Client extends EasyUnsubscribe {
 
             let lastIntervalCount = undefined;
             let skipNext = false;
-            combineLatest([this.blockTemplateService.currentBlockTemplate$, interval(60000).pipe(startWith(-1))]).subscribe(async ([{ blockTemplate }, interValCount]) => {
-                let clearJobs = false;
-                if (lastIntervalCount === interValCount) {
-                    clearJobs = true;
-                    skipNext = true;
-                    console.log('new block')
-                }
+            combineLatest([this.blockTemplateService.currentBlockTemplate$, interval(60000).pipe(startWith(-1))])
+                .pipe(takeUntil(this.easyUnsubscribe))
+                .subscribe(async ([{ blockTemplate }, interValCount]) => {
+                    let clearJobs = false;
+                    if (lastIntervalCount === interValCount) {
+                        clearJobs = true;
+                        skipNext = true;
+                        console.log('new block')
+                    }
 
-                if (skipNext == true && clearJobs == false) {
-                    skipNext = false;
-                    return;
-                }
+                    if (skipNext == true && clearJobs == false) {
+                        skipNext = false;
+                        return;
+                    }
 
-                lastIntervalCount = interValCount;
+                    lastIntervalCount = interValCount;
 
-                this.sendNewMiningJob(blockTemplate, clearJobs);
+                    this.sendNewMiningJob(blockTemplate, clearJobs);
 
-                await this.checkDifficulty();
+                    await this.checkDifficulty();
 
 
-            });
+                });
 
         }
     }
