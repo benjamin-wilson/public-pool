@@ -16,7 +16,7 @@ export class SubscriptionMessage extends StratumBaseMessage {
 
     public response(clientId: string) {
         return {
-            id: null,
+            id: this.id,
             error: null,
             result: [
                 [

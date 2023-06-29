@@ -55,7 +55,7 @@ export class MiningSubmitMessage extends StratumBaseMessage {
 
     public response() {
         return {
-            id: null,
+            id: this.id,
             error: null,
             result: true
         };

@@ -15,7 +15,7 @@ export class ConfigurationMessage extends StratumBaseMessage {
 
     public response() {
         return {
-            id: null,
+            id: this.id,
             error: null,
             result: {
                 'version-rolling': true,
