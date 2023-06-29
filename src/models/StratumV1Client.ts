@@ -77,7 +77,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
 
     private async handleMessage(socket: Socket, message: string) {
-        //console.log('Received:', message);
+        console.log('Received:', message);
 
         // Parse the message and check if it's the initial subscription message
         let parsedMessage = null;
