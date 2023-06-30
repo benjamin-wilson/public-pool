@@ -92,7 +92,9 @@ export class MiningJob {
         }
 
         // set the nonces
-        testBlock.transactions[0].ins[0].script = Buffer.from(testBlock.transactions[0].ins[0].script.toString('hex').replace('0000000000000000', `${extraNonce}${extraNonce2}`), 'hex');
+        const nonceFreeScript = testBlock.transactions[0].ins[0].script.toString('hex');
+
+        testBlock.transactions[0].ins[0].script = Buffer.from(`${nonceFreeScript.substring(0, nonceFreeScript.length - 16)}${extraNonce}${extraNonce2}`, 'hex');
 
         //@ts-ignore
         //recompute the root
