@@ -32,12 +32,16 @@ export class MiningJob {
 
         this.block.transactions = blockTemplate.transactions.map(t => bitcoinjs.Transaction.fromHex(t.data));
 
-        const coinbaseTransaction = this.createCoinbaseTransaction(payoutInformation, this.blockTemplate.height, this.blockTemplate.coinbasevalue);
+        const coinbaseTransaction = this.createCoinbaseTransaction(payoutInformation, this.blockTemplate.coinbasevalue);
         this.block.transactions.unshift(coinbaseTransaction);
 
         this.block.witnessCommit = bitcoinjs.Block.calculateMerkleRoot(this.block.transactions, true);
 
         this.block.merkleRoot = bitcoinjs.Block.calculateMerkleRoot(this.block.transactions, false);
+
+
+        // https://github.com/bitcoin/bips/blob/master/bip-0034.mediawiki
+        const blockHeightScript = Buffer.from(`03${this.blockTemplate.height.toString(16).padStart(8, '0')}`, 'hex');
 
         //The commitment is recorded in a scriptPubKey of the coinbase transaction. It must be at least 38 bytes, with the first 6-byte of 0x6a24aa21a9ed, that is:
         //     1-byte - OP_RETURN (0x6a)
@@ -47,14 +51,13 @@ export class MiningJob {
         //    32-byte - Commitment hash: Double-SHA256(witness root hash|witness reserved value)
         const commitmentHash = this.sha256(this.sha256(this.block.witnessCommit));
         //    39th byte onwards: Optional data with no consensus meaning
-        coinbaseTransaction.ins[0].script = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, commitmentHash, Buffer.from('00000000' + '00000000', 'hex')])]);
+        coinbaseTransaction.ins[0].script = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([blockHeightScript, segwitMagicBits, commitmentHash, Buffer.from('00000000' + '00000000', 'hex')])]);
 
         // get the non-witness coinbase tx
         //@ts-ignore
         const serializedCoinbaseTx = coinbaseTransaction.__toBuffer().toString('hex');
 
         const inputScript = coinbaseTransaction.ins[0].script.toString('hex');
-
 
         const partOneIndex = serializedCoinbaseTx.indexOf(inputScript) + inputScript.length;
 
@@ -119,7 +122,7 @@ export class MiningJob {
     }
 
 
-    private createCoinbaseTransaction(addresses: AddressObject[], blockHeight: number, reward: number): bitcoinjs.Transaction {
+    private createCoinbaseTransaction(addresses: AddressObject[], reward: number): bitcoinjs.Transaction {
         // Part 1
         const coinbaseTransaction = new bitcoinjs.Transaction();
 
@@ -127,7 +130,6 @@ export class MiningJob {
         coinbaseTransaction.version = 2;
 
 
-        // const inputScript = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.from('00000000' + '00000000', 'hex')])
 
         // Add the coinbase input (input with no previous output)
         coinbaseTransaction.addInput(Buffer.from('0000000000000000000000000000000000000000000000000000000000000000', 'hex'), 0xffffffff, 0xffffffff);
