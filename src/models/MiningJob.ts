@@ -76,7 +76,7 @@ export class MiningJob {
 
     }
 
-    public copyAndUpdateBlock(versionMaskString: number, nonce: number, extraNonce: string, extraNonce2: string): bitcoinjs.Block {
+    public copyAndUpdateBlock(versionMaskString: number, nonce: number, extraNonce: string, extraNonce2: string, timestamp: number): bitcoinjs.Block {
 
         const testBlock = bitcoinjs.Block.fromBuffer(this.block.toBuffer());
 
@@ -93,7 +93,9 @@ export class MiningJob {
 
         //@ts-ignore
         //recompute the root
-        testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].__toBuffer(), this.merkle_branch);;
+        testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].__toBuffer(), this.merkle_branch);
+
+        testBlock.timestamp = timestamp
 
         return testBlock;
     }
