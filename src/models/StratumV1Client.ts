@@ -220,8 +220,9 @@ export class StratumV1Client extends EasyUnsubscribe {
             && this.stratumInitialized == false) {
 
             if (this.clientSuggestedDifficulty == null) {
+                console.log(`Setting difficulty to ${this.sessionDifficulty}`)
                 const setDifficulty = JSON.stringify(new SuggestDifficulty().response(this.sessionDifficulty));
-                this.socket.write(setDifficulty + '\n')
+                this.socket.write(setDifficulty + '\n');
             }
 
             this.stratumInitialized = true;
