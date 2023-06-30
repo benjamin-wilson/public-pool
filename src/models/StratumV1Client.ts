@@ -35,7 +35,7 @@ export class StratumV1Client extends EasyUnsubscribe {
     private statistics: StratumV1ClientStatistics;
     private stratumInitialized = false;
     private usedSuggestedDifficulty = false;
-    private sessionDifficulty: number = 524288;
+    private sessionDifficulty: number = 32768;
     private entity: ClientEntity;
 
     public extraNonce: string;
