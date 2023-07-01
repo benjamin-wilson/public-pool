@@ -15,10 +15,12 @@ import { EasyUnsubscribe } from '../utils/AutoUnsubscribe';
 import { IBlockTemplate } from './bitcoin-rpc/IBlockTemplate';
 import { eRequestMethod } from './enums/eRequestMethod';
 import { eResponseMethod } from './enums/eResponseMethod';
+import { eStratumErrorCode } from './enums/eStratumErrorCode';
 import { MiningJob } from './MiningJob';
 import { AuthorizationMessage } from './stratum-messages/AuthorizationMessage';
 import { ConfigurationMessage } from './stratum-messages/ConfigurationMessage';
 import { MiningSubmitMessage } from './stratum-messages/MiningSubmitMessage';
+import { StratumErrorMessage } from './stratum-messages/StratumErrorMessage';
 import { SubscriptionMessage } from './stratum-messages/SubscriptionMessage';
 import { SuggestDifficulty } from './stratum-messages/SuggestDifficultyMessage';
 import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
@@ -107,7 +109,16 @@ export class StratumV1Client extends EasyUnsubscribe {
 
                     socket.write(JSON.stringify(this.clientSubscription.response(this.extraNonce)) + '\n');
                 } else {
-                    console.error(errors);
+
+                    const err = new StratumErrorMessage(
+                        subscriptionMessage.id,
+                        eStratumErrorCode.OtherUnknown,
+                        'Subscription error',
+                        errors).response();
+
+                    console.error(err);
+                    socket.write(err);
+
                 }
 
                 break;
