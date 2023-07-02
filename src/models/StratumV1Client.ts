@@ -353,11 +353,11 @@ export class StratumV1Client extends EasyUnsubscribe {
                     'Duplicate share').response();
                 console.error(err);
                 await this.promiseSocket.write(err);
+            }
 
-                if (submissionDifficulty > this.entity.bestDifficulty) {
-                    await this.clientService.updateBestDifficulty(this.extraNonce, submissionDifficulty);
-                    this.entity.bestDifficulty = submissionDifficulty;
-                }
+            if (submissionDifficulty > this.entity.bestDifficulty) {
+                await this.clientService.updateBestDifficulty(this.extraNonce, submissionDifficulty);
+                this.entity.bestDifficulty = submissionDifficulty;
             }
 
         } else {
