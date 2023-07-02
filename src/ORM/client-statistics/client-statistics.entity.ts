@@ -1,4 +1,4 @@
-import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
 
 import { DateTimeTransformer } from '../utils/DateTimeTransformer';
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
@@ -6,8 +6,8 @@ import { TrackedEntity } from '../utils/TrackedEntity.entity';
 @Entity()
 export class ClientStatisticsEntity extends TrackedEntity {
 
-    @PrimaryGeneratedColumn()
-    id: number;
+    @PrimaryColumn({ length: 64, type: 'varchar' })
+    submissionHash: string;
 
     @Column({ length: 62, type: 'varchar' })
     address: string;

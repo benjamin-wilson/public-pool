@@ -3,6 +3,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
 import { Socket } from 'net';
+import PromiseSocket from 'promise-socket';
 import { combineLatest, firstValueFrom, interval, startWith, takeUntil } from 'rxjs';
 
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
@@ -11,7 +12,7 @@ import { ClientService } from '../ORM/client/client.service';
 import { BitcoinRpcService } from '../services/bitcoin-rpc.service';
 import { BlockTemplateService } from '../services/block-template.service';
 import { StratumV1JobsService } from '../services/stratum-v1-jobs.service';
-import { EasyUnsubscribe } from '../utils/AutoUnsubscribe';
+import { EasyUnsubscribe } from '../utils/EasyUnsubscribe';
 import { IBlockTemplate } from './bitcoin-rpc/IBlockTemplate';
 import { eRequestMethod } from './enums/eRequestMethod';
 import { eResponseMethod } from './enums/eResponseMethod';
@@ -24,8 +25,6 @@ import { StratumErrorMessage } from './stratum-messages/StratumErrorMessage';
 import { SubscriptionMessage } from './stratum-messages/SubscriptionMessage';
 import { SuggestDifficulty } from './stratum-messages/SuggestDifficultyMessage';
 import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
-
-
 
 export class StratumV1Client extends EasyUnsubscribe {
 
@@ -43,7 +42,7 @@ export class StratumV1Client extends EasyUnsubscribe {
     public extraNonce: string;
 
     constructor(
-        public readonly socket: Socket,
+        public readonly promiseSocket: PromiseSocket<Socket>,
         private readonly stratumV1JobsService: StratumV1JobsService,
         private readonly blockTemplateService: BlockTemplateService,
         private readonly bitcoinRpcService: BitcoinRpcService,
@@ -57,7 +56,12 @@ export class StratumV1Client extends EasyUnsubscribe {
 
         console.log(`New client ID: : ${this.extraNonce}`);
 
-        this.socket.on('data', this.handleData.bind(this, this.socket));
+        this.promiseSocket.socket.on('data', (data: Buffer) => {
+            data.toString()
+                .split('\n')
+                .filter(m => m.length > 0)
+                .forEach(m => this.handleMessage(m))
+        });
 
     }
 
@@ -68,17 +72,8 @@ export class StratumV1Client extends EasyUnsubscribe {
         return hexString;
     }
 
-    private async handleData(socket: Socket, data: Buffer) {
-        const message = data.toString();
 
-        message.split('\n')
-            .filter(m => m.length > 0)
-            .forEach(this.handleMessage.bind(this, socket));
-
-    }
-
-
-    private async handleMessage(socket: Socket, message: string) {
+    private async handleMessage(message: string) {
         console.log('Received:', message);
 
         // Parse the message and check if it's the initial subscription message
@@ -87,7 +82,7 @@ export class StratumV1Client extends EasyUnsubscribe {
             parsedMessage = JSON.parse(message);
         } catch (e) {
             console.log(e);
-            this.socket.end();
+            this.promiseSocket.end();
         }
 
         switch (parsedMessage.method) {
@@ -107,18 +102,15 @@ export class StratumV1Client extends EasyUnsubscribe {
                 if (errors.length === 0) {
                     this.clientSubscription = subscriptionMessage;
 
-                    socket.write(JSON.stringify(this.clientSubscription.response(this.extraNonce)) + '\n');
+                    await this.promiseSocket.write(JSON.stringify(this.clientSubscription.response(this.extraNonce)) + '\n');
                 } else {
-
                     const err = new StratumErrorMessage(
                         subscriptionMessage.id,
                         eStratumErrorCode.OtherUnknown,
                         'Subscription error',
                         errors).response();
-
                     console.error(err);
-                    socket.write(err);
-
+                    await this.promiseSocket.write(err);
                 }
 
                 break;
@@ -140,9 +132,15 @@ export class StratumV1Client extends EasyUnsubscribe {
                 if (errors.length === 0) {
                     this.clientConfiguration = configurationMessage;
                     //const response = this.buildSubscriptionResponse(configurationMessage.id);
-                    socket.write(JSON.stringify(this.clientConfiguration.response()) + '\n');
+                    await this.promiseSocket.write(JSON.stringify(this.clientConfiguration.response()) + '\n');
                 } else {
-                    console.error(errors);
+                    const err = new StratumErrorMessage(
+                        configurationMessage.id,
+                        eStratumErrorCode.OtherUnknown,
+                        'Configuration error',
+                        errors).response();
+                    console.error(err);
+                    await this.promiseSocket.write(err);
                 }
 
                 break;
@@ -164,9 +162,15 @@ export class StratumV1Client extends EasyUnsubscribe {
                     this.clientAuthorization = authorizationMessage;
 
                     //const response = this.buildSubscriptionResponse(authorizationMessage.id);
-                    socket.write(JSON.stringify(this.clientAuthorization.response()) + '\n');
+                    await this.promiseSocket.write(JSON.stringify(this.clientAuthorization.response()) + '\n');
                 } else {
-                    console.error(errors);
+                    const err = new StratumErrorMessage(
+                        authorizationMessage.id,
+                        eStratumErrorCode.OtherUnknown,
+                        'Authorization error',
+                        errors).response();
+                    console.error(err);
+                    await this.promiseSocket.write(err);
                 }
 
                 break;
@@ -192,10 +196,16 @@ export class StratumV1Client extends EasyUnsubscribe {
 
                     this.clientSuggestedDifficulty = suggestDifficultyMessage;
                     this.sessionDifficulty = suggestDifficultyMessage.suggestedDifficulty;
-                    socket.write(JSON.stringify(this.clientSuggestedDifficulty.response(this.sessionDifficulty)) + '\n');
+                    await this.promiseSocket.write(JSON.stringify(this.clientSuggestedDifficulty.response(this.sessionDifficulty)) + '\n');
                     this.usedSuggestedDifficulty = true;
                 } else {
-                    console.error(errors);
+                    const err = new StratumErrorMessage(
+                        suggestDifficultyMessage.id,
+                        eStratumErrorCode.OtherUnknown,
+                        'Suggest difficulty error',
+                        errors).response();
+                    console.error(err);
+                    await this.promiseSocket.write(err);
                 }
                 break;
             }
@@ -214,11 +224,17 @@ export class StratumV1Client extends EasyUnsubscribe {
 
                 if (errors.length === 0) {
                     await this.handleMiningSubmission(miningSubmitMessage);
-                    socket.write(JSON.stringify(miningSubmitMessage.response()) + '\n');
+                    await this.promiseSocket.write(JSON.stringify(miningSubmitMessage.response()) + '\n');
 
 
                 } else {
-                    console.error(errors);
+                    const err = new StratumErrorMessage(
+                        miningSubmitMessage.id,
+                        eStratumErrorCode.OtherUnknown,
+                        'Suggest difficulty error',
+                        errors).response();
+                    console.error(err);
+                    await this.promiseSocket.write(err);
                 }
                 break;
             }
@@ -233,7 +249,7 @@ export class StratumV1Client extends EasyUnsubscribe {
             if (this.clientSuggestedDifficulty == null) {
                 console.log(`Setting difficulty to ${this.sessionDifficulty}`)
                 const setDifficulty = JSON.stringify(new SuggestDifficulty().response(this.sessionDifficulty));
-                this.socket.write(setDifficulty + '\n');
+                await this.promiseSocket.write(setDifficulty + '\n');
             }
 
             this.stratumInitialized = true;
@@ -264,7 +280,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
                     lastIntervalCount = interValCount;
 
-                    this.sendNewMiningJob(blockTemplate, clearJobs);
+                    await this.sendNewMiningJob(blockTemplate, clearJobs);
 
                     await this.checkDifficulty();
 
@@ -274,7 +290,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         }
     }
 
-    private sendNewMiningJob(blockTemplate: IBlockTemplate, clearJobs: boolean) {
+    private async sendNewMiningJob(blockTemplate: IBlockTemplate, clearJobs: boolean) {
 
         // const payoutInformation = [
         //     { address: 'bc1q99n3pu025yyu0jlywpmwzalyhm36tg5u37w20d', percent: 1.8 },
@@ -288,10 +304,9 @@ export class StratumV1Client extends EasyUnsubscribe {
         const job = new MiningJob(this.stratumV1JobsService.getNextId(), payoutInformation, blockTemplate, clearJobs);
 
         this.stratumV1JobsService.addJob(job, clearJobs);
+        ;
 
-        const data = job.response + '\n';
-
-        this.socket.write(data);
+        await this.promiseSocket.write(job.response());
 
         console.log(`Sent new job to ${this.extraNonce}. (clearJobs: ${clearJobs})`)
 
@@ -301,9 +316,14 @@ export class StratumV1Client extends EasyUnsubscribe {
     private async handleMiningSubmission(submission: MiningSubmitMessage) {
 
         const job = this.stratumV1JobsService.getJobById(submission.jobId);
-        // a miner may submit a job that doesn't exist anymore if it was removed by a new block notification 
+        // a miner may submit a job that doesn't exist anymore if it was removed by a new block notification
         if (job == null) {
-            console.log('job not found')
+            const err = new StratumErrorMessage(
+                submission.id,
+                eStratumErrorCode.JobNotFound,
+                'Job not found').response();
+            console.error(err);
+            await this.promiseSocket.write(err);
             return;
         }
         const updatedJobBlock = job.copyAndUpdateBlock(
@@ -313,7 +333,7 @@ export class StratumV1Client extends EasyUnsubscribe {
             submission.extraNonce2,
             parseInt(submission.ntime, 16)
         );
-        const submissionDifficulty = this.calculateDifficulty(updatedJobBlock.toBuffer(true));
+        const { submissionDifficulty, submissionHash } = this.calculateDifficulty(updatedJobBlock.toBuffer(true));
 
         console.log(`DIFF: ${Math.round(submissionDifficulty)} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonce}`);
 
@@ -324,15 +344,30 @@ export class StratumV1Client extends EasyUnsubscribe {
                 const blockHex = updatedJobBlock.toHex(false);
                 this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
             }
+            try {
+                await this.statistics.addSubmission(this.entity, submissionHash, this.sessionDifficulty);
+            } catch (e) {
+                const err = new StratumErrorMessage(
+                    submission.id,
+                    eStratumErrorCode.DuplicateShare,
+                    'Duplicate share').response();
+                console.error(err);
+                await this.promiseSocket.write(err);
 
-            await this.statistics.addSubmission(this.entity, this.sessionDifficulty);
-            if (submissionDifficulty > this.entity.bestDifficulty) {
-                await this.clientService.updateBestDifficulty(this.extraNonce, submissionDifficulty);
-                this.entity.bestDifficulty = submissionDifficulty;
+                if (submissionDifficulty > this.entity.bestDifficulty) {
+                    await this.clientService.updateBestDifficulty(this.extraNonce, submissionDifficulty);
+                    this.entity.bestDifficulty = submissionDifficulty;
+                }
             }
 
         } else {
-            console.log(`Difficulty too low`);
+            const err = new StratumErrorMessage(
+                submission.id,
+                eStratumErrorCode.LowDifficultyShare,
+                'Difficulty too low').response();
+            console.error(err);
+            await this.promiseSocket.write(err);
+
         }
 
         await this.checkDifficulty();
@@ -355,19 +390,16 @@ export class StratumV1Client extends EasyUnsubscribe {
                 params: [targetDiff]
             }) + '\n';
 
-            this.socket.write(data);
+            await this.promiseSocket.write(data);
 
             // we need to clear the jobs so that the difficulty set takes effect. Otherwise the different miner implementations can cause issues
             const { blockTemplate } = await firstValueFrom(this.blockTemplateService.currentBlockTemplate$);
-            this.sendNewMiningJob(blockTemplate, true);
-
-
-
+            await this.sendNewMiningJob(blockTemplate, true);
 
         }
     }
 
-    public calculateDifficulty(header: Buffer): number {
+    public calculateDifficulty(header: Buffer): { submissionDifficulty: number, submissionHash: string } {
 
         const hashBuffer: Buffer = crypto.createHash('sha256').update(header).digest();
         const hashResult: Buffer = crypto.createHash('sha256').update(hashBuffer).digest();
@@ -375,7 +407,8 @@ export class StratumV1Client extends EasyUnsubscribe {
         let s64 = this.le256todouble(hashResult);
 
         const truediffone = Big('26959535291011309493156476344723991336010898738574164086137773096960');
-        return truediffone.div(s64.toString()).toNumber();
+        const difficulty = truediffone.div(s64.toString()).toNumber();
+        return { submissionDifficulty: difficulty, submissionHash: hashResult.toString('hex') };
     }
 
 

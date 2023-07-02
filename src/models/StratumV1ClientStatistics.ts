@@ -12,7 +12,7 @@ export class StratumV1ClientStatistics {
         this.submissionCacheStart = new Date();
     }
 
-    public async addSubmission(client: ClientEntity, targetDifficulty: number) {
+    public async addSubmission(client: ClientEntity, submissionHash: string, targetDifficulty: number) {
 
         if (this.submissionCache.length > CACHE_SIZE) {
             this.submissionCache.shift();
@@ -29,6 +29,7 @@ export class StratumV1ClientStatistics {
             address: client.address,
             clientName: client.clientName,
             sessionId: client.sessionId,
+            submissionHash
         });
 
     }
@@ -37,7 +38,7 @@ export class StratumV1ClientStatistics {
 
         // miner hasn't submitted shares in one minute
         if (this.submissionCache.length == 0 && (new Date().getTime() - this.submissionCacheStart.getTime()) / 1000 > 60) {
-            return this.blpo2(clientDifficulty >> 1);
+            return this.nearestPowerOfTwo(clientDifficulty >> 1);
         }
 
         if (this.submissionCache.length < CACHE_SIZE) {
@@ -55,15 +56,14 @@ export class StratumV1ClientStatistics {
         const targetDifficulty = difficultyPerSecond * TARGET_SUBMISSION_PER_SECOND;
 
         if (clientDifficulty << 1 < targetDifficulty || clientDifficulty >> 1 > targetDifficulty) {
-            return this.blpo2(targetDifficulty)
+            return this.nearestPowerOfTwo(targetDifficulty)
         }
 
         return null;
 
-
     }
 
-    private blpo2(val) {
+    private nearestPowerOfTwo(val) {
         let x = val | (val >> 1);
         x = x | (x >> 2);
         x = x | (x >> 4);
@@ -85,6 +85,5 @@ export class StratumV1ClientStatistics {
         }
         return res;
     }
-
 
 }

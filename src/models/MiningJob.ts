@@ -12,17 +12,18 @@ interface AddressObject {
 }
 export class MiningJob {
 
+    private coinbasePart1: string;
+    private coinbasePart2: string;
+
     private merkle_branch: string[]; // List of hashes, will be used for calculation of merkle root. This is not a list of all transactions, it only contains prepared hashes of steps of merkle tree algorithm.
 
     public jobId: string; // ID of the job. Use this ID while submitting share generated from this job.
-    public response: string;
     public block: bitcoinjs.Block = new bitcoinjs.Block();
     public networkDifficulty: number;
 
     constructor(id: string, payoutInformation: AddressObject[], public blockTemplate: IBlockTemplate, public clean_jobs: boolean) {
 
         this.jobId = id;
-        //this.target = blockTemplate.target;
         this.block.prevHash = this.convertToLittleEndian(blockTemplate.previousblockhash);
 
         this.block.version = blockTemplate.version;
@@ -51,7 +52,8 @@ export class MiningJob {
         //    32-byte - Commitment hash: Double-SHA256(witness root hash|witness reserved value)
         const commitmentHash = this.sha256(this.sha256(this.block.witnessCommit));
         //    39th byte onwards: Optional data with no consensus meaning
-        coinbaseTransaction.ins[0].script = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([blockHeightScript, segwitMagicBits, commitmentHash, Buffer.from('00000000' + '00000000', 'hex')])]);
+        coinbaseTransaction.ins[0].script = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([blockHeightScript, Buffer.from('00000000' + '00000000', 'hex')])]);
+        coinbaseTransaction.addOutput(bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, commitmentHash])]), 0);
 
         // get the non-witness coinbase tx
         //@ts-ignore
@@ -63,8 +65,8 @@ export class MiningJob {
 
         const coinbasePart1 = serializedCoinbaseTx.slice(0, partOneIndex);
         const coinbasePart2 = serializedCoinbaseTx.slice(partOneIndex);
-        const coinb1 = coinbasePart1.slice(0, coinbasePart1.length - 16);
-        const coinb2 = coinbasePart2;
+        this.coinbasePart1 = coinbasePart1.slice(0, coinbasePart1.length - 16);
+        this.coinbasePart2 = coinbasePart2;
 
 
         // Calculate merkle branch
@@ -75,18 +77,15 @@ export class MiningJob {
 
         this.block.transactions[0] = coinbaseTransaction;
 
-        this.constructResponse(coinb1, coinb2);
-
     }
 
-    public copyAndUpdateBlock(versionMaskString: number, nonce: number, extraNonce: string, extraNonce2: string, timestamp: number): bitcoinjs.Block {
+    public copyAndUpdateBlock(versionMask: number, nonce: number, extraNonce: string, extraNonce2: string, timestamp: number): bitcoinjs.Block {
 
         const testBlock = bitcoinjs.Block.fromBuffer(this.block.toBuffer());
 
         testBlock.nonce = nonce;
 
         // recompute version mask
-        const versionMask = versionMaskString;
         if (versionMask !== undefined && versionMask != 0) {
             testBlock.version = (testBlock.version ^ versionMask);
         }
@@ -131,8 +130,6 @@ export class MiningJob {
         // Set the version of the transaction
         coinbaseTransaction.version = 2;
 
-
-
         // Add the coinbase input (input with no previous output)
         coinbaseTransaction.addInput(Buffer.from('0000000000000000000000000000000000000000000000000000000000000000', 'hex'), 0xffffffff, 0xffffffff);
 
@@ -145,7 +142,7 @@ export class MiningJob {
             coinbaseTransaction.addOutput(this.getPaymentScript(recipientAddress.address), amount);
         })
 
-        //Add any remaining sats from the Math.floor 
+        //Add any remaining sats from the Math.floor
         coinbaseTransaction.outs[0].value += rewardBalance;
 
         const segwitWitnessReservedValue = Buffer.alloc(32, 0);
@@ -160,7 +157,7 @@ export class MiningJob {
         const addressInfo = getAddressInfo(address);
         switch (addressInfo.type) {
             case AddressType.p2wpkh: {
-                return bitcoinjs.payments.p2wpkh({ address, network: bitcoinjs.networks.testnet }).output;
+                return bitcoinjs.payments.p2wpkh({ address }).output;
             }
             case AddressType.p2pkh: {
                 return bitcoinjs.payments.p2pkh({ address }).output;
@@ -185,7 +182,7 @@ export class MiningJob {
     }
 
 
-    private constructResponse(coinb1: string, coinb2: string) {
+    public response(): string {
 
         const job = {
             id: null,
@@ -193,8 +190,8 @@ export class MiningJob {
             params: [
                 this.jobId,
                 this.swapEndianWords(this.block.prevHash).toString('hex'),
-                coinb1,
-                coinb2,
+                this.coinbasePart1,
+                this.coinbasePart2,
                 this.merkle_branch,
                 this.block.version.toString(16),
                 this.block.bits.toString(16),
@@ -203,7 +200,7 @@ export class MiningJob {
             ]
         };
 
-        this.response = JSON.stringify(job);
+        return JSON.stringify(job) + '\n';
     }
 
 

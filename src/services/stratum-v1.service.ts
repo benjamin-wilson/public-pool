@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Server, Socket } from 'net';
+import { PromiseSocket } from 'promise-socket';
 
 import { StratumV1Client } from '../models/StratumV1Client';
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
@@ -11,8 +12,6 @@ import { StratumV1JobsService } from './stratum-v1-jobs.service';
 
 @Injectable()
 export class StratumV1Service implements OnModuleInit {
-
-  // public clients: StratumV1Client[] = [];
 
   constructor(
     private readonly bitcoinRpcService: BitcoinRpcService,
@@ -29,38 +28,36 @@ export class StratumV1Service implements OnModuleInit {
     await this.clientService.deleteAll();
 
     this.startSocketServer();
-
   }
 
   private startSocketServer() {
-    new Server(async (socket: Socket) => {
+    new Server(async (s: Socket) => {
 
+      const promiseSocket = new PromiseSocket(s);
 
-      const client = new StratumV1Client(socket, new StratumV1JobsService(), this.blockTemplateService, this.bitcoinRpcService, this.clientService, this.clientStatisticsService);
+      const client = new StratumV1Client(promiseSocket, new StratumV1JobsService(), this.blockTemplateService, this.bitcoinRpcService, this.clientService, this.clientStatisticsService);
 
 
       const clientCount = await this.clientService.connectedClientCount();
 
-      //this.clients.push(client);
+      console.log(`New client connected: ${promiseSocket.socket.remoteAddress}, ${clientCount} total clients`);
 
-      console.log(`New client connected: ${socket.remoteAddress}, ${clientCount} total clients`);
-
-      socket.on('end', async () => {
+      promiseSocket.socket.on('end', async (error: Error) => {
         // Handle socket disconnection
         client.destroy();
         await this.clientService.delete(client.extraNonce);
 
         const clientCount = await this.clientService.connectedClientCount();
-        console.log(`Client disconnected: ${socket.remoteAddress}, ${clientCount} total clients`);
+        console.log(`Client disconnected: ${promiseSocket.socket.remoteAddress}, ${clientCount} total clients`);
       });
 
-      socket.on('error', async (error: Error) => {
+      promiseSocket.socket.on('error', async (error: Error) => {
 
         client.destroy();
         await this.clientService.delete(client.extraNonce);
         const clientCount = await this.clientService.connectedClientCount();
         console.error(`Socket error:`, error);
-        console.log(`Client disconnected: ${socket.remoteAddress}, ${clientCount} total clients`);
+        console.log(`Client disconnected: ${promiseSocket.socket.remoteAddress}, ${clientCount} total clients`);
 
       });
 
@@ -69,7 +66,5 @@ export class StratumV1Service implements OnModuleInit {
     });
 
   }
-
-
 
 }

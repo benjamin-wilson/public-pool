@@ -6,6 +6,12 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
 
+  if (process.env.PORT == null) {
+    console.error('It appears your environment is not configured, create and populate an .env file.');
+    return;
+  }
+
+
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter());
   app.setGlobalPrefix('api')
   app.useGlobalPipes(

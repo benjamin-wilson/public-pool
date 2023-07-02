@@ -6,8 +6,6 @@ import { BehaviorSubject, filter } from 'rxjs';
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { IMiningInfo } from '../models/bitcoin-rpc/IMiningInfo';
 
-
-
 @Injectable()
 export class BitcoinRpcService {
 
@@ -25,9 +23,7 @@ export class BitcoinRpcService {
 
         this.client = new RPCClient({ url, port, timeout, user, pass });
 
-
         console.log('Bitcoin RPC connected');
-
 
         // Maybe use ZeroMQ ?
         setInterval(async () => {
@@ -37,14 +33,10 @@ export class BitcoinRpcService {
                 this._newBlock$.next(miningInfo);
 
                 this.blockHeight = miningInfo.blocks;
-
             }
 
         }, 500);
-
     }
-
-
 
 
     public async getBlockTemplate(): Promise<IBlockTemplate> {

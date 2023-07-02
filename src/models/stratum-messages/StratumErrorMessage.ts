@@ -8,7 +8,7 @@ export class StratumErrorMessage {
         private id: number = null,
         private errorCode: eStratumErrorCode,
         private errorMessage: string,
-        private validationErrors: ValidationError[]
+        private validationErrors: ValidationError[] = []
     ) {
 
     }
