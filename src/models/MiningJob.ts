@@ -123,7 +123,8 @@ export class MiningJob {
     }
 
 
-    private createCoinbaseTransaction(addresses: AddressObject[], reward: number): bitcoinjs.Transaction {
+    private createCoinbaseTransaction
+        (addresses: AddressObject[], reward: number): bitcoinjs.Transaction {
         // Part 1
         const coinbaseTransaction = new bitcoinjs.Transaction();
 
@@ -157,7 +158,7 @@ export class MiningJob {
         const addressInfo = getAddressInfo(address);
         switch (addressInfo.type) {
             case AddressType.p2wpkh: {
-                return bitcoinjs.payments.p2wpkh({ address }).output;
+                return bitcoinjs.payments.p2wpkh({ address, network: bitcoinjs.networks.testnet }).output;
             }
             case AddressType.p2pkh: {
                 return bitcoinjs.payments.p2pkh({ address }).output;
