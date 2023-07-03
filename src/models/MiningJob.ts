@@ -1,7 +1,8 @@
 import { AddressType, getAddressInfo } from 'bitcoin-address-validation';
 import * as bitcoinjs from 'bitcoinjs-lib';
 import * as crypto from 'crypto';
-import { MerkleTree } from 'merkletreejs';
+import * as merkle from 'merkle-lib';
+import * as merkleProof from 'merkle-lib/proof';
 
 import { IBlockTemplate } from './bitcoin-rpc/IBlockTemplate';
 import { eResponseMethod } from './enums/eResponseMethod';
@@ -38,7 +39,7 @@ export class MiningJob {
 
         this.block.witnessCommit = bitcoinjs.Block.calculateMerkleRoot(this.block.transactions, true);
 
-        this.block.merkleRoot = bitcoinjs.Block.calculateMerkleRoot(this.block.transactions, false);
+
 
 
         // https://github.com/bitcoin/bips/blob/master/bip-0034.mediawiki
@@ -74,8 +75,11 @@ export class MiningJob {
         // Calculate merkle branch
         const transactionBuffers = this.block.transactions.map(tx => tx.getHash(false));
 
-        const tree = new MerkleTree(transactionBuffers, this.sha256, { isBitcoinTree: true });
-        this.merkle_branch = tree.getProof(coinbaseTransaction.getHash(false)).map(p => p.data.toString('hex'));
+        const merkleTree = merkle(transactionBuffers, bitcoinjs.crypto.hash256);
+        const merkleBranches: Buffer[] = merkleProof(merkleTree, transactionBuffers[0]).filter(h => h != null);
+        this.block.merkleRoot = merkleBranches.pop();
+
+        this.merkle_branch = merkleBranches.map(b => b.toString('hex'))
 
         this.block.transactions[0] = coinbaseTransaction;
 
@@ -125,8 +129,7 @@ export class MiningJob {
     }
 
 
-    private createCoinbaseTransaction
-        (addresses: AddressObject[], reward: number): bitcoinjs.Transaction {
+    private createCoinbaseTransaction(addresses: AddressObject[], reward: number): bitcoinjs.Transaction {
         // Part 1
         const coinbaseTransaction = new bitcoinjs.Transaction();
 

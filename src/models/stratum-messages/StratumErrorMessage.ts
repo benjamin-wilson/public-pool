@@ -20,6 +20,6 @@ export class StratumErrorMessage {
             result: null,
             error: [this.errorCode, this.errorMessage, this.validationErrors.reduce((pre, cur) => `${pre}, ${cur.value}`, '')]
         }
-        return JSON.stringify(error + '\n');
+        return JSON.stringify(error) + '\n';
     }
 }

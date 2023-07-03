@@ -223,8 +223,10 @@ export class StratumV1Client extends EasyUnsubscribe {
                 const errors = await validate(miningSubmitMessage, validatorOptions);
 
                 if (errors.length === 0) {
-                    await this.handleMiningSubmission(miningSubmitMessage);
-                    await this.promiseSocket.write(JSON.stringify(miningSubmitMessage.response()) + '\n');
+                    const result = await this.handleMiningSubmission(miningSubmitMessage);
+                    if (result == true) {
+                        await this.promiseSocket.write(JSON.stringify(miningSubmitMessage.response()) + '\n');
+                    }
 
 
                 } else {
@@ -324,7 +326,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                 'Job not found').response();
             console.error(err);
             await this.promiseSocket.write(err);
-            return;
+            return false;
         }
         const updatedJobBlock = job.copyAndUpdateBlock(
             parseInt(submission.versionMask, 16),
@@ -353,6 +355,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                     'Duplicate share').response();
                 console.error(err);
                 await this.promiseSocket.write(err);
+                return false;
             }
 
             if (submissionDifficulty > this.entity.bestDifficulty) {
@@ -367,10 +370,11 @@ export class StratumV1Client extends EasyUnsubscribe {
                 'Difficulty too low').response();
             console.error(err);
             await this.promiseSocket.write(err);
-
+            return false;
         }
 
         await this.checkDifficulty();
+        return true;
 
     }
 
