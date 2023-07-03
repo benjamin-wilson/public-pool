@@ -42,7 +42,9 @@ export class MiningJob {
 
 
         // https://github.com/bitcoin/bips/blob/master/bip-0034.mediawiki
-        const blockHeightScript = Buffer.from(`03${this.blockTemplate.height.toString(16).padStart(8, '0')}`, 'hex');
+        //const blockHeightScript = Buffer.from(`03${this.blockTemplate.height.toString(16).padStart(8, '0')}`, 'hex');
+
+        const littleEndianBlockHeight = this.convertToLittleEndian(this.blockTemplate.height.toString(16).padStart(6, '0'))
 
         //The commitment is recorded in a scriptPubKey of the coinbase transaction. It must be at least 38 bytes, with the first 6-byte of 0x6a24aa21a9ed, that is:
         //     1-byte - OP_RETURN (0x6a)
@@ -52,7 +54,7 @@ export class MiningJob {
         //    32-byte - Commitment hash: Double-SHA256(witness root hash|witness reserved value)
         const commitmentHash = this.sha256(this.sha256(this.block.witnessCommit));
         //    39th byte onwards: Optional data with no consensus meaning
-        coinbaseTransaction.ins[0].script = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([blockHeightScript, Buffer.from('00000000' + '00000000', 'hex')])]);
+        coinbaseTransaction.ins[0].script = bitcoinjs.script.compile([Buffer.concat([Buffer.from([littleEndianBlockHeight.byteLength]), littleEndianBlockHeight, Buffer.from('00000000' + '00000000', 'hex')])]);
         coinbaseTransaction.addOutput(bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, commitmentHash])]), 0);
 
         // get the non-witness coinbase tx
