@@ -306,7 +306,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         const job = new MiningJob(this.stratumV1JobsService.getNextId(), payoutInformation, blockTemplate, clearJobs);
 
         this.stratumV1JobsService.addJob(job, clearJobs);
-        ;
+
 
         await this.promiseSocket.write(job.response());
 

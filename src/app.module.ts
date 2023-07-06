@@ -4,6 +4,9 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AppController } from './app.controller';
+import { AddressController } from './controllers/address/address.controller';
+import { ClientController } from './controllers/client/client.controller';
+import { AddressSettingsModule } from './ORM/address-settings/address-settings.module';
 import { ClientStatisticsModule } from './ORM/client-statistics/client-statistics.module';
 import { ClientModule } from './ORM/client/client.module';
 import { BitcoinRpcService } from './services/bitcoin-rpc.service';
@@ -11,10 +14,10 @@ import { BlockTemplateService } from './services/block-template.service';
 import { CleanupService } from './services/cleanup.service';
 import { StratumV1Service } from './services/stratum-v1.service';
 
-
 const ORMModules = [
     ClientStatisticsModule,
-    ClientModule
+    ClientModule,
+    AddressSettingsModule
 ]
 
 @Module({
@@ -30,7 +33,11 @@ const ORMModules = [
         ScheduleModule.forRoot(),
         ...ORMModules
     ],
-    controllers: [AppController],
+    controllers: [
+        AppController,
+        ClientController,
+        AddressController
+    ],
     providers: [
 
         CleanupService,

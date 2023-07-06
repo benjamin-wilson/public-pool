@@ -79,7 +79,7 @@ export class MiningJob {
         const merkleBranches: Buffer[] = merkleProof(merkleTree, transactionBuffers[0]).filter(h => h != null);
         this.block.merkleRoot = merkleBranches.pop();
 
-        this.merkle_branch = merkleBranches.map(b => b.toString('hex'))
+        this.merkle_branch = merkleBranches.slice(1, merkleBranches.length).map(b => b.toString('hex'))
 
         this.block.transactions[0] = coinbaseTransaction;
 
@@ -101,22 +101,19 @@ export class MiningJob {
 
         testBlock.transactions[0].ins[0].script = Buffer.from(`${nonceFreeScript.substring(0, nonceFreeScript.length - 16)}${extraNonce}${extraNonce2}`, 'hex');
 
-        //@ts-ignore
-        //recompute the root
-        testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].__toBuffer(), this.merkle_branch);
+        //recompute the roots
+        testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].getHash(false), this.merkle_branch);
+        testBlock.witnessCommit = bitcoinjs.Block.calculateMerkleRoot(this.block.transactions, true);
 
-        testBlock.timestamp = timestamp
+        testBlock.timestamp = timestamp;
 
         return testBlock;
     }
 
-    private calculateMerkleRootHash(coinbaseTx: string, merkleBranches: string[]): Buffer {
-
-        let coinbaseTxBuf = Buffer.from(coinbaseTx, 'hex');
+    private calculateMerkleRootHash(newRoot: Buffer, merkleBranches: string[]): Buffer {
 
         const bothMerkles = Buffer.alloc(64);
-        let test = this.sha256(coinbaseTxBuf)
-        let newRoot = this.sha256(test);
+
         bothMerkles.set(newRoot);
 
         for (let i = 0; i < merkleBranches.length; i++) {
