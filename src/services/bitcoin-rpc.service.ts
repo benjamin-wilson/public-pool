@@ -14,7 +14,7 @@ export class BitcoinRpcService {
     private _newBlock$: BehaviorSubject<IMiningInfo> = new BehaviorSubject(undefined);
     public newBlock$ = this._newBlock$.pipe(filter(block => block != null));
 
-    constructor(configService: ConfigService) {
+    constructor(private readonly configService: ConfigService) {
         const url = configService.get('BITCOIN_RPC_URL');
         const user = configService.get('BITCOIN_RPC_USER');
         const pass = configService.get('BITCOIN_RPC_PASSWORD');
@@ -65,7 +65,6 @@ export class BitcoinRpcService {
             console.log(`BLOCK SUBMISSION RESPONSE: ${res}`);
             console.log(hexdata);
             console.log(JSON.stringify(res));
-            process.exit();
         } catch (e) {
             console.log(`BLOCK SUBMISSION RESPONSE ERROR: ${e}`);
         }

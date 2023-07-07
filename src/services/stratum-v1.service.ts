@@ -8,6 +8,7 @@ import { ClientService } from '../ORM/client/client.service';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 import { BlockTemplateService } from './block-template.service';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
+import { TelegramService } from './telegram.service';
 
 
 @Injectable()
@@ -17,7 +18,8 @@ export class StratumV1Service implements OnModuleInit {
     private readonly bitcoinRpcService: BitcoinRpcService,
     private readonly blockTemplateService: BlockTemplateService,
     private readonly clientService: ClientService,
-    private readonly clientStatisticsService: ClientStatisticsService
+    private readonly clientStatisticsService: ClientStatisticsService,
+    private readonly telegramService: TelegramService
   ) {
   }
 
@@ -35,7 +37,16 @@ export class StratumV1Service implements OnModuleInit {
 
       const promiseSocket = new PromiseSocket(s);
 
-      const client = new StratumV1Client(promiseSocket, new StratumV1JobsService(), this.blockTemplateService, this.bitcoinRpcService, this.clientService, this.clientStatisticsService);
+      const client = new StratumV1Client(
+        promiseSocket,
+        new StratumV1JobsService(),
+        this.blockTemplateService,
+        this.bitcoinRpcService,
+        this.clientService,
+        this.clientStatisticsService,
+        this.telegramService
+      );
+
 
 
       const clientCount = await this.clientService.connectedClientCount();

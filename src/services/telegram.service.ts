@@ -1,0 +1,54 @@
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { validate } from 'bitcoin-address-validation';
+import * as TelegramBot from 'node-telegram-bot-api';
+import { TelegramSubscriptionsService } from 'src/ORM/telegram-subscriptions/telegram-subscriptions.service';
+
+@Injectable()
+export class TelegramService implements OnModuleInit {
+
+    private bot: TelegramBot;
+
+    constructor(
+        private readonly configService: ConfigService,
+        private readonly telegramSubscriptionsService: TelegramSubscriptionsService
+    ) {
+        const token: string = this.configService.get('TELEGRAM_BOT_TOKEN');
+        if (token.length < 1) {
+            console.log('No Telegram token found');
+            return;
+        }
+        this.bot = new TelegramBot(token, { polling: true });
+        console.log('Telegram bot init');
+
+
+    }
+
+    async onModuleInit(): Promise<void> {
+
+        this.bot.onText(/\/subscribe/, async (msg) => {
+            const address = msg.text.split('/subscribe ')[1];
+            if (validate(address) == false) {
+                this.bot.sendMessage(msg.chat.id, "Invalid address.");
+                return;
+            }
+            await this.telegramSubscriptionsService.saveSubscription(msg.chat.id, address);
+            this.bot.sendMessage(msg.chat.id, "Subscribed!");
+        });
+
+        this.bot.onText(/\/start/, (msg) => {
+            this.bot.sendMessage(msg.chat.id, "Welcome to the public-pool bot. /subscribe <address> to get notified.");
+        });
+
+        this.bot.on('message', (msg) => {
+            console.log(msg);
+        });
+    }
+
+    public async notifySubscribersBlockFound(address: string) {
+        const subscribers = await this.telegramSubscriptionsService.getSubscriptions(address);
+        subscribers.forEach(subscriber => {
+            this.bot.sendMessage(subscriber.telegramChatId, 'You found a block!');
+        });
+    }
+}

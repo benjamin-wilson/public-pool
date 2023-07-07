@@ -5,6 +5,7 @@ import * as crypto from 'crypto';
 import { Socket } from 'net';
 import PromiseSocket from 'promise-socket';
 import { combineLatest, firstValueFrom, interval, startWith, takeUntil } from 'rxjs';
+import { TelegramService } from 'src/services/telegram.service';
 
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientEntity } from '../ORM/client/client.entity';
@@ -47,7 +48,8 @@ export class StratumV1Client extends EasyUnsubscribe {
         private readonly blockTemplateService: BlockTemplateService,
         private readonly bitcoinRpcService: BitcoinRpcService,
         private readonly clientService: ClientService,
-        private readonly clientStatisticsService: ClientStatisticsService
+        private readonly clientStatisticsService: ClientStatisticsService,
+        private readonly telegramService: TelegramService
     ) {
         super();
 
@@ -345,6 +347,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                 console.log('!!! BLOCK FOUND !!!');
                 const blockHex = updatedJobBlock.toHex(false);
                 this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
+                await this.telegramService.notifySubscribersBlockFound(this.clientAuthorization.address);
             }
             try {
                 await this.statistics.addSubmission(this.entity, submissionHash, this.sessionDifficulty);
