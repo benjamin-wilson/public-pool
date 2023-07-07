@@ -53,7 +53,7 @@ export class MiningJob {
         //     4-byte - Commitment header (0xaa21a9ed)
         const segwitMagicBits = Buffer.from('aa21a9ed', 'hex');
         //    32-byte - Commitment hash: Double-SHA256(witness root hash|witness reserved value)
-        const commitmentHash = this.sha256(this.sha256(Buffer.concat([this.block.witnessCommit, Buffer.alloc(32, 0)])));
+        const commitmentHash = this.sha256(this.sha256(Buffer.concat([this.block.witnessCommit, coinbaseTransaction.ins[0].witness[0]])));
         //    39th byte onwards: Optional data with no consensus meaning
         coinbaseTransaction.ins[0].script = Buffer.concat([Buffer.from([littleEndianBlockHeight.byteLength]), littleEndianBlockHeight, Buffer.from('00000000' + '00000000', 'hex')]);
         coinbaseTransaction.addOutput(bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, commitmentHash])]), 0);
