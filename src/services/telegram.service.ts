@@ -13,8 +13,8 @@ export class TelegramService implements OnModuleInit {
         private readonly configService: ConfigService,
         private readonly telegramSubscriptionsService: TelegramSubscriptionsService
     ) {
-        const token: string = this.configService.get('TELEGRAM_BOT_TOKEN');
-        if (token.length < 1) {
+        const token: string | null = this.configService.get('TELEGRAM_BOT_TOKEN');
+        if (token == null || token.length < 1) {
             console.log('No Telegram token found');
             return;
         }
@@ -25,6 +25,10 @@ export class TelegramService implements OnModuleInit {
     }
 
     async onModuleInit(): Promise<void> {
+
+        if (this.bot == null) {
+            return null;
+        }
 
         this.bot.onText(/\/subscribe/, async (msg) => {
             const address = msg.text.split('/subscribe ')[1];
@@ -46,6 +50,10 @@ export class TelegramService implements OnModuleInit {
     }
 
     public async notifySubscribersBlockFound(address: string) {
+        if (this.bot == null) {
+            return null;
+        }
+
         const subscribers = await this.telegramSubscriptionsService.getSubscriptions(address);
         subscribers.forEach(subscriber => {
             this.bot.sendMessage(subscriber.telegramChatId, 'You found a block!');

@@ -13,6 +13,8 @@ import { TelegramSubscriptionsModule } from './ORM/telegram-subscriptions/telegr
 import { BitcoinRpcService } from './services/bitcoin-rpc.service';
 import { BlockTemplateService } from './services/block-template.service';
 import { CleanupService } from './services/cleanup.service';
+import { DiscordService } from './services/discord.service';
+import { NotificationService } from './services/notification.service';
 import { StratumV1Service } from './services/stratum-v1.service';
 import { TelegramService } from './services/telegram.service';
 
@@ -42,11 +44,13 @@ const ORMModules = [
         AddressController
     ],
     providers: [
+        DiscordService,
         CleanupService,
         StratumV1Service,
         TelegramService,
         BitcoinRpcService,
-        BlockTemplateService
+        BlockTemplateService,
+        NotificationService
     ],
 })
 export class AppModule {

@@ -7,8 +7,8 @@ import { ClientStatisticsService } from '../ORM/client-statistics/client-statist
 import { ClientService } from '../ORM/client/client.service';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 import { BlockTemplateService } from './block-template.service';
+import { NotificationService } from './notification.service';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
-import { TelegramService } from './telegram.service';
 
 
 @Injectable()
@@ -19,7 +19,7 @@ export class StratumV1Service implements OnModuleInit {
     private readonly blockTemplateService: BlockTemplateService,
     private readonly clientService: ClientService,
     private readonly clientStatisticsService: ClientStatisticsService,
-    private readonly telegramService: TelegramService
+    private readonly notificationService: NotificationService
   ) {
   }
 
@@ -44,7 +44,7 @@ export class StratumV1Service implements OnModuleInit {
         this.bitcoinRpcService,
         this.clientService,
         this.clientStatisticsService,
-        this.telegramService
+        this.notificationService
       );
 
 
