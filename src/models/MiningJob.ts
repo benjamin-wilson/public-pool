@@ -53,10 +53,10 @@ export class MiningJob {
         //     4-byte - Commitment header (0xaa21a9ed)
         const segwitMagicBits = Buffer.from('aa21a9ed', 'hex');
         //    32-byte - Commitment hash: Double-SHA256(witness root hash|witness reserved value)
-        const commitmentHash = this.sha256(this.sha256(Buffer.concat([this.block.witnessCommit, coinbaseTransaction.ins[0].witness[0]])));
+
         //    39th byte onwards: Optional data with no consensus meaning
         coinbaseTransaction.ins[0].script = Buffer.concat([Buffer.from([littleEndianBlockHeight.byteLength]), littleEndianBlockHeight, Buffer.from('00000000' + '00000000', 'hex')]);
-        coinbaseTransaction.addOutput(bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, commitmentHash])]), 0);
+        coinbaseTransaction.addOutput(bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, this.block.witnessCommit])]), 0);
 
         // get the non-witness coinbase tx
         //@ts-ignore
@@ -103,14 +103,11 @@ export class MiningJob {
 
         //recompute the roots
         testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].getHash(false), this.merkle_branch);
-        testBlock.witnessCommit = bitcoinjs.Block.calculateMerkleRoot(testBlock.transactions, true);
 
-        const segwitMagicBits = Buffer.from('aa21a9ed', 'hex');
-        //    32-byte - Commitment hash: Double-SHA256(witness root hash|witness reserved value)
-        const commitmentHash = this.sha256(this.sha256(Buffer.concat([testBlock.witnessCommit, testBlock.transactions[0].ins[0].witness[0]])));
-        testBlock.transactions[0].outs[testBlock.transactions[0].outs.length - 1].script = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, commitmentHash])])
 
         testBlock.timestamp = timestamp;
+
+        testBlock.checkTxRoots();
 
         return testBlock;
     }
