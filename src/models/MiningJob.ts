@@ -105,6 +105,11 @@ export class MiningJob {
         testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].getHash(false), this.merkle_branch);
         testBlock.witnessCommit = bitcoinjs.Block.calculateMerkleRoot(this.block.transactions, true);
 
+        const segwitMagicBits = Buffer.from('aa21a9ed', 'hex');
+        //    32-byte - Commitment hash: Double-SHA256(witness root hash|witness reserved value)
+        const commitmentHash = this.sha256(this.sha256(Buffer.concat([testBlock.witnessCommit, testBlock.transactions[0].ins[0].witness[0]])));
+        testBlock.transactions[0].outs[testBlock.transactions[0].outs.length - 1].script = bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, commitmentHash])])
+
         testBlock.timestamp = timestamp;
 
         return testBlock;
