@@ -22,6 +22,7 @@ const commands = [
 
 @Injectable()
 export class DiscordService implements OnModuleInit {
+
     private token: string;
     private clientId: string;
     private guildId: string;
@@ -37,6 +38,10 @@ export class DiscordService implements OnModuleInit {
         this.guildId = this.configService.get('DISCORD_BOT_GUILD_ID');
         this.channelId = this.configService.get('DISCORD_BOT_CHANNEL_ID')
 
+        if (this.token.length < 1 || this.clientId.length < 1 || this.guildId.length < 1 || this.channelId.length < 1) {
+            return;
+        }
+
         console.log('discord init')
 
         this.commandCollection = new Collection();
@@ -48,6 +53,10 @@ export class DiscordService implements OnModuleInit {
     }
 
     async onModuleInit(): Promise<void> {
+
+        if (this.bot == null) {
+            return;
+        }
 
         await this.registerCommands();
 
@@ -93,9 +102,13 @@ export class DiscordService implements OnModuleInit {
         }
     }
 
-    public async notifySUbscribersBlockFound() {
+    public async notifySUbscribersBlockFound(message: string) {
+        if (this.bot == null) {
+            return;
+        }
+
         const guild = await this.bot.guilds.fetch(this.guildId);
         const channel = await guild.channels.fetch(this.channelId) as TextChannel;
-        channel.send("Block Found!")
+        channel.send(`Block Found! result ${message}`)
     }
 }

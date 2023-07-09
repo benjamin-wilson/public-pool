@@ -16,8 +16,8 @@ export class NotificationService implements OnModuleInit {
 
     }
 
-    public async notifySubscribersBlockFound(address: string) {
-        await this.discordService.notifySUbscribersBlockFound();
-        await this.telegramService.notifySubscribersBlockFound(address);
+    public async notifySubscribersBlockFound(address: string, message: string) {
+        await this.discordService.notifySUbscribersBlockFound(message);
+        await this.telegramService.notifySubscribersBlockFound(address, message);
     }
 }
