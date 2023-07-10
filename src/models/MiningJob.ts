@@ -24,7 +24,7 @@ export class MiningJob {
     constructor(id: string, payoutInformation: AddressObject[], public blockTemplate: IBlockTemplate, public clean_jobs: boolean) {
 
         this.jobId = id;
-        this.block.prevHash = this.swapEndianWords(this.convertToLittleEndian(blockTemplate.previousblockhash));
+        this.block.prevHash = this.convertToLittleEndian(blockTemplate.previousblockhash);
 
         this.block.version = blockTemplate.version;
         this.block.bits = parseInt(blockTemplate.bits, 16);
@@ -180,7 +180,7 @@ export class MiningJob {
             method: eResponseMethod.MINING_NOTIFY,
             params: [
                 this.jobId,
-                this.block.prevHash,
+                this.swapEndianWords(this.block.prevHash).toString('hex'),
                 this.coinbasePart1,
                 this.coinbasePart2,
                 this.merkle_branch,
