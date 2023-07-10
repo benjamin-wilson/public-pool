@@ -14,7 +14,7 @@ export class NotificationService implements OnModuleInit {
     ) { }
 
     async onModuleInit(): Promise<void> {
-
+        await this.discordService.notifyRestarted();
     }
 
     public async notifySubscribersBlockFound(address: string, height: number, block: Block, message: string) {

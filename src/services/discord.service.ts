@@ -103,6 +103,16 @@ export class DiscordService implements OnModuleInit {
         }
     }
 
+    public async notifyRestarted() {
+        if (this.bot == null) {
+            return;
+        }
+
+        const guild = await this.bot.guilds.fetch(this.guildId);
+        const channel = await guild.channels.fetch(this.channelId) as TextChannel;
+        channel.send(`Server Restarted.`);
+    }
+
     public async notifySubscribersBlockFound(height: number, block: Block, message: string) {
         if (this.bot == null) {
             return;

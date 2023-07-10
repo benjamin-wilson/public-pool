@@ -83,8 +83,9 @@ export class StratumV1Client extends EasyUnsubscribe {
         try {
             parsedMessage = JSON.parse(message);
         } catch (e) {
-            console.log(e);
+            console.log("Invalid JSON");
             this.promiseSocket.end();
+            return;
         }
 
         switch (parsedMessage.method) {
