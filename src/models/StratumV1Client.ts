@@ -1,4 +1,5 @@
 import Big from 'big.js';
+import * as bitcoinjs from 'bitcoinjs-lib';
 import { plainToInstance } from 'class-transformer';
 import { validate, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
@@ -409,8 +410,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
     public calculateDifficulty(header: Buffer): { submissionDifficulty: number, submissionHash: string } {
 
-        const hashBuffer: Buffer = crypto.createHash('sha256').update(header).digest();
-        const hashResult: Buffer = crypto.createHash('sha256').update(hashBuffer).digest();
+        const hashResult = bitcoinjs.crypto.hash256(header);
 
         let s64 = this.le256todouble(hashResult);
 

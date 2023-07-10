@@ -1,6 +1,5 @@
 import { AddressType, getAddressInfo } from 'bitcoin-address-validation';
 import * as bitcoinjs from 'bitcoinjs-lib';
-import * as crypto from 'crypto';
 import * as merkle from 'merkle-lib';
 import * as merkleProof from 'merkle-lib/proof';
 
@@ -25,7 +24,7 @@ export class MiningJob {
     constructor(id: string, payoutInformation: AddressObject[], public blockTemplate: IBlockTemplate, public clean_jobs: boolean) {
 
         this.jobId = id;
-        this.block.prevHash = this.convertToLittleEndian(blockTemplate.previousblockhash);
+        this.block.prevHash = this.swapEndianWords(this.convertToLittleEndian(blockTemplate.previousblockhash));
 
         this.block.version = blockTemplate.version;
         this.block.bits = parseInt(blockTemplate.bits, 16);
@@ -39,12 +38,7 @@ export class MiningJob {
 
         this.block.witnessCommit = bitcoinjs.Block.calculateMerkleRoot(this.block.transactions, true);
 
-
-
-
         // https://github.com/bitcoin/bips/blob/master/bip-0034.mediawiki
-        //const blockHeightScript = Buffer.from(`03${this.blockTemplate.height.toString(16).padStart(8, '0')}`, 'hex');
-
         const littleEndianBlockHeight = this.convertToLittleEndian(this.blockTemplate.height.toString(16).padStart(6, '0'))
 
         //The commitment is recorded in a scriptPubKey of the coinbase transaction. It must be at least 38 bytes, with the first 6-byte of 0x6a24aa21a9ed, that is:
@@ -55,7 +49,7 @@ export class MiningJob {
         //    32-byte - Commitment hash: Double-SHA256(witness root hash|witness reserved value)
 
         //    39th byte onwards: Optional data with no consensus meaning
-        coinbaseTransaction.ins[0].script = Buffer.concat([Buffer.from([littleEndianBlockHeight.byteLength]), littleEndianBlockHeight, Buffer.from('00000000' + '00000000', 'hex')]);
+        coinbaseTransaction.ins[0].script = Buffer.concat([Buffer.from([littleEndianBlockHeight.byteLength]), littleEndianBlockHeight, Buffer.alloc(8, 0)]);
         coinbaseTransaction.addOutput(bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, this.block.witnessCommit])]), 0);
 
         // get the non-witness coinbase tx
@@ -66,10 +60,8 @@ export class MiningJob {
 
         const partOneIndex = serializedCoinbaseTx.indexOf(inputScript) + inputScript.length;
 
-        const coinbasePart1 = serializedCoinbaseTx.slice(0, partOneIndex);
-        const coinbasePart2 = serializedCoinbaseTx.slice(partOneIndex);
-        this.coinbasePart1 = coinbasePart1.slice(0, coinbasePart1.length - 16);
-        this.coinbasePart2 = coinbasePart2;
+        this.coinbasePart1 = serializedCoinbaseTx.slice(0, partOneIndex - 16);
+        this.coinbasePart2 = serializedCoinbaseTx.slice(partOneIndex);
 
 
         // Calculate merkle branch
@@ -79,6 +71,7 @@ export class MiningJob {
         const merkleBranches: Buffer[] = merkleProof(merkleTree, transactionBuffers[0]).filter(h => h != null);
         this.block.merkleRoot = merkleBranches.pop();
 
+        // remove the first (coinbase) and last (root) element from the branch
         this.merkle_branch = merkleBranches.slice(1, merkleBranches.length).map(b => b.toString('hex'))
 
         this.block.transactions[0] = coinbaseTransaction;
@@ -97,11 +90,11 @@ export class MiningJob {
         }
 
         // set the nonces
-        const nonceFreeScript = testBlock.transactions[0].ins[0].script.toString('hex');
+        const nonceScript = testBlock.transactions[0].ins[0].script.toString('hex');
 
-        testBlock.transactions[0].ins[0].script = Buffer.from(`${nonceFreeScript.substring(0, nonceFreeScript.length - 16)}${extraNonce}${extraNonce2}`, 'hex');
+        testBlock.transactions[0].ins[0].script = Buffer.from(`${nonceScript.substring(0, nonceScript.length - 16)}${extraNonce}${extraNonce2}`, 'hex');
 
-        //recompute the roots
+        //recompute the root since we updated the coinbase script with the nonces
         testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].getHash(false), this.merkle_branch);
 
 
@@ -118,7 +111,7 @@ export class MiningJob {
 
         for (let i = 0; i < merkleBranches.length; i++) {
             bothMerkles.set(Buffer.from(merkleBranches[i], 'hex'), 32);
-            newRoot = this.sha256(this.sha256(bothMerkles));
+            newRoot = bitcoinjs.crypto.hash256(bothMerkles);
             bothMerkles.set(newRoot);
         }
 
@@ -134,7 +127,7 @@ export class MiningJob {
         coinbaseTransaction.version = 2;
 
         // Add the coinbase input (input with no previous output)
-        coinbaseTransaction.addInput(Buffer.from('0000000000000000000000000000000000000000000000000000000000000000', 'hex'), 0xffffffff, 0xffffffff);
+        coinbaseTransaction.addInput(Buffer.alloc(32, 0), 0xffffffff, 0xffffffff);
 
         // Add an output
         let rewardBalance = reward;
@@ -180,11 +173,6 @@ export class MiningJob {
         }
     }
 
-    private sha256(data) {
-        return crypto.createHash('sha256').update(data).digest()
-    }
-
-
     public response(): string {
 
         const job = {
@@ -192,7 +180,7 @@ export class MiningJob {
             method: eResponseMethod.MINING_NOTIFY,
             params: [
                 this.jobId,
-                this.swapEndianWords(this.block.prevHash).toString('hex'),
+                this.block.prevHash,
                 this.coinbasePart1,
                 this.coinbasePart2,
                 this.merkle_branch,
