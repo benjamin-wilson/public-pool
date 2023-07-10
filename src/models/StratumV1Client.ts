@@ -296,14 +296,14 @@ export class StratumV1Client extends EasyUnsubscribe {
 
     private async sendNewMiningJob(blockTemplate: IBlockTemplate, clearJobs: boolean) {
 
-        // const payoutInformation = [
-        //     { address: 'bc1q99n3pu025yyu0jlywpmwzalyhm36tg5u37w20d', percent: 1.8 },
-        //     { address: this.clientAuthorization.address, percent: 98.2 }
-        // ];
-
         const payoutInformation = [
-            { address: this.clientAuthorization.address, percent: 100 }
+            { address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4', percent: 1.8 },
+            { address: this.clientAuthorization.address, percent: 98.2 }
         ];
+
+        // const payoutInformation = [
+        //     { address: this.clientAuthorization.address, percent: 100 }
+        // ];
 
         const job = new MiningJob(this.stratumV1JobsService.getNextId(), payoutInformation, blockTemplate, clearJobs);
 
@@ -347,7 +347,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                 console.log('!!! BLOCK FOUND !!!');
                 const blockHex = updatedJobBlock.toHex(false);
                 const result = await this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
-                await this.notificationService.notifySubscribersBlockFound(this.clientAuthorization.address, result);
+                await this.notificationService.notifySubscribersBlockFound(this.clientAuthorization.address, job.blockTemplate.height, updatedJobBlock, result);
             }
             try {
                 await this.statistics.addSubmission(this.entity, submissionHash, this.sessionDifficulty);

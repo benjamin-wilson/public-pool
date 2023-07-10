@@ -107,8 +107,6 @@ export class MiningJob {
 
         testBlock.timestamp = timestamp;
 
-        testBlock.checkTxRoots();
-
         return testBlock;
     }
 

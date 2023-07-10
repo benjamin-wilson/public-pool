@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { validate } from 'bitcoin-address-validation';
+import { Block } from 'bitcoinjs-lib';
 import * as TelegramBot from 'node-telegram-bot-api';
 import { TelegramSubscriptionsService } from 'src/ORM/telegram-subscriptions/telegram-subscriptions.service';
 
@@ -48,14 +49,14 @@ export class TelegramService implements OnModuleInit {
         });
     }
 
-    public async notifySubscribersBlockFound(address: string, message: string) {
+    public async notifySubscribersBlockFound(address: string, height: number, block: Block, message: string) {
         if (this.bot == null) {
             return;
         }
 
         const subscribers = await this.telegramSubscriptionsService.getSubscriptions(address);
         subscribers.forEach(subscriber => {
-            this.bot.sendMessage(subscriber.telegramChatId, `You found a block! ${message}`);
+            this.bot.sendMessage(subscriber.telegramChatId, `Block Found! Result: ${message}, Height: ${height}`);
         });
     }
 }

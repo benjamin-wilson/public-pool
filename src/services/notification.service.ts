@@ -1,4 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Block } from 'bitcoinjs-lib';
 
 import { DiscordService } from './discord.service';
 import { TelegramService } from './telegram.service';
@@ -16,8 +17,8 @@ export class NotificationService implements OnModuleInit {
 
     }
 
-    public async notifySubscribersBlockFound(address: string, message: string) {
-        await this.discordService.notifySUbscribersBlockFound(message);
-        await this.telegramService.notifySubscribersBlockFound(address, message);
+    public async notifySubscribersBlockFound(address: string, height: number, block: Block, message: string) {
+        await this.discordService.notifySubscribersBlockFound(height, block, message);
+        await this.telegramService.notifySubscribersBlockFound(address, height, block, message);
     }
 }

@@ -58,11 +58,12 @@ export class BitcoinRpcService {
     }
 
     public async SUBMIT_BLOCK(hexdata: string): Promise<string> {
-        let response: string = '';
+        let response: string = 'unknown';
         try {
-            response = await this.client.submitblock({
+            await this.client.submitblock({
                 hexdata
             });
+            response = 'SUCCESS!';
             console.log(`BLOCK SUBMISSION RESPONSE: ${response}`);
             console.log(hexdata);
             console.log(JSON.stringify(response));

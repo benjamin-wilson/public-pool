@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Block } from 'bitcoinjs-lib';
 import { Client, Collection, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder, TextChannel } from 'discord.js';
 
 interface IDiscordCommand {
@@ -102,13 +103,13 @@ export class DiscordService implements OnModuleInit {
         }
     }
 
-    public async notifySUbscribersBlockFound(message: string) {
+    public async notifySubscribersBlockFound(height: number, block: Block, message: string) {
         if (this.bot == null) {
             return;
         }
 
         const guild = await this.bot.guilds.fetch(this.guildId);
         const channel = await guild.channels.fetch(this.channelId) as TextChannel;
-        channel.send(`Block Found! result ${message}`)
+        channel.send(`Block Found! Result: ${message}, Height: ${height}`)
     }
 }
