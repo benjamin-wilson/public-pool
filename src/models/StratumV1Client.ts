@@ -111,7 +111,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                     const err = new StratumErrorMessage(
                         subscriptionMessage.id,
                         eStratumErrorCode.OtherUnknown,
-                        'Subscription error',
+                        'Subscription validation error',
                         errors).response();
                     console.error(err);
                     await this.promiseSocket.write(err);
@@ -141,7 +141,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                     const err = new StratumErrorMessage(
                         configurationMessage.id,
                         eStratumErrorCode.OtherUnknown,
-                        'Configuration error',
+                        'Configuration validation error',
                         errors).response();
                     console.error(err);
                     await this.promiseSocket.write(err);
@@ -171,7 +171,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                     const err = new StratumErrorMessage(
                         authorizationMessage.id,
                         eStratumErrorCode.OtherUnknown,
-                        'Authorization error',
+                        'Authorization validation error',
                         errors).response();
                     console.error(err);
                     await this.promiseSocket.write(err);
@@ -206,7 +206,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                     const err = new StratumErrorMessage(
                         suggestDifficultyMessage.id,
                         eStratumErrorCode.OtherUnknown,
-                        'Suggest difficulty error',
+                        'Suggest difficulty validation error',
                         errors).response();
                     console.error(err);
                     await this.promiseSocket.write(err);
@@ -237,7 +237,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                     const err = new StratumErrorMessage(
                         miningSubmitMessage.id,
                         eStratumErrorCode.OtherUnknown,
-                        'Suggest difficulty error',
+                        'Mining Submit validation error',
                         errors).response();
                     console.error(err);
                     await this.promiseSocket.write(err);

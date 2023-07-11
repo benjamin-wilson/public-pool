@@ -45,7 +45,7 @@ export class MiningSubmitMessage extends StratumBaseMessage {
     @Expose()
     @IsString()
     @Transform(({ value, key, obj, type }) => {
-        return obj.params[5] == null ? 0 : obj.params[5];
+        return obj.params[5] == null ? '0' : obj.params[5];
     })
     public versionMask?: string | null;
 
