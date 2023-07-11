@@ -9,8 +9,10 @@ import { ClientStatisticsEntity } from './client-statistics.entity';
 export class ClientStatisticsService {
 
     constructor(
+
+
         @InjectRepository(ClientStatisticsEntity)
-        private clientStatisticsRepository: Repository<ClientStatisticsEntity>
+        private clientStatisticsRepository: Repository<ClientStatisticsEntity>,
     ) {
 
     }
@@ -29,6 +31,38 @@ export class ClientStatisticsService {
             .where('time < :time', { time: oneDayAgo })
             .execute();
     }
+
+    public async getChartDataForSite() {
+
+
+        const query = `
+        WITH result_set AS (
+            SELECT
+                MAX(time) || 'GMT' AS label,
+                (SUM(difficulty) * 4294967296) /
+                ((JULIANDAY(MAX(time)) - JULIANDAY(MIN(time))) * 24 * 60 * 60 * 1000000000) AS data
+            FROM
+                client_statistics_entity AS entry
+            WHERE
+                entry.time > datetime("now", "-1 day")
+            GROUP BY
+                strftime('%Y-%m-%d %H', time, 'localtime') || (strftime('%M', time, 'localtime') / 10)
+            ORDER BY
+            time
+        )
+        SELECT  *
+        FROM result_set
+        WHERE label <> (SELECT MAX(label) FROM result_set);
+    `;
+
+        const result = await this.clientStatisticsRepository.query(query);
+
+
+
+        return result;
+
+    }
+
 
     public async getHashRateForAddress(address: string) {
 

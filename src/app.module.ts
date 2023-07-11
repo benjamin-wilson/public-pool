@@ -1,3 +1,4 @@
+import { CacheModule } from '@nestjs/cache-manager';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -35,7 +36,9 @@ const ORMModules = [
             autoLoadEntities: true,
             logging: false
         }),
+        CacheModule.register(),
         ScheduleModule.forRoot(),
+
         ...ORMModules
     ],
     controllers: [
