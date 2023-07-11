@@ -1,3 +1,4 @@
+import { CacheModule } from '@nestjs/cache-manager';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -33,9 +34,12 @@ const ORMModules = [
             database: './DB/public-pool.sqlite',
             synchronize: true,
             autoLoadEntities: true,
+            cache: true,
             logging: false
         }),
+        CacheModule.register(),
         ScheduleModule.forRoot(),
+
         ...ORMModules
     ],
     controllers: [

@@ -15,7 +15,7 @@ export class TelegramService implements OnModuleInit {
         private readonly telegramSubscriptionsService: TelegramSubscriptionsService
     ) {
         const token: string | null = this.configService.get('TELEGRAM_BOT_TOKEN');
-        if (token.length < 1) {
+        if (token == null || token.length < 1) {
             return;
         }
         this.bot = new TelegramBot(token, { polling: true });

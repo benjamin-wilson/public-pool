@@ -39,7 +39,11 @@ export class DiscordService implements OnModuleInit {
         this.guildId = this.configService.get('DISCORD_BOT_GUILD_ID');
         this.channelId = this.configService.get('DISCORD_BOT_CHANNEL_ID')
 
-        if (this.token.length < 1 || this.clientId.length < 1 || this.guildId.length < 1 || this.channelId.length < 1) {
+        if (this.token == null || this.token.length < 1 ||
+            this.clientId == null || this.clientId.length < 1 ||
+            this.guildId == null || this.guildId.length < 1 ||
+            this.channelId == null || this.channelId.length < 1
+        ) {
             return;
         }
 

@@ -77,7 +77,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
 
     private async handleMessage(message: string) {
-        console.log('Received:', message);
+        console.log(`Received from ${this.extraNonce}`, message);
 
         // Parse the message and check if it's the initial subscription message
         let parsedMessage = null;
@@ -248,7 +248,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
 
         if (this.clientSubscription != null
-            && this.clientConfiguration != null
+            // && this.clientConfiguration != null
             && this.clientAuthorization != null
             && this.stratumInitialized == false) {
 
@@ -298,14 +298,22 @@ export class StratumV1Client extends EasyUnsubscribe {
 
     private async sendNewMiningJob(blockTemplate: IBlockTemplate, clearJobs: boolean) {
 
-        const payoutInformation = [
-            { address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4', percent: 1.8 },
-            { address: this.clientAuthorization.address, percent: 98.2 }
-        ];
+        const hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientAuthorization.address, this.clientAuthorization.worker, this.extraNonce);
 
-        // const payoutInformation = [
-        //     { address: this.clientAuthorization.address, percent: 100 }
-        // ];
+        let payoutInformation;
+        //10Th/s
+        const noFee = hashRate < 10000000000000;
+        if (noFee) {
+            payoutInformation = [
+                { address: this.clientAuthorization.address, percent: 100 }
+            ];
+
+        } else {
+            payoutInformation = [
+                { address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4', percent: 1.5 },
+                { address: this.clientAuthorization.address, percent: 98.5 }
+            ];
+        }
 
         const job = new MiningJob(this.stratumV1JobsService.getNextId(), payoutInformation, blockTemplate, clearJobs);
 
@@ -314,7 +322,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
         await this.promiseSocket.write(job.response());
 
-        console.log(`Sent new job to ${this.extraNonce}. (clearJobs: ${clearJobs})`)
+        console.log(`Sent new job to ${this.extraNonce}. (clearJobs: ${clearJobs}, fee?: ${!noFee})`)
 
     }
 
