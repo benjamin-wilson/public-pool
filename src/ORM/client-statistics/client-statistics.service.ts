@@ -40,7 +40,7 @@ export class ClientStatisticsService {
             SELECT
                 MAX(time) || 'GMT' AS label,
                 (SUM(difficulty) * 4294967296) /
-                ((JULIANDAY(MAX(time)) - JULIANDAY(MIN(time))) * 24 * 60 * 60 * 1000000000) AS data
+                ((JULIANDAY(MAX(time)) - JULIANDAY(MIN(time))) * 24 * 60 * 60) AS data
             FROM
                 client_statistics_entity AS entry
             WHERE
@@ -81,7 +81,7 @@ export class ClientStatisticsService {
         const timeDiff = result[0].timeDiff;
         const difficultySum = result[0].difficultySum;
 
-        return (difficultySum * 4294967296) / (timeDiff * 1000000000);
+        return (difficultySum * 4294967296) / (timeDiff);
 
     }
 
@@ -91,7 +91,7 @@ export class ClientStatisticsService {
                 SELECT
                     MAX(time) || 'GMT' AS label,
                     (SUM(difficulty) * 4294967296) /
-                    ((JULIANDAY(MAX(time)) - JULIANDAY(MIN(time))) * 24 * 60 * 60 * 1000000000) AS data
+                    ((JULIANDAY(MAX(time)) - JULIANDAY(MIN(time))) * 24 * 60 * 60) AS data
                 FROM
                     client_statistics_entity AS entry
                 WHERE
@@ -129,7 +129,7 @@ export class ClientStatisticsService {
         const timeDiff = result[0].timeDiff;
         const difficultySum = result[0].difficultySum;
 
-        return (difficultySum * 4294967296) / (timeDiff * 1000000000);
+        return (difficultySum * 4294967296) / (timeDiff);
 
     }
 
@@ -139,7 +139,7 @@ export class ClientStatisticsService {
                 SELECT
                     MAX(time) || 'GMT' AS label,
                     (SUM(difficulty) * 4294967296) /
-                    ((JULIANDAY(MAX(time)) - JULIANDAY(MIN(time))) * 24 * 60 * 60 * 1000000000) AS data
+                    ((JULIANDAY(MAX(time)) - JULIANDAY(MIN(time))) * 24 * 60 * 60) AS data
                 FROM
                     client_statistics_entity AS entry
                 WHERE
@@ -178,7 +178,7 @@ export class ClientStatisticsService {
         const timeDiff = result[0].timeDiff;
         const difficultySum = result[0].difficultySum;
 
-        return (difficultySum * 4294967296) / (timeDiff * 1000000000);
+        return (difficultySum * 4294967296) / (timeDiff);
 
     }
 
@@ -188,7 +188,7 @@ export class ClientStatisticsService {
                 SELECT
                     MAX(time) || 'GMT' AS label,
                     (SUM(difficulty) * 4294967296) /
-                    ((JULIANDAY(MAX(time)) - JULIANDAY(MIN(time))) * 24 * 60 * 60 * 1000000000) AS data
+                    ((JULIANDAY(MAX(time)) - JULIANDAY(MIN(time))) * 24 * 60 * 60) AS data
                 FROM
                     client_statistics_entity AS entry
                 WHERE
