@@ -349,11 +349,11 @@ export class StratumV1Client extends EasyUnsubscribe {
         );
         const { submissionDifficulty, submissionHash } = this.calculateDifficulty(updatedJobBlock.toBuffer(true));
 
-        console.log(`DIFF: ${Math.round(submissionDifficulty)} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonce}`);
+        console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonce}`);
 
-        if (submissionDifficulty >= this.sessionDifficulty) {
+        if (submissionDifficulty.gte(this.sessionDifficulty)) {
 
-            if (submissionDifficulty >= job.networkDifficulty) {
+            if (submissionDifficulty.gte(job.networkDifficulty)) {
                 console.log('!!! BLOCK FOUND !!!');
                 const blockHex = updatedJobBlock.toHex(false);
                 const result = await this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
@@ -371,9 +371,9 @@ export class StratumV1Client extends EasyUnsubscribe {
                 return false;
             }
 
-            if (submissionDifficulty > this.entity.bestDifficulty) {
-                await this.clientService.updateBestDifficulty(this.extraNonce, submissionDifficulty);
-                this.entity.bestDifficulty = submissionDifficulty;
+            if (submissionDifficulty.gt(this.entity.bestDifficulty)) {
+                await this.clientService.updateBestDifficulty(this.extraNonce, submissionDifficulty.toNumber());
+                this.entity.bestDifficulty = submissionDifficulty.toNumber();
             }
 
         } else {
@@ -416,14 +416,14 @@ export class StratumV1Client extends EasyUnsubscribe {
         }
     }
 
-    public calculateDifficulty(header: Buffer): { submissionDifficulty: number, submissionHash: string } {
+    public calculateDifficulty(header: Buffer): { submissionDifficulty: Big, submissionHash: string } {
 
         const hashResult = bitcoinjs.crypto.hash256(header);
 
         let s64 = this.le256todouble(hashResult);
 
         const truediffone = Big('26959535291011309493156476344723991336010898738574164086137773096960');
-        const difficulty = truediffone.div(s64.toString()).toNumber();
+        const difficulty = truediffone.div(s64.toString());
         return { submissionDifficulty: difficulty, submissionHash: hashResult.toString('hex') };
     }
 
