@@ -1,5 +1,5 @@
 import { Expose, Transform } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsString } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsOptional, IsString } from 'class-validator';
 
 import { eRequestMethod } from '../enums/eRequestMethod';
 import { StratumBaseMessage } from './StratumBaseMessage';
@@ -41,12 +41,15 @@ export class MiningSubmitMessage extends StratumBaseMessage {
         return obj.params[4];
     })
     public nonce: string
+
     @Expose()
+    @IsOptional()
     @IsString()
     @Transform(({ value, key, obj, type }) => {
         return obj.params[5];
     })
-    public versionMask: string;
+    public versionMask?: string | null;
+
     constructor() {
         super();
         this.method = eRequestMethod.AUTHORIZE;
