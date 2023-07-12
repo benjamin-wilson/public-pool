@@ -347,9 +347,9 @@ export class StratumV1Client extends EasyUnsubscribe {
             submission.extraNonce2,
             parseInt(submission.ntime, 16)
         );
-        const { submissionDifficulty, submissionHash } = this.calculateDifficulty(updatedJobBlock.toBuffer(true));
+        const { submissionDifficulty, submissionHash, hashResult } = this.calculateDifficulty(updatedJobBlock.toBuffer(true));
 
-        console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonce}`);
+        console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonce} (${hashResult})`);
 
         if (submissionDifficulty.gte(this.sessionDifficulty)) {
 
@@ -416,7 +416,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         }
     }
 
-    public calculateDifficulty(header: Buffer): { submissionDifficulty: Big, submissionHash: string } {
+    public calculateDifficulty(header: Buffer): { submissionDifficulty: Big, submissionHash: string, hashResult: string } {
 
         const hashResult = bitcoinjs.crypto.hash256(header);
 
@@ -424,7 +424,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
         const truediffone = Big('26959535291011309493156476344723991336010898738574164086137773096960');
         const difficulty = truediffone.div(s64.toString());
-        return { submissionDifficulty: difficulty, submissionHash: hashResult.toString('hex') };
+        return { submissionDifficulty: difficulty, submissionHash: hashResult.toString('hex'), hashResult: hashResult.toString('hex') };
     }
 
 
