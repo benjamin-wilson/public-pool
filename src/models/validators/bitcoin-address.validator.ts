@@ -1,11 +1,11 @@
-import { validate } from 'bitcoin-address-validation';
+import { Network, validate } from 'bitcoin-address-validation';
 import { registerDecorator, ValidationOptions, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
 
 @ValidatorConstraint({ name: 'bitcoinAddress', async: false })
 export class BitcoinAddress implements ValidatorConstraintInterface {
     validate(value: string): boolean {
         // Implement your custom validation logic here
-        return validate(value);
+        return validate(value, Network.mainnet);
     }
 
     defaultMessage(): string {
