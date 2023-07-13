@@ -322,7 +322,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
         await this.promiseSocket.write(job.response());
 
-        console.log(`Sent new job to ${this.extraNonce}. (clearJobs: ${clearJobs}, fee?: ${!noFee})`)
+        console.log(`Sent new job to ${this.clientAuthorization.worker}.${this.extraNonce}. (clearJobs: ${clearJobs}, fee?: ${!noFee})`)
 
     }
 
