@@ -49,9 +49,9 @@ export class MiningJob {
         //    32-byte - Commitment hash: Double-SHA256(witness root hash|witness reserved value)
 
         //    39th byte onwards: Optional data with no consensus meaning
-        coinbaseTransaction.ins[0].script = Buffer.concat([Buffer.from([littleEndianBlockHeight.byteLength]), littleEndianBlockHeight, Buffer.alloc(8, 0)]);
-        //const extra = Buffer.from('\\public-pool\\');
-        //coinbaseTransaction.addOutput(bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, this.block.witnessCommit, extra])]), 0);
+        const extra = Buffer.from('\\public-pool\\');
+        coinbaseTransaction.ins[0].script = Buffer.concat([Buffer.from([littleEndianBlockHeight.byteLength]), littleEndianBlockHeight, extra, Buffer.alloc(8, 0)]);
+
         coinbaseTransaction.addOutput(bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, this.block.witnessCommit])]), 0);
 
         // get the non-witness coinbase tx

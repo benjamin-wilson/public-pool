@@ -367,7 +367,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                     worker: this.clientAuthorization.worker,
                     sessionId: this.extraNonce,
                     blockData: blockHex
-                })
+                });
                 await this.notificationService.notifySubscribersBlockFound(this.clientAuthorization.address, job.blockTemplate.height, updatedJobBlock, result);
             }
             try {

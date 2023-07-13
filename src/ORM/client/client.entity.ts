@@ -1,9 +1,10 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 import { DateTimeTransformer } from '../utils/DateTimeTransformer';
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
 @Entity()
+@Index(['address', 'clientName', 'sessionId'], { unique: true })
 export class ClientEntity extends TrackedEntity {
 
     @PrimaryGeneratedColumn()

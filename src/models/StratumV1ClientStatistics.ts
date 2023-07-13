@@ -64,6 +64,9 @@ export class StratumV1ClientStatistics {
     }
 
     private nearestPowerOfTwo(val) {
+        if (val === 0) {
+            return null;
+        }
         let x = val | (val >> 1);
         x = x | (x >> 2);
         x = x | (x >> 4);
@@ -71,17 +74,8 @@ export class StratumV1ClientStatistics {
         x = x | (x >> 16);
         x = x | (x >> 32);
         const res = x - (x >> 1);
-        if (res < 1) {
-            if (val < 0.01) {
-                return 0.01;
-            }
-            let y = (val * 100) | ((val * 100) >> 1);
-            y = y | (y >> 2);
-            y = y | (y >> 4);
-            y = y | (y >> 8);
-            y = y | (y >> 16);
-            y = y | (y >> 32);
-            return (y - (y >> 1)) / 100;
+        if (res == 0) {
+            return this.nearestPowerOfTwo(val * 100) / 100;
         }
         return res;
     }
