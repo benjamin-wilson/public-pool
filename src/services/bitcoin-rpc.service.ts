@@ -48,7 +48,7 @@ export class BitcoinRpcService {
                 capabilities: ['serverlist', 'proposal']
             }
         });
-
+        console.log(`getblocktemplate tx count: ${result.transactions.length}`);
         return result;
     }
 
