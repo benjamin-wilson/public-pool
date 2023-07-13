@@ -353,9 +353,9 @@ export class StratumV1Client extends EasyUnsubscribe {
         console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonce}`);
         console.log(`Header: ${header.toString('hex')}`);
 
-        if (submissionDifficulty.gte(this.sessionDifficulty)) {
+        if (submissionDifficulty >= this.sessionDifficulty) {
 
-            if (submissionDifficulty.gte(job.networkDifficulty)) {
+            if (submissionDifficulty >= job.networkDifficulty) {
                 console.log('!!! BLOCK FOUND !!!');
                 const blockHex = updatedJobBlock.toHex(false);
                 const result = await this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
@@ -373,9 +373,9 @@ export class StratumV1Client extends EasyUnsubscribe {
                 return false;
             }
 
-            if (submissionDifficulty.gt(this.entity.bestDifficulty)) {
-                await this.clientService.updateBestDifficulty(this.extraNonce, submissionDifficulty.toNumber());
-                this.entity.bestDifficulty = submissionDifficulty.toNumber();
+            if (submissionDifficulty > this.entity.bestDifficulty) {
+                await this.clientService.updateBestDifficulty(this.extraNonce, submissionDifficulty);
+                this.entity.bestDifficulty = submissionDifficulty;
             }
 
         } else {
@@ -418,7 +418,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         }
     }
 
-    public calculateDifficulty(header: Buffer): { submissionDifficulty: Big, submissionHash: string } {
+    public calculateDifficulty(header: Buffer): { submissionDifficulty: number, submissionHash: string } {
 
         const hashResult = bitcoinjs.crypto.hash256(header);
 
@@ -426,7 +426,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
         const truediffone = Big('26959535291011309493156476344723991336010898738574164086137773096960');
         const difficulty = truediffone.div(s64.toString());
-        return { submissionDifficulty: difficulty, submissionHash: hashResult.toString('hex') };
+        return { submissionDifficulty: difficulty.toNumber(), submissionHash: hashResult.toString('hex') };
     }
 
 
