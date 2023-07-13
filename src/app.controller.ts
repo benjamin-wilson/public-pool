@@ -2,6 +2,7 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Controller, Get, Inject } from '@nestjs/common';
 import { Cache } from 'cache-manager';
 
+import { BlocksService } from './ORM/blocks/blocks.service';
 import { ClientStatisticsService } from './ORM/client-statistics/client-statistics.service';
 import { ClientService } from './ORM/client/client.service';
 
@@ -10,7 +11,8 @@ export class AppController {
   constructor(
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
     private clientService: ClientService,
-    private clientStatisticsService: ClientStatisticsService
+    private clientStatisticsService: ClientStatisticsService,
+    private blocksService: BlocksService
   ) { }
 
   @Get('info')
@@ -26,10 +28,13 @@ export class AppController {
 
     const chartData = await this.clientStatisticsService.getChartDataForSite();
 
-    await this.cacheManager.set(CACHE_KEY, chartData, 600)
+    await this.cacheManager.set(CACHE_KEY, chartData, 600);
+
+    const blockData = await this.blocksService.getFoundBlocks();
 
     return {
-      chartData
+      chartData,
+      blockData
     };
   }
 

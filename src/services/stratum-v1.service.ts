@@ -3,6 +3,7 @@ import { Server, Socket } from 'net';
 import { PromiseSocket } from 'promise-socket';
 
 import { StratumV1Client } from '../models/StratumV1Client';
+import { BlocksService } from '../ORM/blocks/blocks.service';
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientService } from '../ORM/client/client.service';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
@@ -19,7 +20,8 @@ export class StratumV1Service implements OnModuleInit {
     private readonly blockTemplateService: BlockTemplateService,
     private readonly clientService: ClientService,
     private readonly clientStatisticsService: ClientStatisticsService,
-    private readonly notificationService: NotificationService
+    private readonly notificationService: NotificationService,
+    private readonly blocksService: BlocksService
   ) {
   }
 
@@ -44,7 +46,8 @@ export class StratumV1Service implements OnModuleInit {
         this.bitcoinRpcService,
         this.clientService,
         this.clientStatisticsService,
-        this.notificationService
+        this.notificationService,
+        this.blocksService
       );
 
 

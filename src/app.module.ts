@@ -8,6 +8,7 @@ import { AppController } from './app.controller';
 import { AddressController } from './controllers/address/address.controller';
 import { ClientController } from './controllers/client/client.controller';
 import { AddressSettingsModule } from './ORM/address-settings/address-settings.module';
+import { BlocksModule } from './ORM/blocks/blocks.module';
 import { ClientStatisticsModule } from './ORM/client-statistics/client-statistics.module';
 import { ClientModule } from './ORM/client/client.module';
 import { TelegramSubscriptionsModule } from './ORM/telegram-subscriptions/telegram-subscriptions.module';
@@ -23,7 +24,8 @@ const ORMModules = [
     ClientStatisticsModule,
     ClientModule,
     AddressSettingsModule,
-    TelegramSubscriptionsModule
+    TelegramSubscriptionsModule,
+    BlocksModule
 ]
 
 @Module({

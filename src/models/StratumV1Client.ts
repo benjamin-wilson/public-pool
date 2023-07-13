@@ -8,6 +8,7 @@ import PromiseSocket from 'promise-socket';
 import { combineLatest, firstValueFrom, interval, startWith, takeUntil } from 'rxjs';
 import { NotificationService } from 'src/services/notification.service';
 
+import { BlocksService } from '../ORM/blocks/blocks.service';
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientEntity } from '../ORM/client/client.entity';
 import { ClientService } from '../ORM/client/client.service';
@@ -50,7 +51,8 @@ export class StratumV1Client extends EasyUnsubscribe {
         private readonly bitcoinRpcService: BitcoinRpcService,
         private readonly clientService: ClientService,
         private readonly clientStatisticsService: ClientStatisticsService,
-        private readonly notificationService: NotificationService
+        private readonly notificationService: NotificationService,
+        private readonly blocksService: BlocksService
     ) {
         super();
 
@@ -359,6 +361,13 @@ export class StratumV1Client extends EasyUnsubscribe {
                 console.log('!!! BLOCK FOUND !!!');
                 const blockHex = updatedJobBlock.toHex(false);
                 const result = await this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
+                await this.blocksService.save({
+                    height: job.blockTemplate.height,
+                    minerAddress: this.clientAuthorization.address,
+                    worker: this.clientAuthorization.worker,
+                    sessionId: this.extraNonce,
+                    blockData: blockHex
+                })
                 await this.notificationService.notifySubscribersBlockFound(this.clientAuthorization.address, job.blockTemplate.height, updatedJobBlock, result);
             }
             try {
