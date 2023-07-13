@@ -312,7 +312,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
         } else {
             payoutInformation = [
-                { address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4', percent: 1.5 },
+                { address: 'bc1q99n3pu025yyu0jlywpmwzalyhm36tg5u37w20d', percent: 1.5 },
                 { address: this.clientAuthorization.address, percent: 98.5 }
             ];
         }
