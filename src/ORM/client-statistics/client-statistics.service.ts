@@ -59,7 +59,10 @@ export class ClientStatisticsService {
 
 
 
-        return result;
+        return result.map(res => {
+            res.label = new Date(res).toISOString();
+            return res;
+        });
 
     }
 
@@ -107,6 +110,11 @@ export class ClientStatisticsService {
         `;
 
         const result = await this.clientStatisticsRepository.query(query, [address]);
+
+        return result.map(res => {
+            res.label = new Date(res).toISOString();
+            return res;
+        });
 
         return result;
     }
@@ -156,6 +164,11 @@ export class ClientStatisticsService {
 
         const result = await this.clientStatisticsRepository.query(query, [address, clientName]);
 
+        return result.map(res => {
+            res.label = new Date(res).toISOString();
+            return res;
+        });
+
         return result;
     }
 
@@ -204,6 +217,11 @@ export class ClientStatisticsService {
         `;
 
         const result = await this.clientStatisticsRepository.query(query, [address, clientName, sessionId]);
+
+        return result.map(res => {
+            res.label = new Date(res).toISOString();
+            return res;
+        });
 
         return result;
     }
