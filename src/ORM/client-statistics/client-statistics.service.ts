@@ -60,7 +60,7 @@ export class ClientStatisticsService {
 
 
         return result.map(res => {
-            res.label = new Date(res).toISOString();
+            res.label = new Date(res.label).toISOString();
             return res;
         });
 
@@ -112,7 +112,7 @@ export class ClientStatisticsService {
         const result = await this.clientStatisticsRepository.query(query, [address]);
 
         return result.map(res => {
-            res.label = new Date(res).toISOString();
+            res.label = new Date(res.label).toISOString();
             return res;
         });
 
@@ -165,7 +165,7 @@ export class ClientStatisticsService {
         const result = await this.clientStatisticsRepository.query(query, [address, clientName]);
 
         return result.map(res => {
-            res.label = new Date(res).toISOString();
+            res.label = new Date(res.label).toISOString();
             return res;
         });
 
@@ -219,7 +219,7 @@ export class ClientStatisticsService {
         const result = await this.clientStatisticsRepository.query(query, [address, clientName, sessionId]);
 
         return result.map(res => {
-            res.label = new Date(res).toISOString();
+            res.label = new Date(res.label).toISOString();
             return res;
         });
 
