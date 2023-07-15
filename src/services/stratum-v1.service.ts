@@ -1,4 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'net';
 import { PromiseSocket } from 'promise-socket';
 
@@ -21,7 +22,8 @@ export class StratumV1Service implements OnModuleInit {
     private readonly clientService: ClientService,
     private readonly clientStatisticsService: ClientStatisticsService,
     private readonly notificationService: NotificationService,
-    private readonly blocksService: BlocksService
+    private readonly blocksService: BlocksService,
+    private readonly configService: ConfigService
   ) {
   }
 
@@ -47,7 +49,8 @@ export class StratumV1Service implements OnModuleInit {
         this.clientService,
         this.clientStatisticsService,
         this.notificationService,
-        this.blocksService
+        this.blocksService,
+        this.configService
       );
 
 

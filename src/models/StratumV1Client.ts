@@ -1,3 +1,4 @@
+import { ConfigService } from '@nestjs/config';
 import Big from 'big.js';
 import * as bitcoinjs from 'bitcoinjs-lib';
 import { plainToInstance } from 'class-transformer';
@@ -6,7 +7,6 @@ import * as crypto from 'crypto';
 import { Socket } from 'net';
 import PromiseSocket from 'promise-socket';
 import { combineLatest, firstValueFrom, interval, startWith, takeUntil } from 'rxjs';
-import { NotificationService } from 'src/services/notification.service';
 
 import { BlocksService } from '../ORM/blocks/blocks.service';
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
@@ -14,6 +14,7 @@ import { ClientEntity } from '../ORM/client/client.entity';
 import { ClientService } from '../ORM/client/client.service';
 import { BitcoinRpcService } from '../services/bitcoin-rpc.service';
 import { BlockTemplateService } from '../services/block-template.service';
+import { NotificationService } from '../services/notification.service';
 import { StratumV1JobsService } from '../services/stratum-v1-jobs.service';
 import { EasyUnsubscribe } from '../utils/EasyUnsubscribe';
 import { IBlockTemplate } from './bitcoin-rpc/IBlockTemplate';
@@ -28,6 +29,7 @@ import { StratumErrorMessage } from './stratum-messages/StratumErrorMessage';
 import { SubscriptionMessage } from './stratum-messages/SubscriptionMessage';
 import { SuggestDifficulty } from './stratum-messages/SuggestDifficultyMessage';
 import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
+
 
 export class StratumV1Client extends EasyUnsubscribe {
 
@@ -52,7 +54,8 @@ export class StratumV1Client extends EasyUnsubscribe {
         private readonly clientService: ClientService,
         private readonly clientStatisticsService: ClientStatisticsService,
         private readonly notificationService: NotificationService,
-        private readonly blocksService: BlocksService
+        private readonly blocksService: BlocksService,
+        private readonly configService: ConfigService
     ) {
         super();
 
@@ -67,7 +70,6 @@ export class StratumV1Client extends EasyUnsubscribe {
                 .filter(m => m.length > 0)
                 .forEach(m => this.handleMessage(m))
         });
-
     }
 
     private getRandomHexString() {
@@ -90,6 +92,7 @@ export class StratumV1Client extends EasyUnsubscribe {
             this.promiseSocket.end();
             return;
         }
+
 
         switch (parsedMessage.method) {
             case eRequestMethod.SUBSCRIBE: {
@@ -312,12 +315,18 @@ export class StratumV1Client extends EasyUnsubscribe {
 
         } else {
             payoutInformation = [
-                { address: 'bc1q99n3pu025yyu0jlywpmwzalyhm36tg5u37w20d', percent: 1.5 },
+                { address: this.configService.get('DEV_FEE_ADDRESS'), percent: 1.5 },
                 { address: this.clientAuthorization.address, percent: 98.5 }
             ];
         }
 
-        const job = new MiningJob(this.stratumV1JobsService.getNextId(), payoutInformation, blockTemplate, clearJobs);
+        const job = new MiningJob(
+            this.configService.get('NETWORK') === 'mainnet' ? bitcoinjs.networks.bitcoin : bitcoinjs.networks.testnet,
+            this.stratumV1JobsService.getNextId(),
+            payoutInformation,
+            blockTemplate,
+            clearJobs
+        );
 
         this.stratumV1JobsService.addJob(job, clearJobs);
 
@@ -427,7 +436,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         }
     }
 
-    public calculateDifficulty(header: Buffer): { submissionDifficulty: number, submissionHash: string } {
+    private calculateDifficulty(header: Buffer): { submissionDifficulty: number, submissionHash: string } {
 
         const hashResult = bitcoinjs.crypto.hash256(header);
 

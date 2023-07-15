@@ -1,6 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import { useContainer } from 'class-validator';
 
 import { AppModule } from './app.module';
 
@@ -23,7 +24,7 @@ async function bootstrap() {
     }),
   );
   app.enableCors();
-
+  useContainer(app.select(AppModule), { fallbackOnErrors: true });
   await app.listen(process.env.PORT, '0.0.0.0', () => {
     console.log(`http listening on port ${process.env.PORT}`);
   });

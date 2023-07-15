@@ -24,7 +24,7 @@ export class AuthorizationMessage extends StratumBaseMessage {
     @IsString()
     @MaxLength(64)
     @Transform(({ value, key, obj, type }) => {
-        return obj.params[0].split('.')[1];
+        return obj.params[0].split('.')[1] == null ? 'worker' : obj.params[0].split('.')[1];
     })
     public worker: string;
 

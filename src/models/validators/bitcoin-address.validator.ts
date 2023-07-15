@@ -1,11 +1,19 @@
-import { Network, validate } from 'bitcoin-address-validation';
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { validate } from 'bitcoin-address-validation';
 import { registerDecorator, ValidationOptions, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
 
+
 @ValidatorConstraint({ name: 'bitcoinAddress', async: false })
-export class BitcoinAddress implements ValidatorConstraintInterface {
+@Injectable()
+export class BitcoinAddressValidator implements ValidatorConstraintInterface {
+
+    constructor(
+        private configService: ConfigService
+    ) { }
+
     validate(value: string): boolean {
-        // Implement your custom validation logic here
-        return validate(value, Network.mainnet);
+        return validate(value, this.configService.get('NETWORK'));
     }
 
     defaultMessage(): string {
@@ -21,7 +29,7 @@ export function IsBitcoinAddress(validationOptions?: ValidationOptions) {
             propertyName: propertyName,
             constraints: [],
             options: validationOptions,
-            validator: BitcoinAddress,
+            validator: BitcoinAddressValidator,
         });
     };
 }

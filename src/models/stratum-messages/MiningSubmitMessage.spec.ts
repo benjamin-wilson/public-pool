@@ -1,3 +1,7 @@
+import { plainToInstance } from 'class-transformer';
+
+import { MiningSubmitMessage } from './MiningSubmitMessage';
+
 describe('MiningSubmitMessage', () => {
 
 
@@ -7,48 +11,25 @@ describe('MiningSubmitMessage', () => {
 
     });
 
-    // describe('test nonce', () => {
+    describe('test message parsing', () => {
 
-    //     const value = new MiningSubmitMessage().testNonceValue({
-    //         version: 0x20000004,
-    //         prevhash: "0c859545a3498373a57452fac22eb7113df2a465000543520000000000000000",
-    //         merkleRoot: "5bdc1968499c3393873edf8e07a1c3a50a97fc3a9d1a376bbf77087dd63778eb",
-    //         ntime: 0x647025b5,
-    //         nbits: 0x1705ae3a,
-    //     } as unknown as MiningJob, 167943889);
+        const MINING_SUBMIT_MESSAGE = ' {"id": 5, "method": "mining.submit", "params": ["tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4.bitaxe3", "1", "99020000", "64b1f10f", "2402812d", "00006000"]}'
 
-    //     it('should be correct difficulty', () => {
-    //         expect(value).toEqual(683);
-    //     });
-    // });
+        const message = plainToInstance(
+            MiningSubmitMessage,
+            JSON.parse(MINING_SUBMIT_MESSAGE),
+        );
 
-    // describe('test empty version', () => {
+        it('should parse message', () => {
+            expect(message.id).toEqual(5);
+            expect(message.userId).toEqual('tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4.bitaxe3');
+            expect(message.jobId).toEqual('1');
+            expect(message.extraNonce2).toEqual('99020000');
+            expect(message.ntime).toEqual('64b1f10f');
+            expect(message.nonce).toEqual('2402812d');
+            expect(message.versionMask).toEqual('00006000');
+        });
+    });
 
-    //     const value = new MiningSubmitMessage().testNonceValue({
-    //         version: 0x20000004,
-    //         prevhash: "0c859545a3498373a57452fac22eb7113df2a465000543520000000000000000",
-    //         merkleRoot: "5bdc1968499c3393873edf8e07a1c3a50a97fc3a9d1a376bbf77087dd63778eb",
-    //         ntime: 0x647025b5,
-    //         nbits: 0x1705ae3a,
-    //     } as unknown as MiningJob, 167943889, parseInt('00000000', 16));
 
-    //     it('should be correct difficulty', () => {
-    //         expect(value).toEqual(683);
-    //     });
-    // });
-
-    // describe('test high value nonce', () => {
-
-    //     const value = new MiningSubmitMessage().testNonceValue({
-    //         version: 0x20a00000,
-    //         prevhash: "00000000000000000002a7b66a599d17893cb312a8ee7bc15e4015ff52774f00",
-    //         merkleRoot: "210bbf45c85165aab889691056cfebbfd763e11b2623a261fb6135b6bab66ce3",
-    //         ntime: 1686839100,
-    //         target: 52350439455487,
-    //     } as MiningJob, 0x05d69c40,);
-
-    //     it('should be correct difficulty', () => {
-    //         expect(value).toEqual(683);
-    //     });
-    // });
 });

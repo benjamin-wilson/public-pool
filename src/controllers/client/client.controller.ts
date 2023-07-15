@@ -1,6 +1,8 @@
 import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
-import { ClientStatisticsService } from 'src/ORM/client-statistics/client-statistics.service';
-import { ClientService } from 'src/ORM/client/client.service';
+
+import { ClientStatisticsService } from '../../ORM/client-statistics/client-statistics.service';
+import { ClientService } from '../../ORM/client/client.service';
+
 
 @Controller('client')
 export class ClientController {

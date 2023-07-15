@@ -7,6 +7,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AddressController } from './controllers/address/address.controller';
 import { ClientController } from './controllers/client/client.controller';
+import { BitcoinAddressValidator } from './models/validators/bitcoin-address.validator';
 import { AddressSettingsModule } from './ORM/address-settings/address-settings.module';
 import { BlocksModule } from './ORM/blocks/blocks.module';
 import { ClientStatisticsModule } from './ORM/client-statistics/client-statistics.module';
@@ -56,7 +57,8 @@ const ORMModules = [
         TelegramService,
         BitcoinRpcService,
         BlockTemplateService,
-        NotificationService
+        NotificationService,
+        BitcoinAddressValidator
     ],
 })
 export class AppModule {

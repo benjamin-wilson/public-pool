@@ -21,7 +21,14 @@ export class MiningJob {
     public block: bitcoinjs.Block = new bitcoinjs.Block();
     public networkDifficulty: number;
 
-    constructor(id: string, payoutInformation: AddressObject[], public blockTemplate: IBlockTemplate, public clean_jobs: boolean) {
+    constructor(
+        private network: bitcoinjs.networks.Network,
+        id: string,
+        payoutInformation: AddressObject[],
+        public blockTemplate: IBlockTemplate,
+        public clean_jobs: boolean) {
+
+        console.log(JSON.stringify(blockTemplate))
 
         this.jobId = id;
         this.block.prevHash = this.convertToLittleEndian(blockTemplate.previousblockhash);
@@ -155,19 +162,19 @@ export class MiningJob {
         const addressInfo = getAddressInfo(address);
         switch (addressInfo.type) {
             case AddressType.p2wpkh: {
-                return bitcoinjs.payments.p2wpkh({ address }).output;
+                return bitcoinjs.payments.p2wpkh({ address, network: this.network }).output;
             }
             case AddressType.p2pkh: {
-                return bitcoinjs.payments.p2pkh({ address }).output;
+                return bitcoinjs.payments.p2pkh({ address, network: this.network }).output;
             }
             case AddressType.p2sh: {
-                return bitcoinjs.payments.p2sh({ address }).output;
+                return bitcoinjs.payments.p2sh({ address, network: this.network }).output;
             }
             case AddressType.p2tr: {
-                return bitcoinjs.payments.p2tr({ address }).output;
+                return bitcoinjs.payments.p2tr({ address, network: this.network }).output;
             }
             case AddressType.p2wsh: {
-                return bitcoinjs.payments.p2wsh({ address }).output;
+                return bitcoinjs.payments.p2wsh({ address, network: this.network }).output;
             }
             default: {
                 return Buffer.alloc(0);
