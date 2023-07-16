@@ -1,6 +1,7 @@
 {
     "cSpell.words": [
         "coinb",
+        "coinbasevalue",
         "Fastify",
         "getblocktemplate",
         "getmininginfo",

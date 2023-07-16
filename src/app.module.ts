@@ -14,7 +14,6 @@ import { ClientStatisticsModule } from './ORM/client-statistics/client-statistic
 import { ClientModule } from './ORM/client/client.module';
 import { TelegramSubscriptionsModule } from './ORM/telegram-subscriptions/telegram-subscriptions.module';
 import { BitcoinRpcService } from './services/bitcoin-rpc.service';
-import { BlockTemplateService } from './services/block-template.service';
 import { CleanupService } from './services/cleanup.service';
 import { DiscordService } from './services/discord.service';
 import { NotificationService } from './services/notification.service';
@@ -56,7 +55,6 @@ const ORMModules = [
         StratumV1Service,
         TelegramService,
         BitcoinRpcService,
-        BlockTemplateService,
         NotificationService,
         BitcoinAddressValidator
     ],

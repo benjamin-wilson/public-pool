@@ -8,7 +8,6 @@ import { BlocksService } from '../ORM/blocks/blocks.service';
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientService } from '../ORM/client/client.service';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
-import { BlockTemplateService } from './block-template.service';
 import { NotificationService } from './notification.service';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
 
@@ -18,7 +17,6 @@ export class StratumV1Service implements OnModuleInit {
 
   constructor(
     private readonly bitcoinRpcService: BitcoinRpcService,
-    private readonly blockTemplateService: BlockTemplateService,
     private readonly clientService: ClientService,
     private readonly clientStatisticsService: ClientStatisticsService,
     private readonly notificationService: NotificationService,
@@ -43,8 +41,7 @@ export class StratumV1Service implements OnModuleInit {
 
       const client = new StratumV1Client(
         promiseSocket,
-        new StratumV1JobsService(),
-        this.blockTemplateService,
+        new StratumV1JobsService(this.bitcoinRpcService),
         this.bitcoinRpcService,
         this.clientService,
         this.clientStatisticsService,

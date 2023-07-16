@@ -6,18 +6,16 @@ import { validate, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
 import { Socket } from 'net';
 import PromiseSocket from 'promise-socket';
-import { combineLatest, firstValueFrom, interval, startWith, takeUntil } from 'rxjs';
+import { firstValueFrom, takeUntil } from 'rxjs';
 
 import { BlocksService } from '../ORM/blocks/blocks.service';
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientEntity } from '../ORM/client/client.entity';
 import { ClientService } from '../ORM/client/client.service';
 import { BitcoinRpcService } from '../services/bitcoin-rpc.service';
-import { BlockTemplateService } from '../services/block-template.service';
 import { NotificationService } from '../services/notification.service';
-import { StratumV1JobsService } from '../services/stratum-v1-jobs.service';
+import { IJobTemplate, StratumV1JobsService } from '../services/stratum-v1-jobs.service';
 import { EasyUnsubscribe } from '../utils/EasyUnsubscribe';
-import { IBlockTemplate } from './bitcoin-rpc/IBlockTemplate';
 import { eRequestMethod } from './enums/eRequestMethod';
 import { eResponseMethod } from './enums/eResponseMethod';
 import { eStratumErrorCode } from './enums/eStratumErrorCode';
@@ -49,7 +47,6 @@ export class StratumV1Client extends EasyUnsubscribe {
     constructor(
         public readonly promiseSocket: PromiseSocket<Socket>,
         private readonly stratumV1JobsService: StratumV1JobsService,
-        private readonly blockTemplateService: BlockTemplateService,
         private readonly bitcoinRpcService: BitcoinRpcService,
         private readonly clientService: ClientService,
         private readonly clientStatisticsService: ClientStatisticsService,
@@ -274,47 +271,24 @@ export class StratumV1Client extends EasyUnsubscribe {
                 startTime: new Date(),
             });
 
-            let lastIntervalCount = undefined;
-            let skipNext = false;
-            combineLatest([this.blockTemplateService.currentBlockTemplate$, interval(60000).pipe(startWith(-1))])
-                .pipe(
-                    takeUntil(this.easyUnsubscribe)
-                )
-                .subscribe(async ([{ blockTemplate }, interValCount]) => {
+            this.stratumV1JobsService.newMiningJob$.pipe(
+                takeUntil(this.easyUnsubscribe)
+            ).subscribe(async (jobTemplate) => {
+                await this.sendNewMiningJob(jobTemplate);
 
-
-
-                    let clearJobs = false;
-                    if (lastIntervalCount === interValCount) {
-                        clearJobs = true;
-                        skipNext = true;
-                        console.log('new block')
-                    }
-
-                    if (skipNext == true && clearJobs == false) {
-                        skipNext = false;
-                        return;
-                    }
-
-                    lastIntervalCount = interValCount;
-
-                    await this.sendNewMiningJob(blockTemplate, clearJobs);
-
-                    await this.checkDifficulty();
-
-
-                });
+                await this.checkDifficulty();
+            })
 
         }
     }
 
-    private async sendNewMiningJob(blockTemplate: IBlockTemplate, clearJobs: boolean) {
+    private async sendNewMiningJob(jobTemplate: IJobTemplate) {
 
         const hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientAuthorization.address, this.clientAuthorization.worker, this.extraNonceAndSessionId);
 
         let payoutInformation;
-        //10Th/s
-        const noFee = hashRate < 10000000000000;
+        //50Th/s
+        const noFee = hashRate < 50000000000000;
         if (noFee) {
             payoutInformation = [
                 { address: this.clientAuthorization.address, percent: 100 }
@@ -332,21 +306,20 @@ export class StratumV1Client extends EasyUnsubscribe {
             this.configService.get('NETWORK') === 'mainnet' ? bitcoinjs.networks.bitcoin : bitcoinjs.networks.testnet,
             this.stratumV1JobsService.getNextId(),
             payoutInformation,
-            blockTemplate,
-            clearJobs
+            jobTemplate
         );
 
-        this.stratumV1JobsService.addJob(job, clearJobs);
+        this.stratumV1JobsService.addJob(job, jobTemplate.blockData.clearJobs);
 
 
 
         try {
-            await this.promiseSocket.write(job.response());
+            await this.promiseSocket.write(job.response(jobTemplate));
         } catch (e) {
             await this.promiseSocket.end();
         }
 
-        console.log(`Sent new job to ${this.clientAuthorization.worker}.${this.extraNonceAndSessionId}. (clearJobs: ${clearJobs}, fee?: ${!noFee})`)
+        console.log(`Sent new job to ${this.clientAuthorization.worker}.${this.extraNonceAndSessionId}. (clearJobs: ${jobTemplate.blockData.clearJobs}, fee?: ${!noFee})`)
 
     }
 
@@ -354,6 +327,7 @@ export class StratumV1Client extends EasyUnsubscribe {
     private async handleMiningSubmission(submission: MiningSubmitMessage) {
 
         const job = this.stratumV1JobsService.getJobById(submission.jobId);
+        const jobTemplate = this.stratumV1JobsService.getJobTemplateById(job.jobTemplateId);
         // a miner may submit a job that doesn't exist anymore if it was removed by a new block notification
         if (job == null) {
             const err = new StratumErrorMessage(
@@ -365,6 +339,7 @@ export class StratumV1Client extends EasyUnsubscribe {
             return false;
         }
         const updatedJobBlock = job.copyAndUpdateBlock(
+            jobTemplate,
             parseInt(submission.versionMask, 16),
             parseInt(submission.nonce, 16),
             this.extraNonceAndSessionId,
@@ -375,7 +350,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         const { submissionDifficulty, submissionHash } = this.calculateDifficulty(header);
 
         console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonceAndSessionId}`);
-        console.log(`Header: ${header.toString('hex')}`);
+        //console.log(`Header: ${header.toString('hex')}`);
 
         if (submissionDifficulty >= this.sessionDifficulty) {
 
@@ -384,13 +359,13 @@ export class StratumV1Client extends EasyUnsubscribe {
                 const blockHex = updatedJobBlock.toHex(false);
                 const result = await this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
                 await this.blocksService.save({
-                    height: job.blockTemplate.height,
+                    height: jobTemplate.height,
                     minerAddress: this.clientAuthorization.address,
                     worker: this.clientAuthorization.worker,
                     sessionId: this.extraNonceAndSessionId,
                     blockData: blockHex
                 });
-                await this.notificationService.notifySubscribersBlockFound(this.clientAuthorization.address, job.blockTemplate.height, updatedJobBlock, result);
+                await this.notificationService.notifySubscribersBlockFound(this.clientAuthorization.address, jobTemplate.height, updatedJobBlock, result);
             }
             try {
                 await this.statistics.addSubmission(this.entity, submissionHash, this.sessionDifficulty);
@@ -444,8 +419,8 @@ export class StratumV1Client extends EasyUnsubscribe {
             await this.promiseSocket.write(data);
 
             // we need to clear the jobs so that the difficulty set takes effect. Otherwise the different miner implementations can cause issues
-            const { blockTemplate } = await firstValueFrom(this.blockTemplateService.currentBlockTemplate$);
-            await this.sendNewMiningJob(blockTemplate, true);
+            const jobTemplate = await firstValueFrom(this.stratumV1JobsService.newMiningJob$);
+            await this.sendNewMiningJob(jobTemplate);
 
         }
     }
