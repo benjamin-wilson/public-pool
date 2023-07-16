@@ -1,3 +1,4 @@
+import { Injectable } from '@nestjs/common';
 import * as bitcoinjs from 'bitcoinjs-lib';
 import * as merkle from 'merkle-lib';
 import * as merkleProof from 'merkle-lib/proof';
@@ -20,6 +21,7 @@ export interface IJobTemplate {
     };
 }
 
+@Injectable()
 export class StratumV1JobsService {
 
     private lastIntervalCount: number;

@@ -15,14 +15,17 @@ import { StratumV1JobsService } from './stratum-v1-jobs.service';
 @Injectable()
 export class StratumV1Service implements OnModuleInit {
 
+  private
   constructor(
     private readonly bitcoinRpcService: BitcoinRpcService,
     private readonly clientService: ClientService,
     private readonly clientStatisticsService: ClientStatisticsService,
     private readonly notificationService: NotificationService,
     private readonly blocksService: BlocksService,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
+    private readonly stratumV1JobsService: StratumV1JobsService
   ) {
+
   }
 
 
@@ -41,7 +44,7 @@ export class StratumV1Service implements OnModuleInit {
 
       const client = new StratumV1Client(
         promiseSocket,
-        new StratumV1JobsService(this.bitcoinRpcService),
+        this.stratumV1JobsService,
         this.bitcoinRpcService,
         this.clientService,
         this.clientStatisticsService,
