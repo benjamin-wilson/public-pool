@@ -15,7 +15,6 @@ import { StratumV1JobsService } from './stratum-v1-jobs.service';
 @Injectable()
 export class StratumV1Service implements OnModuleInit {
 
-  private
   constructor(
     private readonly bitcoinRpcService: BitcoinRpcService,
     private readonly clientService: ClientService,

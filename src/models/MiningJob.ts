@@ -15,24 +15,17 @@ export class MiningJob {
     private coinbasePart1: string;
     private coinbasePart2: string;
 
-    // private merkle_branch: string[]; // List of hashes, will be used for calculation of merkle root. This is not a list of all transactions, it only contains prepared hashes of steps of merkle tree algorithm.
-
-    public jobId: string; // ID of the job. Use this ID while submitting share generated from this job.
     public jobTemplateId: string;
-    //public block: bitcoinjs.Block = new bitcoinjs.Block();
     public networkDifficulty: number;
-
-
 
 
     constructor(
         private network: bitcoinjs.networks.Network,
-        id: string,
+        public jobId: string,
         payoutInformation: AddressObject[],
         jobTemplate: IJobTemplate
     ) {
 
-        this.jobId = id;
         this.jobTemplateId = jobTemplate.blockData.id,
 
             this.coinbaseTransaction = this.createCoinbaseTransaction(payoutInformation, jobTemplate.blockData.coinbasevalue);

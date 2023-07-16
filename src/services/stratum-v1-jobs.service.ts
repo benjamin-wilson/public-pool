@@ -17,6 +17,7 @@ export interface IJobTemplate {
         littleEndianBlockHeight: Buffer;
         coinbasevalue: number;
         networkDifficulty: number;
+        height: number;
         clearJobs: boolean;
     };
 }
@@ -75,11 +76,12 @@ export class StratumV1JobsService {
                     coinbasevalue: blockTemplate.coinbasevalue,
                     timestamp: Math.floor(new Date().getTime() / 1000),
                     networkDifficulty: this.calculateNetworkDifficulty(parseInt(blockTemplate.bits, 16)),
-                    clearJobs
+                    clearJobs,
+                    height: blockTemplate.height
                 };
             }),
             filter(next => next != null),
-            map(({ version, bits, prevHash, transactions, timestamp, littleEndianBlockHeight, coinbasevalue, networkDifficulty, clearJobs }) => {
+            map(({ version, bits, prevHash, transactions, timestamp, littleEndianBlockHeight, coinbasevalue, networkDifficulty, clearJobs, height }) => {
                 const block = new bitcoinjs.Block();
 
                 //create an empty coinbase tx
@@ -119,6 +121,7 @@ export class StratumV1JobsService {
                         littleEndianBlockHeight,
                         coinbasevalue,
                         networkDifficulty,
+                        height,
                         clearJobs
                     }
                 }
@@ -151,7 +154,7 @@ export class StratumV1JobsService {
         return bytes;
     }
 
-    public getJobTemplateById(jobTemplateId: string) {
+    public getJobTemplateById(jobTemplateId: string): IJobTemplate {
         return this.blocks[jobTemplateId];
     }
 
