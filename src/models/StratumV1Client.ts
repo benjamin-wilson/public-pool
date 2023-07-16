@@ -327,7 +327,7 @@ export class StratumV1Client extends EasyUnsubscribe {
     private async handleMiningSubmission(submission: MiningSubmitMessage) {
 
         const job = this.stratumV1JobsService.getJobById(submission.jobId);
-        const jobTemplate = this.stratumV1JobsService.getJobTemplateById(job.jobTemplateId);
+
         // a miner may submit a job that doesn't exist anymore if it was removed by a new block notification
         if (job == null) {
             const err = new StratumErrorMessage(
@@ -338,6 +338,8 @@ export class StratumV1Client extends EasyUnsubscribe {
             await this.promiseSocket.write(err);
             return false;
         }
+        const jobTemplate = this.stratumV1JobsService.getJobTemplateById(job.jobTemplateId);
+
         const updatedJobBlock = job.copyAndUpdateBlock(
             jobTemplate,
             parseInt(submission.versionMask, 16),
