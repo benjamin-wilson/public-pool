@@ -28,7 +28,6 @@ export class MiningJob {
         public blockTemplate: IBlockTemplate,
         public clean_jobs: boolean) {
 
-        console.log(JSON.stringify(blockTemplate))
 
         this.jobId = id;
         this.block.prevHash = this.convertToLittleEndian(blockTemplate.previousblockhash);

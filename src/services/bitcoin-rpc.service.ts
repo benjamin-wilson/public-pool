@@ -15,11 +15,11 @@ export class BitcoinRpcService {
     public newBlock$ = this._newBlock$.pipe(filter(block => block != null));
 
     constructor(private readonly configService: ConfigService) {
-        const url = configService.get('BITCOIN_RPC_URL');
-        const user = configService.get('BITCOIN_RPC_USER');
-        const pass = configService.get('BITCOIN_RPC_PASSWORD');
-        const port = parseInt(configService.get('BITCOIN_RPC_PORT'));
-        const timeout = parseInt(configService.get('BITCOIN_RPC_TIMEOUT'));
+        const url = this.configService.get('BITCOIN_RPC_URL');
+        const user = this.configService.get('BITCOIN_RPC_USER');
+        const pass = this.configService.get('BITCOIN_RPC_PASSWORD');
+        const port = parseInt(this.configService.get('BITCOIN_RPC_PORT'));
+        const timeout = parseInt(this.configService.get('BITCOIN_RPC_TIMEOUT'));
 
         this.client = new RPCClient({ url, port, timeout, user, pass });
 

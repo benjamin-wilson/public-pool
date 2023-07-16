@@ -14,13 +14,13 @@ export interface IBlockTemplate {
 
     vbavailable: {                         // (json object) set of pending, supported versionbit (BIP 9) softfork deployments
         rulename: number,                  // (numeric) identifies the bit number as indicating acceptance and readiness for the named softfork rule
-    },
+    } | {},
     vbrequired: number,                    // (numeric) bit mask of versionbits the server requires set in submissions
     previousblockhash: string,             // (string) The hash of current highest block
     transactions: IBlockTemplateTx[],      // (json array) contents of non-coinbase transactions that should be included in the next block
     coinbaseaux: {                         // (json object) data that should be included in the coinbase's scriptSig content
         key: string; //'hex',              // (string) values must be in the coinbase (keys may be ignored)
-    },
+    } | {},
     coinbasevalue: number,                 // (numeric) maximum allowable input to coinbase transaction, including the generation award and transaction fees (in satoshis)
     longpollid: string,                    // (string) an id to include with a request to longpoll on an update to this template
     target: string,                        // (string) The hash target
@@ -34,6 +34,6 @@ export interface IBlockTemplate {
     bits: string,                          // (string) compressed target of next block
     height: number,                        // (numeric) The height of the next block
     default_witness_commitment: string     // (string, optional) a valid witness commitment for the unmodified block template
-
+    capabilities: string[]
 
 }
