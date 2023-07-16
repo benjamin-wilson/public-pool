@@ -29,6 +29,7 @@ export class StratumV1JobsService {
     public newMiningJob$: Observable<IJobTemplate>;
 
     public latestJobId: number = 1;
+    public latestJobTemplateId: number = 1;
 
     public jobs: MiningJob[] = [];
 
@@ -108,11 +109,13 @@ export class StratumV1JobsService {
                 block.transactions = transactions;
                 block.witnessCommit = bitcoinjs.Block.calculateMerkleRoot(transactions, true);
 
+                const id = this.getNextTemplateId();
+                this.latestJobTemplateId++;
                 return {
                     block,
                     merkle_branch,
                     blockData: {
-                        id: this.getNextId(),
+                        id,
                         littleEndianBlockHeight,
                         coinbasevalue,
                         networkDifficulty,
@@ -167,6 +170,9 @@ export class StratumV1JobsService {
         return this.jobs.find(job => job.jobId == jobId);
     }
 
+    public getNextTemplateId() {
+        return this.latestJobTemplateId.toString(16);
+    }
     public getNextId() {
         return this.latestJobId.toString(16);
     }
