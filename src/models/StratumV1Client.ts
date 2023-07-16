@@ -309,7 +309,7 @@ export class StratumV1Client extends EasyUnsubscribe {
             jobTemplate
         );
 
-        this.stratumV1JobsService.addJob(job, jobTemplate.blockData.clearJobs);
+        this.stratumV1JobsService.addJob(job);
 
 
 

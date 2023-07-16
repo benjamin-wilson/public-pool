@@ -126,6 +126,7 @@ export class StratumV1JobsService {
             tap((data) => {
                 if (data.blockData.clearJobs) {
                     this.blocks = {};
+                    this.jobs = [];
                 }
                 this.blocks[data.blockData.id] = data;
             }),
@@ -154,10 +155,7 @@ export class StratumV1JobsService {
         return this.blocks[jobTemplateId];
     }
 
-    public addJob(job: MiningJob, clearJobs: boolean) {
-        if (clearJobs) {
-            this.jobs = [];
-        }
+    public addJob(job: MiningJob) {
         this.jobs.push(job);
         this.latestJobId++;
     }
