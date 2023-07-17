@@ -354,7 +354,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                 submission.id,
                 eStratumErrorCode.JobNotFound,
                 'Job not found').response();
-            console.error(err);
+            console.log(err);
             await this.promiseSocket.write(err);
             return false;
         }
