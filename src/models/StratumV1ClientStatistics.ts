@@ -33,7 +33,9 @@ export class StratumV1ClientStatistics {
         });
 
     }
-
+    public getLastSubmissionTime(): Date | null {
+        return this.submissionCache[0]?.time;
+    }
     public getSuggestedDifficulty(clientDifficulty: number) {
 
         // miner hasn't submitted shares in one minute

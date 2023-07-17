@@ -39,10 +39,12 @@ export class StratumV1Client extends EasyUnsubscribe {
     private statistics: StratumV1ClientStatistics;
     private stratumInitialized = false;
     private usedSuggestedDifficulty = false;
-    private sessionDifficulty: number = 32768;
+    private sessionDifficulty: number = 16384;
     private entity: ClientEntity;
 
     public extraNonceAndSessionId: string;
+
+    public sessionStart: Date;
 
     constructor(
         public readonly promiseSocket: PromiseSocket<Socket>,
@@ -55,6 +57,8 @@ export class StratumV1Client extends EasyUnsubscribe {
         private readonly configService: ConfigService
     ) {
         super();
+
+        this.sessionStart = new Date();
 
         this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService);
         this.extraNonceAndSessionId = this.getRandomHexString();
@@ -277,8 +281,24 @@ export class StratumV1Client extends EasyUnsubscribe {
                 await this.sendNewMiningJob(jobTemplate);
 
                 await this.checkDifficulty();
+
+                await this.watchdog();
             })
 
+        }
+    }
+
+    private async watchdog() {
+        let time = await this.statistics.getLastSubmissionTime();
+        if (time == null) {
+            time = this.sessionStart;
+        }
+        const now = Date.now();
+        const diffSeconds = (now - time.getTime()) / 1000;
+        // two minutes
+        if (diffSeconds > 120) {
+            console.log('Watchdog ending session');
+            this.promiseSocket.end();
         }
     }
 
