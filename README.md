@@ -36,3 +36,6 @@ $ npm run test
 # test coverage
 $ npm run test:cov
 ```
+
+## Web interface
+See [public-pool-ui](https://github.com/benjamin-wilson/public-pool-ui)
