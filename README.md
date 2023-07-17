@@ -19,10 +19,6 @@ $ npm run start:dev
 
 # production build
 $ npm run build
-
-# production server
-# *pre-req install pm2 (https://pm2.keymetrics.io/)
-$ pm2 start dist/main.js
 ```
 
 
@@ -39,3 +35,11 @@ $ npm run test:cov
 
 ## Web interface
 See [public-pool-ui](https://github.com/benjamin-wilson/public-pool-ui)
+
+## Deployment
+Install pm2 (https://pm2.keymetrics.io/)
+
+```bash
+$ pm2 start dist/main.js
+```
+
