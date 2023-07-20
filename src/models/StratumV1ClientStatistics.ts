@@ -3,6 +3,7 @@ import { ClientEntity } from '../ORM/client/client.entity';
 
 const CACHE_SIZE = 30;
 const TARGET_SUBMISSION_PER_SECOND = 10;
+const MIN_DIFF = 1e-9;
 export class StratumV1ClientStatistics {
 
     private submissionCacheStart: Date;
@@ -65,9 +66,12 @@ export class StratumV1ClientStatistics {
 
     }
 
-    private nearestPowerOfTwo(val) {
+    private nearestPowerOfTwo(val): number {
         if (val === 0) {
             return null;
+        }
+        if (val < MIN_DIFF) {
+            return MIN_DIFF;
         }
         let x = val | (val >> 1);
         x = x | (x >> 2);

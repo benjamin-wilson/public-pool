@@ -66,7 +66,7 @@ export class StratumV1Service implements OnModuleInit {
 
         const clientCount = await this.clientService.connectedClientCount();
 
-        console.log(`Client disconnected: ${promiseSocket.socket.remoteAddress}, ${clientCount} total clients`);
+        console.log(`Client disconnected: ${promiseSocket.socket.remoteAddress},  ${client.extraNonceAndSessionId},  ${clientCount} total clients`);
       });
 
       promiseSocket.socket.on('error', async (error: Error) => {
@@ -77,7 +77,7 @@ export class StratumV1Service implements OnModuleInit {
 
         const clientCount = await this.clientService.connectedClientCount();
         console.error(`Socket error:`, error);
-        console.log(`Client disconnected: ${promiseSocket.socket.remoteAddress}, ${clientCount} total clients`);
+        console.log(`Client disconnected: ${promiseSocket.socket.remoteAddress},  ${client.extraNonceAndSessionId}, ${clientCount} total clients`);
 
       });
 

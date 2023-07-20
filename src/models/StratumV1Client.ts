@@ -372,7 +372,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         const { submissionDifficulty, submissionHash } = this.calculateDifficulty(header);
 
         console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonceAndSessionId}`);
-        //console.log(`Header: ${header.toString('hex')}`);
+
 
         if (submissionDifficulty >= this.sessionDifficulty) {
 
@@ -413,6 +413,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                 eStratumErrorCode.LowDifficultyShare,
                 'Difficulty too low').response();
             console.error(err);
+            console.log(`Header: ${header.toString('hex')}`);
             await this.promiseSocket.write(err);
             return false;
         }
