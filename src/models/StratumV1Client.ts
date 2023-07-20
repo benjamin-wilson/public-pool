@@ -282,7 +282,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
                 await this.checkDifficulty();
 
-                await this.watchdog();
+                // await this.watchdog();
             })
 
         }
