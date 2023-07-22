@@ -27,8 +27,8 @@ export class ClientController {
                     return {
                         sessionId: worker.sessionId,
                         name: worker.clientName,
-                        bestDifficulty: Math.floor(worker.bestDifficulty),
-                        hashRate: Math.floor(await this.clientStatisticsService.getHashRateForSession(worker.address, worker.clientName, worker.sessionId)),
+                        bestDifficulty: worker.bestDifficulty.toFixed(2),
+                        hashRate: (await this.clientStatisticsService.getHashRateForSession(worker.address, worker.clientName, worker.sessionId)).toFixed(2),
                         startTime: worker.startTime
                     };
                 })

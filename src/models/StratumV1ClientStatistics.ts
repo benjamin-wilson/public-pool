@@ -3,7 +3,7 @@ import { ClientEntity } from '../ORM/client/client.entity';
 
 const CACHE_SIZE = 30;
 const TARGET_SUBMISSION_PER_SECOND = 10;
-const MIN_DIFF = 1e-9;
+const MIN_DIFF = 0.000001;
 export class StratumV1ClientStatistics {
 
     private submissionCacheStart: Date;

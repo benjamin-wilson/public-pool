@@ -90,7 +90,7 @@ export class StratumV1Client extends EasyUnsubscribe {
             parsedMessage = JSON.parse(message);
         } catch (e) {
             console.log("Invalid JSON");
-            this.promiseSocket.end();
+            await this.promiseSocket.end();
             return;
         }
 
@@ -282,7 +282,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
                 await this.checkDifficulty();
 
-                // await this.watchdog();
+                await this.watchdog();
             })
 
         }
@@ -295,10 +295,10 @@ export class StratumV1Client extends EasyUnsubscribe {
         }
         const now = Date.now();
         const diffSeconds = (now - time.getTime()) / 1000;
-        // two minutes
-        if (diffSeconds > 120) {
+        // five minutes
+        if (diffSeconds > 60 * 5) {
             console.log('Watchdog ending session');
-            this.promiseSocket.end();
+            await this.promiseSocket.end();
         }
     }
 
