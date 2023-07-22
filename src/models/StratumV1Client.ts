@@ -90,7 +90,7 @@ export class StratumV1Client extends EasyUnsubscribe {
             parsedMessage = JSON.parse(message);
         } catch (e) {
             console.log("Invalid JSON");
-            await this.promiseSocket.end();
+            this.promiseSocket.socket.emit('end', true);
             return;
         }
 
@@ -254,7 +254,6 @@ export class StratumV1Client extends EasyUnsubscribe {
 
 
         if (this.clientSubscription != null
-            // && this.clientConfiguration != null
             && this.clientAuthorization != null
             && this.stratumInitialized == false) {
 
@@ -296,9 +295,9 @@ export class StratumV1Client extends EasyUnsubscribe {
         const now = Date.now();
         const diffSeconds = (now - time.getTime()) / 1000;
         // five minutes
-        if (diffSeconds > 60 * 5) {
+        if (diffSeconds > 5 * 60) {
             console.log('Watchdog ending session');
-            await this.promiseSocket.end();
+            this.promiseSocket.socket.emit('end', true);
         }
     }
 
@@ -332,12 +331,8 @@ export class StratumV1Client extends EasyUnsubscribe {
         this.stratumV1JobsService.addJob(job);
 
 
+        await this.promiseSocket.write(job.response(jobTemplate));
 
-        try {
-            await this.promiseSocket.write(job.response(jobTemplate));
-        } catch (e) {
-            await this.promiseSocket.end();
-        }
 
         console.log(`Sent new job to ${this.clientAuthorization.worker}.${this.extraNonceAndSessionId}. (clearJobs: ${jobTemplate.blockData.clearJobs}, fee?: ${!noFee})`)
 
