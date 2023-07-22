@@ -26,7 +26,7 @@ export class ClientStatisticsEntity extends TrackedEntity {
     })
     time: Date;
 
-    @Column()
+    @Column({ type: 'real' })
     difficulty: number;
 
 

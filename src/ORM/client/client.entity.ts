@@ -25,7 +25,7 @@ export class ClientEntity extends TrackedEntity {
 
 
 
-    @Column({ default: 0 })
+    @Column({ type: 'real', default: 0 })
     bestDifficulty: number
 
 
