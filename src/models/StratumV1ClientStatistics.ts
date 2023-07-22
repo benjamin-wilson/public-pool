@@ -35,7 +35,7 @@ export class StratumV1ClientStatistics {
 
     }
     public getLastSubmissionTime(): Date | null {
-        return this.submissionCache[0]?.time;
+        return this.submissionCache[this.submissionCache.length - 1]?.time;
     }
     public getSuggestedDifficulty(clientDifficulty: number) {
 
