@@ -294,8 +294,8 @@ export class StratumV1Client extends EasyUnsubscribe {
         }
         const now = Date.now();
         const diffSeconds = (now - time.getTime()) / 1000;
-        // five minutes
-        if (diffSeconds > 5 * 60) {
+        // fifteen minutes
+        if (diffSeconds > 15 * 60) {
             console.log('Watchdog ending session');
             this.promiseSocket.socket.emit('end', true);
         }
