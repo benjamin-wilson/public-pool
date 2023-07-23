@@ -20,7 +20,10 @@ export class ClientController {
 
         const chartData = await this.clientStatisticsService.getChartDataForAddress(address);
 
+        const bestDifficulty = await this.clientService.getBestDiff(address);
+
         return {
+            bestDifficulty,
             workersCount: workers.length,
             workers: await Promise.all(
                 workers.map(async (worker) => {

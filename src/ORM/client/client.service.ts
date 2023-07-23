@@ -45,6 +45,14 @@ export class ClientService {
         return await this.clientRepository.count();
     }
 
+    public async getBestDiff(address: string) {
+        const res = await this.clientRepository.createQueryBuilder('client')
+            .select('MAX(client.bestDifficulty)', 'bestDifficulty')
+            .where('client.address = :address', { address })
+            .withDeleted()
+            .getRawOne();
+        return res?.bestDifficulty;
+    }
     public async getByAddress(address: string): Promise<ClientEntity[]> {
         return await this.clientRepository.find({
             where: {
