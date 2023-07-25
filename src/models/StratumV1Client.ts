@@ -409,11 +409,13 @@ export class StratumV1Client extends EasyUnsubscribe {
             if (submissionDifficulty > this.entity.bestDifficulty) {
                 await this.clientService.updateBestDifficulty(this.extraNonceAndSessionId, submissionDifficulty);
                 this.entity.bestDifficulty = submissionDifficulty;
+                if (submissionDifficulty > this.addressSettings.bestDifficulty) {
+                    await this.addressSettingsService.updateBestDifficulty(this.addressSettings.address, submissionDifficulty);
+                    this.addressSettings.bestDifficulty = submissionDifficulty;
+                }
             }
 
-            if (submissionDifficulty > this.addressSettings.bestDifficulty) {
-                await this.addressSettingsService.updateBestDifficulty(this.extraNonceAndSessionId, submissionDifficulty);
-            }
+
 
         } else {
             const err = new StratumErrorMessage(
