@@ -8,6 +8,8 @@ A Nestjs and Typescript Bitcoin stratum mining server.
 $ npm install
 ```
 
+create an new .env file in the root directory and configure it with the parameters in .env.example
+
 ## Running the app
 
 ```bash
