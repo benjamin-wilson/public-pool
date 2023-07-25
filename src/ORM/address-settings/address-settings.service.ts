@@ -15,7 +15,11 @@ export class AddressSettingsService {
     }
 
     public async getSettings(address: string) {
-        return await this.addressSettingsRepository.findOne({ where: { address } });
+        const settings = await this.addressSettingsRepository.findOne({ where: { address } });
+        if (settings == null) {
+            return await this.createNew(address);
+        }
+        return settings;
     }
 
     public async updateBestDifficulty(address: string, bestDifficulty: number) {

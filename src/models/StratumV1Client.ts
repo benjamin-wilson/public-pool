@@ -8,7 +8,6 @@ import { Socket } from 'net';
 import PromiseSocket from 'promise-socket';
 import { firstValueFrom, takeUntil } from 'rxjs';
 
-import { AddressSettingsEntity } from '../ORM/address-settings/address-settings.entity';
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
@@ -43,7 +42,6 @@ export class StratumV1Client extends EasyUnsubscribe {
     private usedSuggestedDifficulty = false;
     private sessionDifficulty: number = 16384;
     private entity: ClientEntity;
-    private addressSettings: AddressSettingsEntity;
 
     public extraNonceAndSessionId: string;
 
@@ -263,10 +261,6 @@ export class StratumV1Client extends EasyUnsubscribe {
 
             this.stratumInitialized = true;
 
-            this.addressSettings = await this.addressSettingsService.getSettings(this.clientAuthorization.address);
-            if (this.addressSettings == null) {
-                this.addressSettings = await this.addressSettingsService.createNew(this.clientAuthorization.address);
-            }
 
             if (this.clientSuggestedDifficulty == null) {
                 console.log(`Setting difficulty to ${this.sessionDifficulty}`)
@@ -409,9 +403,8 @@ export class StratumV1Client extends EasyUnsubscribe {
             if (submissionDifficulty > this.entity.bestDifficulty) {
                 await this.clientService.updateBestDifficulty(this.extraNonceAndSessionId, submissionDifficulty);
                 this.entity.bestDifficulty = submissionDifficulty;
-                if (submissionDifficulty > this.addressSettings.bestDifficulty) {
-                    await this.addressSettingsService.updateBestDifficulty(this.addressSettings.address, submissionDifficulty);
-                    this.addressSettings.bestDifficulty = submissionDifficulty;
+                if (submissionDifficulty > (await this.addressSettingsService.getSettings(this.clientAuthorization.address)).bestDifficulty) {
+                    await this.addressSettingsService.updateBestDifficulty(this.clientAuthorization.address, submissionDifficulty);
                 }
             }
 
