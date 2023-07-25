@@ -1,4 +1,5 @@
-import { IsArray } from 'class-validator';
+import { Expose, Transform } from 'class-transformer';
+import { IsArray, IsString, MaxLength } from 'class-validator';
 
 import { eRequestMethod } from '../enums/eRequestMethod';
 import { StratumBaseMessage } from './StratumBaseMessage';
@@ -8,6 +9,14 @@ export class SubscriptionMessage extends StratumBaseMessage {
 
     @IsArray()
     params: string[];
+
+    @Expose()
+    @IsString()
+    @MaxLength(128)
+    @Transform(({ value, key, obj, type }) => {
+        return obj.params[0] == null ? 'default' : obj.params[0]
+    })
+    public userAgent: string;
 
     constructor() {
         super();

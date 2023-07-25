@@ -18,11 +18,16 @@ export class AppController {
   @Get('info')
   public async info() {
 
+    const blockData = await this.blocksService.getFoundBlocks();
+    const userAgents = await this.clientService.getUserAgents();
+
     const CACHE_KEY = 'SITE_HASHRATE_GRAPH';
     const cachedResult = await this.cacheManager.get(CACHE_KEY);
     if (cachedResult != null) {
       return {
-        chartData: cachedResult
+        chartData: cachedResult,
+        blockData,
+        userAgents
       };
     }
 
@@ -30,11 +35,11 @@ export class AppController {
 
     await this.cacheManager.set(CACHE_KEY, chartData, 600);
 
-    const blockData = await this.blocksService.getFoundBlocks();
 
     return {
       chartData,
-      blockData
+      blockData,
+      userAgents
     };
   }
 

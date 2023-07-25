@@ -274,6 +274,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                 sessionId: this.extraNonceAndSessionId,
                 address: this.clientAuthorization.address,
                 clientName: this.clientAuthorization.worker,
+                userAgent: this.clientSubscription.userAgent,
                 startTime: new Date(),
             });
 

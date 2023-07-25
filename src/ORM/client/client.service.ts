@@ -76,4 +76,14 @@ export class ClientService {
     public async deleteAll() {
         return await this.clientRepository.softDelete({})
     }
+
+    public async getUserAgents() {
+        const result = await this.clientRepository.createQueryBuilder('client')
+            .select('client.userAgent as userAgent')
+            .addSelect('COUNT(client.userAgent)', 'count')
+            .groupBy('client.userAgent')
+            .orderBy('count', 'DESC')
+            .getRawMany();
+        return result;
+    }
 }
