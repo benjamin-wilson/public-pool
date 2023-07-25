@@ -309,16 +309,17 @@ export class StratumV1Client extends EasyUnsubscribe {
         const hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientAuthorization.address, this.clientAuthorization.worker, this.extraNonceAndSessionId);
 
         let payoutInformation;
+        const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
         //50Th/s
         const noFee = hashRate < 50000000000000;
-        if (noFee) {
+        if (noFee || devFeeAddress == null || devFeeAddress.length < 1) {
             payoutInformation = [
                 { address: this.clientAuthorization.address, percent: 100 }
             ];
 
         } else {
             payoutInformation = [
-                { address: this.configService.get('DEV_FEE_ADDRESS'), percent: 1.5 },
+                { address: devFeeAddress, percent: 1.5 },
                 { address: this.clientAuthorization.address, percent: 98.5 }
             ];
         }
