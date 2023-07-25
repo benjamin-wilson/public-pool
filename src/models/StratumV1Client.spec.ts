@@ -6,6 +6,8 @@ import { BehaviorSubject } from 'rxjs';
 import { DataSource } from 'typeorm';
 
 import { MockRecording1 } from '../../test/models/MockRecording1';
+import { AddressSettingsModule } from '../ORM/address-settings/address-settings.module';
+import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
 import { ClientStatisticsEntity } from '../ORM/client-statistics/client-statistics.entity';
 import { ClientStatisticsModule } from '../ORM/client-statistics/client-statistics.module';
@@ -65,7 +67,8 @@ describe('StratumV1Client', () => {
                     logging: false
                 }),
                 ClientModule,
-                ClientStatisticsModule
+                ClientStatisticsModule,
+                AddressSettingsModule
             ],
             providers: [
                 {
@@ -119,6 +122,8 @@ describe('StratumV1Client', () => {
 
         promiseSocket.end = jest.fn();
 
+        const addressSettings = moduleRef.get<AddressSettingsService>(AddressSettingsService);
+
 
         client = new StratumV1Client(
             promiseSocket,
@@ -128,7 +133,8 @@ describe('StratumV1Client', () => {
             clientStatisticsService,
             notificationService,
             blocksService,
-            configService
+            configService,
+            addressSettings
         );
 
         client.extraNonceAndSessionId = MockRecording1.EXTRA_NONCE;

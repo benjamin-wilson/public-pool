@@ -1,5 +1,6 @@
 import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
 
+import { AddressSettingsService } from '../../ORM/address-settings/address-settings.service';
 import { ClientStatisticsService } from '../../ORM/client-statistics/client-statistics.service';
 import { ClientService } from '../../ORM/client/client.service';
 
@@ -9,7 +10,8 @@ export class ClientController {
 
     constructor(
         private readonly clientService: ClientService,
-        private readonly clientStatisticsService: ClientStatisticsService
+        private readonly clientStatisticsService: ClientStatisticsService,
+        private readonly addressSettingsService: AddressSettingsService
     ) { }
 
 
@@ -20,10 +22,12 @@ export class ClientController {
 
         const chartData = await this.clientStatisticsService.getChartDataForAddress(address);
 
-        const bestDifficulty = await this.clientService.getBestDiff(address);
+        const addressSettings = await this.addressSettingsService.getSettings(address);
+
+
 
         return {
-            bestDifficulty,
+            bestDifficulty: addressSettings?.bestDifficulty,
             workersCount: workers.length,
             workers: await Promise.all(
                 workers.map(async (worker) => {

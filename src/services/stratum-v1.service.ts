@@ -4,6 +4,7 @@ import { Server, Socket } from 'net';
 import { PromiseSocket } from 'promise-socket';
 
 import { StratumV1Client } from '../models/StratumV1Client';
+import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientService } from '../ORM/client/client.service';
@@ -22,7 +23,8 @@ export class StratumV1Service implements OnModuleInit {
     private readonly notificationService: NotificationService,
     private readonly blocksService: BlocksService,
     private readonly configService: ConfigService,
-    private readonly stratumV1JobsService: StratumV1JobsService
+    private readonly stratumV1JobsService: StratumV1JobsService,
+    private readonly addressSettingsService: AddressSettingsService
   ) {
 
   }
@@ -49,7 +51,8 @@ export class StratumV1Service implements OnModuleInit {
         this.clientStatisticsService,
         this.notificationService,
         this.blocksService,
-        this.configService
+        this.configService,
+        this.addressSettingsService
       );
 
 
