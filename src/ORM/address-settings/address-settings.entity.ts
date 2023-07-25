@@ -11,7 +11,7 @@ export class AddressSettingsEntity extends TrackedEntity {
     @Column({ type: 'real', default: 0 })
     bestDifficulty: number
 
-    @Column()
+    @Column({ nullable: true })
     miscCoinbaseScriptData: string;
 
 }
