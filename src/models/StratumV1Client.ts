@@ -265,7 +265,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
             this.addressSettings = await this.addressSettingsService.getSettings(this.clientAuthorization.address);
             if (this.addressSettings == null) {
-                this.addressSettingsService.createNew(this.clientAuthorization.address);
+                this.addressSettings = await this.addressSettingsService.createNew(this.clientAuthorization.address);
             }
 
             if (this.clientSuggestedDifficulty == null) {
