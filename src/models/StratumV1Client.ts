@@ -234,7 +234,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
                 const errors = await validate(miningSubmitMessage, validatorOptions);
 
-                if (errors.length === 0) {
+                if (errors.length === 0 && this.stratumInitialized == true) {
                     const result = await this.handleMiningSubmission(miningSubmitMessage);
                     if (result == true) {
                         await this.promiseSocket.write(JSON.stringify(miningSubmitMessage.response()) + '\n');
