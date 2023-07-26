@@ -29,4 +29,22 @@ export class AddressSettingsService {
     public async createNew(address: string) {
         return await this.addressSettingsRepository.save({ address });
     }
+
+    public async addShares(address: string, shares: number) {
+        return await this.addressSettingsRepository.createQueryBuilder()
+            .update(AddressSettingsEntity)
+            .set({
+                shares: () => `"shares" + :shares`
+            })
+            .where('address = :address', { address })
+            .setParameter('shares', shares)
+            .execute();
+    }
+
+    public async resetBestDifficultyAndShares() {
+        return await this.addressSettingsRepository.update({}, {
+            shares: 0,
+            bestDifficulty: 0
+        });
+    }
 }

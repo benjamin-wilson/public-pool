@@ -8,8 +8,11 @@ export class AddressSettingsEntity extends TrackedEntity {
     @PrimaryColumn({ length: 62, type: 'varchar' })
     address: string;
 
+    @Column({ default: 0 })
+    shares: number;
+
     @Column({ type: 'real', default: 0 })
-    bestDifficulty: number
+    bestDifficulty: number;
 
     @Column({ nullable: true })
     miscCoinbaseScriptData: string;

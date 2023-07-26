@@ -387,10 +387,16 @@ export class StratumV1Client extends EasyUnsubscribe {
                     sessionId: this.extraNonceAndSessionId,
                     blockData: blockHex
                 });
+
                 await this.notificationService.notifySubscribersBlockFound(this.clientAuthorization.address, jobTemplate.blockData.height, updatedJobBlock, result);
+                //success
+                if (result == null) {
+                    await this.addressSettingsService.resetBestDifficultyAndShares();
+                }
             }
             try {
                 await this.statistics.addSubmission(this.entity, submissionHash, this.sessionDifficulty);
+                await this.addressSettingsService.addShares(this.clientAuthorization.address, this.sessionDifficulty);
             } catch (e) {
                 console.log(e);
                 const err = new StratumErrorMessage(
