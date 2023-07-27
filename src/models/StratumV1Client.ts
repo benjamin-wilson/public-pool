@@ -71,7 +71,13 @@ export class StratumV1Client extends EasyUnsubscribe {
             data.toString()
                 .split('\n')
                 .filter(m => m.length > 0)
-                .forEach(m => this.handleMessage(m))
+                .forEach(async (m) => {
+                    try {
+                        await this.handleMessage(m);
+                    } catch (e) {
+                        this.promiseSocket.socket.emit('end', true);
+                    }
+                })
         });
     }
 
@@ -425,7 +431,11 @@ export class StratumV1Client extends EasyUnsubscribe {
                 'Difficulty too low').response();
             console.error(err);
             console.log(`Header: ${header.toString('hex')}`);
-            await this.promiseSocket.write(err);
+            try {
+                await this.promiseSocket.write(err);
+            } catch (e) {
+                this.promiseSocket.socket.emit('end', true);
+            }
             return false;
         }
 
