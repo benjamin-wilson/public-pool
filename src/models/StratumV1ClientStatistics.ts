@@ -58,7 +58,7 @@ export class StratumV1ClientStatistics {
 
         const targetDifficulty = difficultyPerSecond * TARGET_SUBMISSION_PER_SECOND;
 
-        if (clientDifficulty << 1 < targetDifficulty || clientDifficulty >> 1 > targetDifficulty) {
+        if ((clientDifficulty * 2) < targetDifficulty || (clientDifficulty / 2) > targetDifficulty) {
             return this.nearestPowerOfTwo(targetDifficulty)
         }
 
