@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { AddressSettingsModule } from '../../ORM/address-settings/address-settings.module';
 import { ClientStatisticsModule } from '../../ORM/client-statistics/client-statistics.module';
 import { ClientModule } from '../../ORM/client/client.module';
 import { ClientController } from './client.controller';
@@ -19,6 +20,7 @@ describe('ClientController', () => {
           cache: true,
           logging: false
         }),
+        AddressSettingsModule,
         ClientModule,
         ClientStatisticsModule
       ],

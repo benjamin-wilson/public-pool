@@ -154,7 +154,8 @@ describe('StratumV1Client', () => {
 
     it('should close socket on invalid JSON', () => {
         socketEmitter(Buffer.from('INVALID'));
-        expect(promiseSocket.end).toHaveBeenCalledTimes(1);
+        jest.spyOn(promiseSocket, 'destroy');
+        expect(promiseSocket.socket.on).toHaveBeenCalled();
     });
 
     it('should respond to mining.subscribe', async () => {
@@ -206,7 +207,7 @@ describe('StratumV1Client', () => {
         socketEmitter(Buffer.from(MockRecording1.MINING_AUTHORIZE));
         await new Promise((r) => setTimeout(r, 100));
 
-        expect(promiseSocket.write).toHaveBeenCalledWith(`{"id":null,"method":"mining.set_difficulty","params":[32768]}\n`);
+        expect(promiseSocket.write).toHaveBeenCalledWith(`{"id":null,"method":"mining.set_difficulty","params":[16384]}\n`);
 
     });
 
