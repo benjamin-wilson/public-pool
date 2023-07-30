@@ -291,7 +291,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
                 await this.checkDifficulty();
 
-                await this.watchdog();
+                //await this.watchdog();
             })
 
         }
@@ -439,7 +439,7 @@ export class StratumV1Client extends EasyUnsubscribe {
             return false;
         }
 
-        //await this.checkDifficulty();
+        await this.checkDifficulty();
         return true;
 
     }
