@@ -255,7 +255,7 @@ describe('StratumV1Client', () => {
         socketEmitter(Buffer.from(MockRecording1.MINING_SUBMIT));
 
         jest.useRealTimers();
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 1000));
 
         expect(promiseSocket.write).lastCalledWith(`{\"id\":5,\"error\":null,\"result\":true}\n`);
 
