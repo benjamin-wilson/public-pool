@@ -34,10 +34,9 @@ export class AddressSettingsService {
         return await this.addressSettingsRepository.createQueryBuilder()
             .update(AddressSettingsEntity)
             .set({
-                shares: () => `"shares" + :shares`
+                shares: () => `"shares" + ${shares}` // Use the actual value of shares here
             })
             .where('address = :address', { address })
-            .setParameter('shares', shares)
             .execute();
     }
 
