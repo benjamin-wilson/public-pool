@@ -90,7 +90,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
 
     private async handleMessage(message: string) {
-        console.log(`Received from ${this.extraNonceAndSessionId}`, message);
+        //console.log(`Received from ${this.extraNonceAndSessionId}`, message);
 
         // Parse the message and check if it's the initial subscription message
         let parsedMessage = null;
@@ -291,8 +291,8 @@ export class StratumV1Client extends EasyUnsubscribe {
 
                 await this.checkDifficulty();
 
-                //await this.watchdog();
-            })
+                await this.watchdog();
+            });
 
         }
     }
@@ -377,24 +377,24 @@ export class StratumV1Client extends EasyUnsubscribe {
         const header = updatedJobBlock.toBuffer(true);
         const { submissionDifficulty, submissionHash } = this.calculateDifficulty(header);
 
-        console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonceAndSessionId}`);
+        //console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonceAndSessionId}`);
 
 
         if (submissionDifficulty >= this.sessionDifficulty) {
 
-            if (submissionDifficulty >= jobTemplate.blockData.networkDifficulty) {
+            if (submissionDifficulty >= jobTemplate.data.blockData.networkDifficulty) {
                 console.log('!!! BLOCK FOUND !!!');
                 const blockHex = updatedJobBlock.toHex(false);
                 const result = await this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
                 await this.blocksService.save({
-                    height: jobTemplate.blockData.height,
+                    height: jobTemplate.data.blockData.height,
                     minerAddress: this.clientAuthorization.address,
                     worker: this.clientAuthorization.worker,
                     sessionId: this.extraNonceAndSessionId,
                     blockData: blockHex
                 });
 
-                await this.notificationService.notifySubscribersBlockFound(this.clientAuthorization.address, jobTemplate.blockData.height, updatedJobBlock, result);
+                await this.notificationService.notifySubscribersBlockFound(this.clientAuthorization.address, jobTemplate.data.blockData.height, updatedJobBlock, result);
                 //success
                 if (result == null) {
                     await this.addressSettingsService.resetBestDifficultyAndShares();

@@ -58,9 +58,9 @@ export class MiningJob {
 
     }
 
-    public copyAndUpdateBlock(jobTemplate: IJobTemplate, versionMask: number, nonce: number, extraNonce: string, extraNonce2: string, timestamp: number): bitcoinjs.Block {
+    public copyAndUpdateBlock(jobTemplate: { data: IJobTemplate, blockBuffer: Buffer }, versionMask: number, nonce: number, extraNonce: string, extraNonce2: string, timestamp: number): bitcoinjs.Block {
 
-        const testBlock = bitcoinjs.Block.fromBuffer(jobTemplate.block.toBuffer());
+        const testBlock = bitcoinjs.Block.fromBuffer(jobTemplate.blockBuffer);
 
         testBlock.transactions[0] = this.coinbaseTransaction;
 
@@ -77,7 +77,7 @@ export class MiningJob {
         testBlock.transactions[0].ins[0].script = Buffer.from(`${nonceScript.substring(0, nonceScript.length - 16)}${extraNonce}${extraNonce2}`, 'hex');
 
         //recompute the root since we updated the coinbase script with the nonces
-        testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].getHash(false), jobTemplate.merkle_branch);
+        testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].getHash(false), jobTemplate.data.merkle_branch);
 
 
         testBlock.timestamp = timestamp;

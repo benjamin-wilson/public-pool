@@ -34,7 +34,7 @@ export class StratumV1JobsService {
 
     public jobs: MiningJob[] = [];
 
-    public blocks: { [id: number]: IJobTemplate } = {};
+    public blocks: { [id: number]: { data: IJobTemplate, blockBuffer: Buffer } } = {};
 
     private currentBlockTemplate$: Observable<{ blockTemplate: IBlockTemplate }>;
 
@@ -131,7 +131,10 @@ export class StratumV1JobsService {
                     this.blocks = {};
                     this.jobs = [];
                 }
-                this.blocks[data.blockData.id] = data;
+                this.blocks[data.blockData.id] = {
+                    data,
+                    blockBuffer: data.block.toBuffer()
+                };
             }),
             shareReplay({ refCount: true, bufferSize: 1 })
         )
@@ -154,7 +157,7 @@ export class StratumV1JobsService {
         return bytes;
     }
 
-    public getJobTemplateById(jobTemplateId: string): IJobTemplate {
+    public getJobTemplateById(jobTemplateId: string): { data: IJobTemplate, blockBuffer: Buffer } {
         return this.blocks[jobTemplateId];
     }
 
