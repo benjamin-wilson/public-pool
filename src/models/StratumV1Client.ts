@@ -400,27 +400,27 @@ export class StratumV1Client extends EasyUnsubscribe {
                     await this.addressSettingsService.resetBestDifficultyAndShares();
                 }
             }
-            try {
-                await this.statistics.addSubmission(this.entity, submissionHash, this.sessionDifficulty);
-                await this.addressSettingsService.addShares(this.clientAuthorization.address, this.sessionDifficulty);
-            } catch (e) {
-                console.log(e);
-                const err = new StratumErrorMessage(
-                    submission.id,
-                    eStratumErrorCode.DuplicateShare,
-                    'Duplicate share').response();
-                console.error(err);
-                await this.promiseSocket.write(err);
-                return false;
-            }
+            // try {
+            //     await this.statistics.addSubmission(this.entity, submissionHash, this.sessionDifficulty);
+            //     await this.addressSettingsService.addShares(this.clientAuthorization.address, this.sessionDifficulty);
+            // } catch (e) {
+            //     console.log(e);
+            //     const err = new StratumErrorMessage(
+            //         submission.id,
+            //         eStratumErrorCode.DuplicateShare,
+            //         'Duplicate share').response();
+            //     console.error(err);
+            //     await this.promiseSocket.write(err);
+            //     return false;
+            // }
 
-            if (submissionDifficulty > this.entity.bestDifficulty) {
-                await this.clientService.updateBestDifficulty(this.extraNonceAndSessionId, submissionDifficulty);
-                this.entity.bestDifficulty = submissionDifficulty;
-                if (submissionDifficulty > (await this.addressSettingsService.getSettings(this.clientAuthorization.address)).bestDifficulty) {
-                    await this.addressSettingsService.updateBestDifficulty(this.clientAuthorization.address, submissionDifficulty);
-                }
-            }
+            // if (submissionDifficulty > this.entity.bestDifficulty) {
+            //     await this.clientService.updateBestDifficulty(this.extraNonceAndSessionId, submissionDifficulty);
+            //     this.entity.bestDifficulty = submissionDifficulty;
+            //     if (submissionDifficulty > (await this.addressSettingsService.getSettings(this.clientAuthorization.address)).bestDifficulty) {
+            //         await this.addressSettingsService.updateBestDifficulty(this.clientAuthorization.address, submissionDifficulty);
+            //     }
+            // }
 
 
 
@@ -439,7 +439,7 @@ export class StratumV1Client extends EasyUnsubscribe {
             return false;
         }
 
-        //await this.checkDifficulty();
+        await this.checkDifficulty();
         return true;
 
     }
