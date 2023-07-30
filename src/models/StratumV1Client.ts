@@ -414,13 +414,13 @@ export class StratumV1Client extends EasyUnsubscribe {
             //     return false;
             // }
 
-            // if (submissionDifficulty > this.entity.bestDifficulty) {
-            //     await this.clientService.updateBestDifficulty(this.extraNonceAndSessionId, submissionDifficulty);
-            //     this.entity.bestDifficulty = submissionDifficulty;
-            //     if (submissionDifficulty > (await this.addressSettingsService.getSettings(this.clientAuthorization.address)).bestDifficulty) {
-            //         await this.addressSettingsService.updateBestDifficulty(this.clientAuthorization.address, submissionDifficulty);
-            //     }
-            // }
+            if (submissionDifficulty > this.entity.bestDifficulty) {
+                await this.clientService.updateBestDifficulty(this.extraNonceAndSessionId, submissionDifficulty);
+                this.entity.bestDifficulty = submissionDifficulty;
+                if (submissionDifficulty > (await this.addressSettingsService.getSettings(this.clientAuthorization.address)).bestDifficulty) {
+                    await this.addressSettingsService.updateBestDifficulty(this.clientAuthorization.address, submissionDifficulty);
+                }
+            }
 
 
 
