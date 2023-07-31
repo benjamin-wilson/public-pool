@@ -1,7 +1,9 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import * as bitcoinjs from 'bitcoinjs-lib';
 import { useContainer } from 'class-validator';
+import * as ecc from 'tiny-secp256k1';
 
 import { AppModule } from './app.module';
 
@@ -25,6 +27,10 @@ async function bootstrap() {
   );
   app.enableCors();
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
+
+  //Taproot
+  bitcoinjs.initEccLib(ecc);
+
   await app.listen(process.env.PORT, '0.0.0.0', () => {
     console.log(`http listening on port ${process.env.PORT}`);
   });

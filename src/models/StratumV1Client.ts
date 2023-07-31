@@ -287,11 +287,13 @@ export class StratumV1Client extends EasyUnsubscribe {
             this.stratumV1JobsService.newMiningJob$.pipe(
                 takeUntil(this.easyUnsubscribe)
             ).subscribe(async (jobTemplate) => {
-                await this.sendNewMiningJob(jobTemplate);
-
-                await this.checkDifficulty();
-
-                await this.watchdog();
+                try {
+                    await this.sendNewMiningJob(jobTemplate);
+                    await this.checkDifficulty();
+                    await this.watchdog();
+                } catch (e) {
+                    this.promiseSocket.socket.emit('end', true);
+                }
             });
 
         }

@@ -62,8 +62,6 @@ export class MiningJob {
 
         const testBlock = Object.assign(new bitcoinjs.Block(), jobTemplate.block);
 
-
-
         testBlock.transactions[0] = this.coinbaseTransaction;
 
         testBlock.nonce = nonce;
@@ -84,7 +82,7 @@ export class MiningJob {
 
         testBlock.timestamp = timestamp;
 
-        return testBlock as any;
+        return testBlock;
     }
 
 

@@ -43,6 +43,7 @@
     "rpc-bitcoin": "^2.0.0",
     "rxjs": "^7.2.0",
     "sqlite3": "^5.1.6",
+    "tiny-secp256k1": "^2.2.3",
     "typeorm": "^0.3.17"
   },
   "devDependencies": {
