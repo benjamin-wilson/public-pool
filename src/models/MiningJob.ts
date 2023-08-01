@@ -61,6 +61,9 @@ export class MiningJob {
     public copyAndUpdateBlock(jobTemplate: IJobTemplate, versionMask: number, nonce: number, extraNonce: string, extraNonce2: string, timestamp: number): bitcoinjs.Block {
 
         const testBlock = Object.assign(new bitcoinjs.Block(), jobTemplate.block);
+        testBlock.transactions = jobTemplate.block.transactions.map(tx => {
+            return Object.assign(new bitcoinjs.Transaction(), tx);
+        });
 
         testBlock.transactions[0] = this.coinbaseTransaction;
 
