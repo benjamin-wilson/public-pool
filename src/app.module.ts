@@ -38,7 +38,8 @@ const ORMModules = [
             synchronize: true,
             autoLoadEntities: true,
             cache: true,
-            logging: false
+            logging: false,
+            enableWAL: true
         }),
         CacheModule.register(),
         ScheduleModule.forRoot(),
