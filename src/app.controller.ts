@@ -31,7 +31,7 @@ export class AppController {
       };
     }
 
-    const chartData = await this.clientStatisticsService.getChartDataForSite();
+    const chartData = [];// await this.clientStatisticsService.getChartDataForSite();
 
     //5 min
     await this.cacheManager.set(CACHE_KEY, chartData, 5 * 60 * 1000);
