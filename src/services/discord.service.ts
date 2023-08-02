@@ -34,96 +34,105 @@ export class DiscordService implements OnModuleInit {
 
 
     constructor(private readonly configService: ConfigService) {
-        this.token = this.configService.get('DISCORD_BOT_TOKEN');
-        this.clientId = this.configService.get('DISCORD_BOT_CLIENTID');
-        this.guildId = this.configService.get('DISCORD_BOT_GUILD_ID');
-        this.channelId = this.configService.get('DISCORD_BOT_CHANNEL_ID')
+        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+            this.token = this.configService.get('DISCORD_BOT_TOKEN');
+            this.clientId = this.configService.get('DISCORD_BOT_CLIENTID');
+            this.guildId = this.configService.get('DISCORD_BOT_GUILD_ID');
+            this.channelId = this.configService.get('DISCORD_BOT_CHANNEL_ID')
 
-        if (this.token == null || this.token.length < 1 ||
-            this.clientId == null || this.clientId.length < 1 ||
-            this.guildId == null || this.guildId.length < 1 ||
-            this.channelId == null || this.channelId.length < 1
-        ) {
-            return;
+            if (this.token == null || this.token.length < 1 ||
+                this.clientId == null || this.clientId.length < 1 ||
+                this.guildId == null || this.guildId.length < 1 ||
+                this.channelId == null || this.channelId.length < 1
+            ) {
+                return;
+            }
+
+            console.log('discord init')
+
+            this.commandCollection = new Collection();
+            commands.forEach(command => {
+                this.commandCollection.set(command.data.name, command);
+            });
+            this.bot = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
+            this.bot.login(this.token);
         }
-
-        console.log('discord init')
-
-        this.commandCollection = new Collection();
-        commands.forEach(command => {
-            this.commandCollection.set(command.data.name, command);
-        });
-        this.bot = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
-        this.bot.login(this.token);
     }
 
     async onModuleInit(): Promise<void> {
 
-        if (this.bot == null) {
-            return;
-        }
-
-        await this.registerCommands();
-
-
-        this.bot.on(Events.InteractionCreate, async interaction => {
-            if (!interaction.isChatInputCommand()) return;
-
-            const command = this.commandCollection.get(interaction.commandName);
-
-            if (!command) {
-                console.error(`No command matching ${interaction.commandName} was found.`);
+        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+            if (this.bot == null) {
                 return;
             }
 
-            try {
-                await command.execute(interaction);
-            } catch (error) {
-                console.error(error);
-                if (interaction.replied || interaction.deferred) {
-                    await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
-                } else {
-                    await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
+            await this.registerCommands();
+
+            this.bot.on(Events.InteractionCreate, async interaction => {
+                if (!interaction.isChatInputCommand()) return;
+
+                const command = this.commandCollection.get(interaction.commandName);
+
+                if (!command) {
+                    console.error(`No command matching ${interaction.commandName} was found.`);
+                    return;
                 }
-            }
-        });
+
+                try {
+                    await command.execute(interaction);
+                } catch (error) {
+                    console.error(error);
+                    if (interaction.replied || interaction.deferred) {
+                        await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
+                    } else {
+                        await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
+                    }
+                }
+            });
+        }
     }
 
     private async registerCommands() {
-        const rest = new REST().setToken(this.token);
-        try {
-            console.log(`Started refreshing ${commands.length} application (/) commands.`);
+        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+            const rest = new REST().setToken(this.token);
+            try {
+                console.log(`Started refreshing ${commands.length} application (/) commands.`);
 
-            // The put method is used to fully refresh all commands in the guild with the current set
-            const data = await rest.put(
-                Routes.applicationGuildCommands(this.clientId, this.guildId),
-                { body: commands.map(c => c.data.toJSON()) },
-            ) as any;
+                // The put method is used to fully refresh all commands in the guild with the current set
+                const data = await rest.put(
+                    Routes.applicationGuildCommands(this.clientId, this.guildId),
+                    { body: commands.map(c => c.data.toJSON()) },
+                ) as any;
 
-            console.log(`Successfully reloaded ${data.length} application (/) commands.`);
-        } catch (error) {
-            // And of course, make sure you catch and log any errors!
-            console.error(error);
+                console.log(`Successfully reloaded ${data.length} application (/) commands.`);
+            } catch (error) {
+                // And of course, make sure you catch and log any errors!
+                console.error(error);
+            }
         }
     }
 
     public async notifyRestarted() {
-        if (this.bot == null) {
-            return;
-        }
+        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+            if (this.bot == null) {
+                return;
+            }
 
-        const guild = await this.bot.guilds.fetch(this.guildId);
-        const channel = await guild.channels.fetch(this.channelId) as TextChannel;
-        channel.send(`Server Restarted.`);
+            const guild = await this.bot.guilds.fetch(this.guildId);
+            const channel = await guild.channels.fetch(this.channelId) as TextChannel;
+            channel.send(`Server Restarted.`);
+        }
     }
 
     public async notifySubscribersBlockFound(height: number, block: Block, message: string) {
-        if (this.bot == null) {
-            return;
-        }
+        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+            if (this.bot == null) {
+                return;
+            }
 
-        const guild = await this.bot.guilds.fetch(this.guildId);
-        const channel = await guild.channels.fetch(this.channelId) as TextChannel;
-        channel.send(`Block Found! Result: ${message}, Height: ${height}`)
+            const guild = await this.bot.guilds.fetch(this.guildId);
+            const channel = await guild.channels.fetch(this.channelId) as TextChannel;
+            channel.send(`Block Found! Result: ${message}, Height: ${height}`);
+        }
     }
 }

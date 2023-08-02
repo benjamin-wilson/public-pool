@@ -38,7 +38,7 @@ export class ClientStatisticsService {
             .createQueryBuilder()
             .delete()
             .from(ClientStatisticsEntity)
-            .where('time < :time', { time: oneDayAgo })
+            .where('time < :time', { time: oneDayAgo.getTime() })
             .execute();
     }
 

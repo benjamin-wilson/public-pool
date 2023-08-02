@@ -19,9 +19,11 @@ export class CleanupService implements OnModuleInit {
 
     @Cron(CronExpression.EVERY_HOUR)
     private async deleteOldStatistics() {
-        const deletedStatistics = await this.clientStatisticsService.deleteOldStatistics();
-        console.log(`Deleted ${deletedStatistics.affected} old statistics`);
-        const deletedClients = await this.clientService.deleteOldClients();
-        console.log(`Deleted ${deletedClients.affected} old clients`);
+        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+            const deletedStatistics = await this.clientStatisticsService.deleteOldStatistics();
+            console.log(`Deleted ${deletedStatistics.affected} old statistics`);
+            const deletedClients = await this.clientService.deleteOldClients();
+            console.log(`Deleted ${deletedClients.affected} old clients`);
+        }
     }
 }

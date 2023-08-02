@@ -33,7 +33,7 @@ export class ClientService {
             .createQueryBuilder()
             .delete()
             .from(ClientEntity)
-            .where('deletedAt < :time', { time: oneDayAgo })
+            .where('deletedAt < :deletedAt', { deletedAt: oneDayAgo })
             .execute();
 
     }
