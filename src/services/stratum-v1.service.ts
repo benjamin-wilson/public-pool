@@ -39,7 +39,7 @@ export class StratumV1Service implements OnModuleInit {
   }
 
   private startSocketServer() {
-    new Server(async (s: Socket) => {
+    new Server({ keepAlive: true, keepAliveInitialDelay: 100 }, async (s: Socket) => {
 
       const promiseSocket = new PromiseSocket(s);
 
