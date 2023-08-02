@@ -60,13 +60,6 @@ export class StratumV1Client extends EasyUnsubscribe {
     ) {
         super();
 
-        this.sessionStart = new Date();
-
-        this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService);
-        this.extraNonceAndSessionId = this.getRandomHexString();
-
-        console.log(`New client ID: : ${this.extraNonceAndSessionId}`);
-
         this.promiseSocket.socket.on('data', (data: Buffer) => {
             data.toString()
                 .split('\n')
@@ -80,6 +73,11 @@ export class StratumV1Client extends EasyUnsubscribe {
                     }
                 })
         });
+
+        this.sessionStart = new Date();
+        this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService);
+        this.extraNonceAndSessionId = this.getRandomHexString();
+        console.log(`New client ID: : ${this.extraNonceAndSessionId}`);
     }
 
     private getRandomHexString() {
@@ -100,7 +98,6 @@ export class StratumV1Client extends EasyUnsubscribe {
         } catch (e) {
             console.log("Invalid JSON");
             this.promiseSocket.socket.emit('end', true);
-            console.error(e);
             return;
         }
 

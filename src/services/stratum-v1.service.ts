@@ -39,7 +39,7 @@ export class StratumV1Service implements OnModuleInit {
   }
 
   private startSocketServer() {
-    new Server({ allowHalfOpen: true }, async (s: Socket) => {
+    new Server(async (s: Socket) => {
 
       const promiseSocket = new PromiseSocket(s);
 
@@ -55,11 +55,6 @@ export class StratumV1Service implements OnModuleInit {
         this.addressSettingsService
       );
 
-
-
-      const clientCount = await this.clientService.connectedClientCount();
-
-      console.log(`New client connected: ${promiseSocket.socket.remoteAddress}, ${clientCount} total clients`);
 
       promiseSocket.socket.on('end', async (error: Error) => {
         // Handle socket disconnection
