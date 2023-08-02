@@ -124,6 +124,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
                     await this.promiseSocket.write(JSON.stringify(this.clientSubscription.response(this.extraNonceAndSessionId)) + '\n');
                 } else {
+                    console.error('Subscription validation error');
                     const err = new StratumErrorMessage(
                         subscriptionMessage.id,
                         eStratumErrorCode.OtherUnknown,
@@ -154,6 +155,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                     //const response = this.buildSubscriptionResponse(configurationMessage.id);
                     await this.promiseSocket.write(JSON.stringify(this.clientConfiguration.response()) + '\n');
                 } else {
+                    console.error('Configuration validation error');
                     const err = new StratumErrorMessage(
                         configurationMessage.id,
                         eStratumErrorCode.OtherUnknown,
@@ -184,6 +186,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                     //const response = this.buildSubscriptionResponse(authorizationMessage.id);
                     await this.promiseSocket.write(JSON.stringify(this.clientAuthorization.response()) + '\n');
                 } else {
+                    console.error('Authorization validation error');
                     const err = new StratumErrorMessage(
                         authorizationMessage.id,
                         eStratumErrorCode.OtherUnknown,
@@ -219,6 +222,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                     await this.promiseSocket.write(JSON.stringify(this.clientSuggestedDifficulty.response(this.sessionDifficulty)) + '\n');
                     this.usedSuggestedDifficulty = true;
                 } else {
+                    console.error('Suggest difficulty validation error');
                     const err = new StratumErrorMessage(
                         suggestDifficultyMessage.id,
                         eStratumErrorCode.OtherUnknown,
@@ -250,6 +254,7 @@ export class StratumV1Client extends EasyUnsubscribe {
 
 
                 } else {
+                    console.error('Mining Submit validation error');
                     const err = new StratumErrorMessage(
                         miningSubmitMessage.id,
                         eStratumErrorCode.OtherUnknown,
