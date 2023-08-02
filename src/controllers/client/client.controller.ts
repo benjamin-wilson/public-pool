@@ -20,11 +20,7 @@ export class ClientController {
 
         const workers = await this.clientService.getByAddress(address);
 
-        const chartData = await this.clientStatisticsService.getChartDataForAddress(address);
-
         const addressSettings = await this.addressSettingsService.getSettings(address);
-
-
 
         return {
             bestDifficulty: addressSettings?.bestDifficulty,
@@ -39,9 +35,14 @@ export class ClientController {
                         startTime: worker.startTime
                     };
                 })
-            ),
-            chartData
+            )
         }
+    }
+
+    @Get(':address/chart')
+    async getClientInfoChart(@Param('address') address: string) {
+        const chartData = await this.clientStatisticsService.getChartDataForAddress(address);
+        return chartData;
     }
 
     @Get(':address/:workerName')

@@ -18,7 +18,17 @@ export class ClientStatisticsService {
     }
 
     public async save(clientStatistic: Partial<ClientStatisticsEntity>) {
-        return await this.clientStatisticsRepository.save(clientStatistic);
+        const res1 = await this.clientStatisticsRepository.createQueryBuilder()
+            .update(ClientStatisticsEntity)
+            .set({
+                shares: () => `"shares" + ${clientStatistic.shares}` // Use the actual value of shares here
+            })
+            .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', { address: clientStatistic.address, clientName: clientStatistic.clientName, sessionId: clientStatistic.sessionId, time: clientStatistic.time })
+            .execute();
+
+        if (res1.affected == 0) {
+            await this.clientStatisticsRepository.insert(clientStatistic);
+        }
     }
 
     public async deleteOldStatistics() {
@@ -34,79 +44,74 @@ export class ClientStatisticsService {
 
     public async getChartDataForSite() {
 
+        var yesterday = new Date(new Date().getTime() - (24 * 60 * 60 * 1000));
 
         const query = `
-        WITH result_set AS (
             SELECT
-                MAX(time) || 'GMT' AS label,
-                (SUM(difficulty) * 4294967296) /
-                ((JULIANDAY(MAX(time)) - JULIANDAY(MIN(time))) * 24 * 60 * 60) AS data
+                time AS label,
+                ROUND(((SUM(shares) * 4294967296) / 600)) AS data
             FROM
                 client_statistics_entity AS entry
             WHERE
-                entry.time > datetime("now", "-1 day")
+                entry.time > ${yesterday.getTime()}
             GROUP BY
-                strftime('%Y-%m-%d %H', time, 'localtime') || (strftime('%M', time, 'localtime') / 10)
+                time
             ORDER BY
-            time
-        )
-        SELECT  *
-        FROM result_set
-        WHERE label <> (SELECT MAX(label) FROM result_set);
+                time
+            LIMIT 144;
+        
     `;
 
-        const result = await this.clientStatisticsRepository.query(query);
-
+        const result: any[] = await this.clientStatisticsRepository.query(query);
 
 
         return result.map(res => {
             res.label = new Date(res.label).toISOString();
             return res;
-        });
+        }).slice(0, result.length - 1)
 
     }
 
 
-    public async getHashRateForAddress(address: string) {
+    // public async getHashRateForAddress(address: string) {
 
-        const query = `
-            SELECT
-            (JULIANDAY(MAX(entry.time)) - JULIANDAY(MIN(entry.time))) * 24 * 60 * 60 AS timeDiff,
-            SUM(entry.difficulty) AS difficultySum
-            FROM
-                client_statistics_entity AS entry
-            WHERE
-                entry.address = ? AND entry.time > datetime("now", "-1 hour")
-        `;
+    //     const oneHour = new Date(new Date().getTime() - (60 * 60 * 1000));
 
-        const result = await this.clientStatisticsRepository.query(query, [address]);
+    //     const query = `
+    //         SELECT
+    //         SUM(entry.shares) AS difficultySum
+    //         FROM
+    //             client_statistics_entity AS entry
+    //         WHERE
+    //             entry.address = ? AND entry.time > ${oneHour}
+    //     `;
 
-        const timeDiff = result[0].timeDiff;
-        const difficultySum = result[0].difficultySum;
+    //     const result = await this.clientStatisticsRepository.query(query, [address]);
 
-        return (difficultySum * 4294967296) / (timeDiff);
+    //     const difficultySum = result[0].difficultySum;
 
-    }
+    //     return (difficultySum * 4294967296) / (600);
+
+    // }
 
     public async getChartDataForAddress(address: string) {
+
+        var yesterday = new Date(new Date().getTime() - (24 * 60 * 60 * 1000));
+
         const query = `
-            WITH result_set AS (
                 SELECT
-                    MAX(time) || 'GMT' AS label,
-                    (SUM(difficulty) * 4294967296) /
-                    ((JULIANDAY(MAX(time)) - JULIANDAY(MIN(time))) * 24 * 60 * 60) AS data
+                    time label,
+                    (SUM(shares) * 4294967296) / 600 AS data
                 FROM
                     client_statistics_entity AS entry
                 WHERE
-                entry.address = ? AND entry.time > datetime("now", "-1 day")
+                    entry.address = ? AND entry.time > ${yesterday.getTime()}
                 GROUP BY
-                    strftime('%Y-%m-%d %H', time, 'localtime') || (strftime('%M', time, 'localtime') / 10)
+                    time
                 ORDER BY
-                time
-            )
-            SELECT  *
-            FROM result_set
-            WHERE label <> (SELECT MAX(label) FROM result_set);
+                    time
+                LIMIT 144;
+
         `;
 
         const result = await this.clientStatisticsRepository.query(query, [address]);
@@ -114,52 +119,50 @@ export class ClientStatisticsService {
         return result.map(res => {
             res.label = new Date(res.label).toISOString();
             return res;
-        });
+        }).slice(0, result.length - 1);
 
-        return result;
+
     }
 
 
     public async getHashRateForGroup(address: string, clientName: string) {
 
+        var oneHour = new Date(new Date().getTime() - (60 * 60 * 1000));
+
         const query = `
             SELECT
-            (JULIANDAY(MAX(entry.time)) - JULIANDAY(MIN(entry.time))) * 24 * 60 * 60 AS timeDiff,
-            SUM(entry.difficulty) AS difficultySum
+            SUM(entry.shares) AS difficultySum
             FROM
                 client_statistics_entity AS entry
             WHERE
-                entry.address = ? AND entry.clientName = ? AND entry.time > datetime("now", "-1 hour")
+                entry.address = ? AND entry.clientName = ? AND entry.time > ${oneHour.getTime()}
         `;
 
         const result = await this.clientStatisticsRepository.query(query, [address, clientName]);
 
-        const timeDiff = result[0].timeDiff;
+
         const difficultySum = result[0].difficultySum;
 
-        return (difficultySum * 4294967296) / (timeDiff);
+        return (difficultySum * 4294967296) / (600);
 
     }
 
     public async getChartDataForGroup(address: string, clientName: string) {
+        var yesterday = new Date(new Date().getTime() - (24 * 60 * 60 * 1000));
+
         const query = `
-            WITH result_set AS (
-                SELECT
-                    MAX(time) || 'GMT' AS label,
-                    (SUM(difficulty) * 4294967296) /
-                    ((JULIANDAY(MAX(time)) - JULIANDAY(MIN(time))) * 24 * 60 * 60) AS data
-                FROM
-                    client_statistics_entity AS entry
-                WHERE
-                entry.address = ? AND entry.clientName = ? AND entry.time > datetime("now", "-1 day")
-                GROUP BY
-                    strftime('%Y-%m-%d %H', time, 'localtime') || (strftime('%M', time, 'localtime') / 10)
-                ORDER BY
+            SELECT
+                time label,
+                (SUM(shares) * 4294967296) / 600 AS data
+            FROM
+                client_statistics_entity AS entry
+            WHERE
+                entry.address = ? AND entry.clientName = ? AND entry.time > ${yesterday.getTime()}
+            GROUP BY
                 time
-            )
-            SELECT *
-            FROM result_set
-            WHERE label <> (SELECT MAX(label) FROM result_set);
+            ORDER BY
+                time
+            LIMIT 144;
         `;
 
         const result = await this.clientStatisticsRepository.query(query, [address, clientName]);
@@ -167,9 +170,9 @@ export class ClientStatisticsService {
         return result.map(res => {
             res.label = new Date(res.label).toISOString();
             return res;
-        });
+        }).slice(0, result.length - 1);
 
-        return result;
+
     }
 
 
@@ -177,43 +180,50 @@ export class ClientStatisticsService {
 
         const query = `
             SELECT
-            (JULIANDAY(MAX(entry.time)) - JULIANDAY(MIN(entry.time))) * 24 * 60 * 60 AS timeDiff,
-            SUM(entry.difficulty) AS difficultySum
+                createdAt,
+                updatedAt,
+                shares
             FROM
                 client_statistics_entity AS entry
             WHERE
-                entry.address = ? AND entry.clientName = ? AND entry.sessionId = ? AND entry.time > datetime("now", "-1 hour")
+                entry.address = ? AND entry.clientName = ? AND entry.sessionId = ?
+            ORDER BY time DESC
+            LIMIT 1;
             
         `;
 
         const result = await this.clientStatisticsRepository.query(query, [address, clientName, sessionId]);
 
-        const timeDiff = result[0].timeDiff;
-        const difficultySum = result[0].difficultySum;
+        if (result.length < 1) {
+            return 0;
+        }
 
-        return (difficultySum * 4294967296) / (timeDiff);
+        const time = new Date(result[0].updatedAt).getTime() - new Date(result[0].createdAt).getTime();
+
+        if (time < 1) {
+            return 0;
+        }
+
+        return (result[0].shares * 4294967296) / (time / 1000);
 
     }
 
     public async getChartDataForSession(address: string, clientName: string, sessionId: string) {
+        var yesterday = new Date(new Date().getTime() - (24 * 60 * 60 * 1000));
+
         const query = `
-            WITH result_set AS (
-                SELECT
-                    MAX(time) || 'GMT' AS label,
-                    (SUM(difficulty) * 4294967296) /
-                    ((JULIANDAY(MAX(time)) - JULIANDAY(MIN(time))) * 24 * 60 * 60) AS data
-                FROM
-                    client_statistics_entity AS entry
-                WHERE
-                entry.address = ? AND entry.clientName = ? AND entry.sessionId = ? AND entry.time > datetime("now", "-1 day")
-                GROUP BY
-                    strftime('%Y-%m-%d %H', time, 'localtime') || (strftime('%M', time, 'localtime') / 10)
-                ORDER BY
-                    time
-            )
-            SELECT *
-            FROM result_set
-            WHERE label <> (SELECT MAX(label) FROM result_set);
+            SELECT
+                time label,
+                (SUM(shares) * 4294967296) / 600 AS data
+            FROM
+                client_statistics_entity AS entry
+            WHERE
+                entry.address = ? AND entry.clientName = ? AND entry.sessionId = ? AND entry.time > ${yesterday.getTime()}
+            GROUP BY
+                time
+            ORDER BY
+                time
+            LIMIT 144;
         `;
 
         const result = await this.clientStatisticsRepository.query(query, [address, clientName, sessionId]);
@@ -221,9 +231,8 @@ export class ClientStatisticsService {
         return result.map(res => {
             res.label = new Date(res.label).toISOString();
             return res;
-        });
+        }).slice(0, result.length - 1);
 
-        return result;
     }
 
     public async deleteAll() {

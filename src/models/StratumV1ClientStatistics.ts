@@ -24,9 +24,14 @@ export class StratumV1ClientStatistics {
             difficulty: targetDifficulty,
         });
 
+        // 10 min
+        var coeff = 1000 * 60 * 10;
+        var date = new Date();
+        var rounded = new Date(Math.round(date.getTime() / coeff) * coeff);
+
         await this.clientStatisticsService.save({
-            time: new Date(),
-            difficulty: targetDifficulty,
+            time: rounded.getTime(),
+            shares: targetDifficulty,
             address: client.address,
             clientName: client.clientName,
             sessionId: client.sessionId,

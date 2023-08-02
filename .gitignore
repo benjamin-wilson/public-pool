@@ -37,4 +37,4 @@ settings.json
 !.vscode/extensions.json
 
 #DB
-**.sqlite
+**.sqlite**

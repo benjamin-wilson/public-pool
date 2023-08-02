@@ -21,26 +21,30 @@ export class AppController {
     const blockData = await this.blocksService.getFoundBlocks();
     const userAgents = await this.clientService.getUserAgents();
 
-    const CACHE_KEY = 'SITE_HASHRATE_GRAPH';
-    const cachedResult = await this.cacheManager.get(CACHE_KEY);
-    if (cachedResult != null) {
-      return {
-        chartData: cachedResult,
-        blockData,
-        userAgents
-      };
-    }
-
-    const chartData = [];// await this.clientStatisticsService.getChartDataForSite();
-
-    //5 min
-    await this.cacheManager.set(CACHE_KEY, chartData, 5 * 60 * 1000);
-
     return {
-      chartData,
       blockData,
       userAgents
     };
+  }
+  @Get('info/chart')
+  public async infoChart() {
+
+
+    // const CACHE_KEY = 'SITE_HASHRATE_GRAPH';
+    // const cachedResult = await this.cacheManager.get(CACHE_KEY);
+
+    // if (cachedResult != null) {
+    //   return cachedResult;
+    // }
+
+    const chartData = await this.clientStatisticsService.getChartDataForSite();
+
+    //5 min
+    //await this.cacheManager.set(CACHE_KEY, chartData, 5 * 60 * 1000);
+
+    return chartData;
+
+
   }
 
 }
