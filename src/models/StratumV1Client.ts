@@ -76,6 +76,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                         await this.handleMessage(m);
                     } catch (e) {
                         this.promiseSocket.socket.emit('end', true);
+                        console.error(e);
                     }
                 })
         });
@@ -99,6 +100,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         } catch (e) {
             console.log("Invalid JSON");
             this.promiseSocket.socket.emit('end', true);
+            console.error(e);
             return;
         }
 
@@ -293,6 +295,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                     await this.watchdog();
                 } catch (e) {
                     this.promiseSocket.socket.emit('end', true);
+                    console.error(e);
                 }
             });
 
@@ -437,6 +440,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                 await this.promiseSocket.write(err);
             } catch (e) {
                 this.promiseSocket.socket.emit('end', true);
+                console.error(e);
             }
             return false;
         }
