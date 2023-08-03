@@ -40,14 +40,14 @@ export class SubscriptionMessage extends StratumBaseMessage {
     }
 
     public static refineUserAgent(userAgent: string): string {
-        return userAgent;
-        // userAgent = userAgent.split(' ')[0].split('/')[0].split('V')[0];
-
-        // if (userAgent.includes('bosminer')) {
-        //     userAgent = 'Braiins OS';
-        // } else if (userAgent.includes('cpuminer')) {
-        //     userAgent = 'cpuminer';
-        // }
         // return userAgent;
+        userAgent = userAgent.split(' ')[0].split('/')[0].split('V')[0];
+
+        if (userAgent.includes('bosminer')) {
+            userAgent = 'Braiins OS';
+        } else if (userAgent.includes('cpuminer')) {
+            userAgent = 'cpuminer';
+        }
+        return userAgent;
     }
 }

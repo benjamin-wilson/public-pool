@@ -41,20 +41,21 @@ export class StratumV1JobsService {
     constructor(
         private readonly bitcoinRpcService: BitcoinRpcService
     ) {
-        this.currentBlockTemplate$ = this.bitcoinRpcService.newBlock$.pipe(
-            switchMap((miningInfo) => {
-                return from(this.bitcoinRpcService.getBlockTemplate())
-                    .pipe(map(blockTemplate => { return { miningInfo, blockTemplate } }))
-            }
-            ),
-            shareReplay({ refCount: true, bufferSize: 1 })
-        );
 
-        this.newMiningJob$ = combineLatest([this.currentBlockTemplate$, interval(60000).pipe(startWith(-1))]).pipe(
-            map(([{ blockTemplate }, interValCount]) => {
+
+        this.newMiningJob$ = combineLatest([this.bitcoinRpcService.newBlock$, interval(60000).pipe(startWith(-1))]).pipe(
+            switchMap(([miningInfo, interval]) => {
+                return from(this.bitcoinRpcService.getBlockTemplate()).pipe(map((blockTemplate) => {
+                    return {
+                        blockTemplate,
+                        interval
+                    }
+                }))
+            }),
+            map(({ blockTemplate, interval }) => {
 
                 let clearJobs = false;
-                if (this.lastIntervalCount === interValCount) {
+                if (this.lastIntervalCount === interval) {
                     clearJobs = true;
                     this.skipNext = true;
                     console.log('new block')
@@ -65,7 +66,7 @@ export class StratumV1JobsService {
                     return null;
                 }
 
-                this.lastIntervalCount = interValCount;
+                this.lastIntervalCount = interval;
 
                 return {
                     version: blockTemplate.version,
