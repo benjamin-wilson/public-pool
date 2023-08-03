@@ -436,8 +436,8 @@ export class StratumV1Client extends EasyUnsubscribe {
                 submission.id,
                 eStratumErrorCode.LowDifficultyShare,
                 'Difficulty too low').response();
-            console.error(err);
-            console.log(`Header: ${header.toString('hex')}`);
+            // console.error(err);
+            // console.log(`Header: ${header.toString('hex')}`);
             try {
                 await this.promiseSocket.write(err);
             } catch (e) {
