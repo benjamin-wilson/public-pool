@@ -17,8 +17,13 @@ export class AppService implements OnModuleInit {
     }
 
     async onModuleInit() {
+        //https://phiresky.github.io/blog/2020/sqlite-performance-tuning/
         //100 MB DB cache
-        await this.dataSource.query(`PRAGMA cache_size = -100000`);
+        await this.dataSource.query(`PRAGMA cache_size = -100000;`);
+        //Normal is still completely corruption safe in WAL mode, and means only WAL checkpoints have to wait for FSYNC. 
+        await this.dataSource.query(`PRAGMA synchronous = normal;`);
+        //1Gb
+        await this.dataSource.query(`PRAGMA mmap_size = 1000000000;`);
     }
 
     @Cron(CronExpression.EVERY_HOUR)
@@ -30,4 +35,12 @@ export class AppService implements OnModuleInit {
             console.log(`Deleted ${deletedClients.affected} old clients`);
         }
     }
+
+    // @Cron(CronExpression.EVERY_10_MINUTES)
+    // private async killDeadClients() {
+
+    //     if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+    //         await this.clientService.killDeadClients();
+    //     }
+    // }
 }

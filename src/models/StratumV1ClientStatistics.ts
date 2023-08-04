@@ -1,5 +1,6 @@
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientEntity } from '../ORM/client/client.entity';
+import { ClientService } from '../ORM/client/client.service';
 
 const CACHE_SIZE = 30;
 const TARGET_SUBMISSION_PER_SECOND = 10;
@@ -9,7 +10,10 @@ export class StratumV1ClientStatistics {
     private submissionCacheStart: Date;
     private submissionCache = [];
 
-    constructor(private readonly clientStatisticsService: ClientStatisticsService) {
+    constructor(
+        private readonly clientStatisticsService: ClientStatisticsService,
+        private readonly clientService: ClientService
+    ) {
         this.submissionCacheStart = new Date();
     }
 
@@ -37,6 +41,9 @@ export class StratumV1ClientStatistics {
             sessionId: client.sessionId,
             submissionHash
         });
+
+        await this.clientService.heartbeat(client.address, client.clientName, client.sessionId)
+
 
     }
     public getLastSubmissionTime(): Date | null {

@@ -33,9 +33,9 @@ export class StratumV1Service implements OnModuleInit {
   async onModuleInit(): Promise<void> {
 
     //await this.clientStatisticsService.deleteAll();
-    if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
-      await this.clientService.deleteAll();
-    }
+
+    await this.clientService.deleteAll();
+
 
     this.startSocketServer();
   }
@@ -61,28 +61,27 @@ export class StratumV1Service implements OnModuleInit {
       promiseSocket.socket.on('end', async (error: Error) => {
         // Handle socket disconnection
         client.destroy();
-        promiseSocket.destroy();
+
         await this.clientService.delete(client.extraNonceAndSessionId);
 
         const clientCount = await this.clientService.connectedClientCount();
 
-
-
         console.log(`Client disconnected,  ${client.extraNonceAndSessionId},  ${clientCount} total clients`);
-
+        promiseSocket.destroy();
 
       });
 
       promiseSocket.socket.on('error', async (error: Error) => {
 
         client.destroy();
-        promiseSocket.destroy();
+
         await this.clientService.delete(client.extraNonceAndSessionId);
 
         const clientCount = await this.clientService.connectedClientCount();
         console.log(`Client disconnected, socket error,  ${client.extraNonceAndSessionId}, ${clientCount} total clients`);
 
-        console.error(error);
+        promiseSocket.destroy();
+        //console.error(error);
 
       });
 

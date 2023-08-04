@@ -75,7 +75,7 @@ export class StratumV1Client extends EasyUnsubscribe {
         });
 
         this.sessionStart = new Date();
-        this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService);
+        this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService, this.clientService);
         this.extraNonceAndSessionId = this.getRandomHexString();
         console.log(`New client ID: : ${this.extraNonceAndSessionId}`);
     }
@@ -349,8 +349,11 @@ export class StratumV1Client extends EasyUnsubscribe {
 
         this.stratumV1JobsService.addJob(job);
 
-
-        await this.promiseSocket.write(job.response(jobTemplate));
+        try {
+            await this.promiseSocket.write(job.response(jobTemplate));
+        } catch (e) {
+            console.log(e);
+        }
 
 
         console.log(`Sent new job to ${this.clientAuthorization.worker}.${this.extraNonceAndSessionId}. (clearJobs: ${jobTemplate.blockData.clearJobs}, fee?: ${!noFee})`)
