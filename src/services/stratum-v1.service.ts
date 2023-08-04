@@ -33,7 +33,9 @@ export class StratumV1Service implements OnModuleInit {
   async onModuleInit(): Promise<void> {
 
     //await this.clientStatisticsService.deleteAll();
-    await this.clientService.deleteAll();
+    if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+      await this.clientService.deleteAll();
+    }
 
     this.startSocketServer();
   }
