@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, LessThan, Repository } from 'typeorm';
 
 import { ClientEntity } from './client.entity';
 
@@ -17,16 +17,16 @@ export class ClientService {
 
     }
 
-    // public async killDeadClients(){
-    //     var tenMinutes = new Date(new Date().getTime() - (60 * 60 * 1000));
+    public async killDeadClients() {
+        var tenMinutes = new Date(new Date().getTime() - (60 * 60 * 1000));
 
-    //     return await this.clientRepository.update({
-    //          deletedAt: IsNull(),
-    //          updatedAt: LessThan(tenMinutes)
-    //     }, {
-    //         deletedAt: new Date()
-    //     });
-    // }
+        return await this.clientRepository.update({
+            deletedAt: IsNull(),
+            updatedAt: LessThan(tenMinutes)
+        }, {
+            deletedAt: new Date()
+        });
+    }
 
     public async heartbeat(address: string, clientName: string, sessionId: string) {
         return await this.clientRepository.update({ address, clientName, sessionId }, { deletedAt: null, updatedAt: new Date() });
