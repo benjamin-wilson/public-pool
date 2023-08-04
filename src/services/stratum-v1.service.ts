@@ -41,7 +41,7 @@ export class StratumV1Service implements OnModuleInit {
   }
 
   private startSocketServer() {
-    new Server(async (s: Socket) => {
+    const server = new Server(async (s: Socket) => {
 
       const promiseSocket = new PromiseSocket(s);
 
@@ -86,7 +86,11 @@ export class StratumV1Service implements OnModuleInit {
 
       });
 
-    }).listen(3333, () => {
+    });
+
+    server.maxConnections = 300;
+
+    server.listen(3333, () => {
       console.log(`Bitcoin Stratum server is listening on port ${3333}`);
     });
 
