@@ -280,12 +280,13 @@ export class StratumV1Client extends EasyUnsubscribe {
 
 
 
-            this.entity = await this.clientService.save({
+            this.entity = await this.clientService.insert({
                 sessionId: this.extraNonceAndSessionId,
                 address: this.clientAuthorization.address,
                 clientName: this.clientAuthorization.worker,
                 userAgent: this.clientSubscription.userAgent,
                 startTime: new Date(),
+                bestDifficulty: 0
             });
 
             this.stratumV1JobsService.newMiningJob$.pipe(

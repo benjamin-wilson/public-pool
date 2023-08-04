@@ -40,7 +40,7 @@ const ORMModules = [
             cache: true,
             logging: false,
             enableWAL: true,
-            busyTimeout: 60 * 1000
+            busyErrorRetry: 60 * 1000
         }),
         CacheModule.register(),
         ScheduleModule.forRoot(),

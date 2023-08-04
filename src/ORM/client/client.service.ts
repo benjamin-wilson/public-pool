@@ -21,6 +21,17 @@ export class ClientService {
         return await this.clientRepository.save(client);
     }
 
+    public async insert(partialClient: Partial<ClientEntity>): Promise<ClientEntity> {
+        const insertResult = await this.clientRepository.insert(partialClient);
+
+        const client = {
+            ...partialClient,
+            ...insertResult.generatedMaps[0]
+        };
+
+        return client as ClientEntity;
+    }
+
     public async delete(sessionId: string) {
         return await this.clientRepository.softDelete({ sessionId });
     }
@@ -87,4 +98,5 @@ export class ClientService {
             .getRawMany();
         return result;
     }
+
 }
