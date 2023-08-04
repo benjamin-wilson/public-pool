@@ -39,13 +39,7 @@ const ORMModules = [
             autoLoadEntities: true,
             cache: true,
             logging: false,
-            enableWAL: true,
-            busyErrorRetry: 120 * 1000,
-            extra: {
-                pragma: {
-                    'cache_size': 100000,
-                },
-            }
+            enableWAL: true
         }),
         CacheModule.register(),
         ScheduleModule.forRoot(),
