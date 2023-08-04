@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RPCClient } from 'rpc-bitcoin';
-import { BehaviorSubject, filter } from 'rxjs';
+import { BehaviorSubject, filter, shareReplay } from 'rxjs';
 
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { IMiningInfo } from '../models/bitcoin-rpc/IMiningInfo';
@@ -12,7 +12,7 @@ export class BitcoinRpcService {
     private blockHeight = 0;
     private client: RPCClient;
     private _newBlock$: BehaviorSubject<IMiningInfo> = new BehaviorSubject(undefined);
-    public newBlock$ = this._newBlock$.pipe(filter(block => block != null));
+    public newBlock$ = this._newBlock$.pipe(filter(block => block != null), shareReplay({ refCount: true, bufferSize: 1 }));
 
     constructor(private readonly configService: ConfigService) {
         const url = this.configService.get('BITCOIN_RPC_URL');

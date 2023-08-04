@@ -1,18 +1,21 @@
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Controller, Get, Inject } from '@nestjs/common';
 import { Cache } from 'cache-manager';
+import { firstValueFrom } from 'rxjs';
 
 import { BlocksService } from './ORM/blocks/blocks.service';
 import { ClientStatisticsService } from './ORM/client-statistics/client-statistics.service';
 import { ClientService } from './ORM/client/client.service';
+import { BitcoinRpcService } from './services/bitcoin-rpc.service';
 
 @Controller()
 export class AppController {
   constructor(
-    @Inject(CACHE_MANAGER) private cacheManager: Cache,
-    private clientService: ClientService,
-    private clientStatisticsService: ClientStatisticsService,
-    private blocksService: BlocksService
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
+    private readonly clientService: ClientService,
+    private readonly clientStatisticsService: ClientStatisticsService,
+    private readonly blocksService: BlocksService,
+    private readonly bitcoinRpcService: BitcoinRpcService
   ) { }
 
   @Get('info')
@@ -26,6 +29,13 @@ export class AppController {
       userAgents
     };
   }
+
+  @Get('network')
+  public async network() {
+    const miningInfo = await firstValueFrom(this.bitcoinRpcService.newBlock$);
+    return miningInfo;
+  }
+
   @Get('info/chart')
   public async infoChart() {
 

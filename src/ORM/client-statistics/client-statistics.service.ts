@@ -188,8 +188,7 @@ export class ClientStatisticsService {
             WHERE
                 entry.address = ? AND entry.clientName = ? AND entry.sessionId = ?
             ORDER BY time DESC
-            LIMIT 1;
-            
+            LIMIT 2;
         `;
 
         const result = await this.clientStatisticsRepository.query(query, [address, clientName, sessionId]);
@@ -198,13 +197,22 @@ export class ClientStatisticsService {
             return 0;
         }
 
-        const time = new Date(result[0].updatedAt).getTime() - new Date(result[0].createdAt).getTime();
+        const latestStat = result[0];
 
-        if (time < 1) {
-            return 0;
+        if (result.length < 2) {
+            const time = new Date(latestStat.updatedAt).getTime() - new Date(latestStat.createdAt).getTime();
+            if (time < 1) {
+                return 0;
+            }
+            return (latestStat.shares * 4294967296) / (time / 1000);
+        } else {
+            const secondLatestStat = result[1];
+            const time = new Date(latestStat.updatedAt).getTime() - new Date(secondLatestStat.createdAt).getTime();
+            if (time < 1) {
+                return 0;
+            }
+            return ((latestStat.shares + secondLatestStat.shares) * 4294967296) / (time / 1000);
         }
-
-        return (result[0].shares * 4294967296) / (time / 1000);
 
     }
 

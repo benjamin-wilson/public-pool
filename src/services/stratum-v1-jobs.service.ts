@@ -4,7 +4,6 @@ import * as merkle from 'merkle-lib';
 import * as merkleProof from 'merkle-lib/proof';
 import { combineLatest, filter, from, interval, map, Observable, shareReplay, startWith, switchMap, tap } from 'rxjs';
 
-import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { MiningJob } from '../models/MiningJob';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 
@@ -36,12 +35,9 @@ export class StratumV1JobsService {
 
     public blocks: { [id: number]: IJobTemplate } = {};
 
-    private currentBlockTemplate$: Observable<{ blockTemplate: IBlockTemplate }>;
-
     constructor(
         private readonly bitcoinRpcService: BitcoinRpcService
     ) {
-
 
         this.newMiningJob$ = combineLatest([this.bitcoinRpcService.newBlock$, interval(60000).pipe(startWith(-1))]).pipe(
             switchMap(([miningInfo, interval]) => {
@@ -101,8 +97,6 @@ export class StratumV1JobsService {
 
                 // remove the first (coinbase) and last (root) element from the branch
                 const merkle_branch = merkleBranches.slice(1, merkleBranches.length).map(b => b.toString('hex'))
-
-
 
                 block.prevHash = prevHash;
                 block.version = version;
