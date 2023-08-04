@@ -81,6 +81,7 @@ export class ClientService {
         const result = await this.clientRepository.createQueryBuilder('client')
             .select('client.userAgent as userAgent')
             .addSelect('COUNT(client.userAgent)', 'count')
+            .addSelect('MAX(client.bestDifficulty)', 'bestDifficulty')
             .groupBy('client.userAgent')
             .orderBy('count', 'DESC')
             .getRawMany();
