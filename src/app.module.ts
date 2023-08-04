@@ -41,7 +41,7 @@ const ORMModules = [
             logging: false,
             enableWAL: true,
             busyErrorRetry: 120 * 1000,
-            busyTimeout: 120 * 1000,
+            // busyTimeout: 120 * 1000,
 
         }),
         CacheModule.register(),
