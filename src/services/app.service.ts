@@ -1,20 +1,24 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { DataSource } from 'typeorm';
 
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientService } from '../ORM/client/client.service';
 
 @Injectable()
-export class CleanupService implements OnModuleInit {
+export class AppService implements OnModuleInit {
 
     constructor(
-        private clientStatisticsService: ClientStatisticsService,
-        private clientService: ClientService
+        private readonly clientStatisticsService: ClientStatisticsService,
+        private readonly clientService: ClientService,
+        private readonly dataSource: DataSource
     ) {
 
     }
-    onModuleInit() {
-        console.log('Cleanup service running.')
+
+    async onModuleInit() {
+        //100 MB DB cache
+        await this.dataSource.query(`PRAGMA cache_size = -100000`);
     }
 
     @Cron(CronExpression.EVERY_HOUR)

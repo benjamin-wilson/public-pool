@@ -13,8 +13,8 @@ import { BlocksModule } from './ORM/blocks/blocks.module';
 import { ClientStatisticsModule } from './ORM/client-statistics/client-statistics.module';
 import { ClientModule } from './ORM/client/client.module';
 import { TelegramSubscriptionsModule } from './ORM/telegram-subscriptions/telegram-subscriptions.module';
+import { AppService } from './services/app.service';
 import { BitcoinRpcService } from './services/bitcoin-rpc.service';
-import { CleanupService } from './services/cleanup.service';
 import { DiscordService } from './services/discord.service';
 import { NotificationService } from './services/notification.service';
 import { StratumV1JobsService } from './services/stratum-v1-jobs.service';
@@ -53,7 +53,7 @@ const ORMModules = [
     ],
     providers: [
         DiscordService,
-        CleanupService,
+        AppService,
         StratumV1Service,
         TelegramService,
         BitcoinRpcService,
