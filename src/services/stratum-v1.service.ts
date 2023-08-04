@@ -88,8 +88,6 @@ export class StratumV1Service implements OnModuleInit {
 
     });
 
-    server.maxConnections = 300;
-
     server.listen(3333, () => {
       console.log(`Bitcoin Stratum server is listening on port ${3333}`);
     });

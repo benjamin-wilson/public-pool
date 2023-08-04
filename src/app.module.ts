@@ -41,8 +41,11 @@ const ORMModules = [
             logging: false,
             enableWAL: true,
             busyErrorRetry: 120 * 1000,
-            busyTimeout: 120 * 1000,
-
+            extra: {
+                pragma: {
+                    'cache_size': 100000,
+                },
+            }
         }),
         CacheModule.register(),
         ScheduleModule.forRoot(),
