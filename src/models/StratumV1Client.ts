@@ -6,7 +6,7 @@ import { validate, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
 import { Socket } from 'net';
 import PromiseSocket from 'promise-socket';
-import { firstValueFrom, takeUntil } from 'rxjs';
+import { firstValueFrom, Subscription } from 'rxjs';
 
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
@@ -16,7 +16,6 @@ import { ClientService } from '../ORM/client/client.service';
 import { BitcoinRpcService } from '../services/bitcoin-rpc.service';
 import { NotificationService } from '../services/notification.service';
 import { IJobTemplate, StratumV1JobsService } from '../services/stratum-v1-jobs.service';
-import { EasyUnsubscribe } from '../utils/EasyUnsubscribe';
 import { eRequestMethod } from './enums/eRequestMethod';
 import { eResponseMethod } from './enums/eResponseMethod';
 import { eStratumErrorCode } from './enums/eStratumErrorCode';
@@ -30,12 +29,13 @@ import { SuggestDifficulty } from './stratum-messages/SuggestDifficultyMessage';
 import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
 
 
-export class StratumV1Client extends EasyUnsubscribe {
+export class StratumV1Client {
 
     private clientSubscription: SubscriptionMessage;
     private clientConfiguration: ConfigurationMessage;
     private clientAuthorization: AuthorizationMessage;
     private clientSuggestedDifficulty: SuggestDifficulty;
+    private stratumSubscription: Subscription;
 
     private statistics: StratumV1ClientStatistics;
     private stratumInitialized = false;
@@ -46,6 +46,7 @@ export class StratumV1Client extends EasyUnsubscribe {
     public extraNonceAndSessionId: string;
 
     public sessionStart: Date;
+
 
     constructor(
         public readonly promiseSocket: PromiseSocket<Socket>,
@@ -58,7 +59,6 @@ export class StratumV1Client extends EasyUnsubscribe {
         private readonly configService: ConfigService,
         private readonly addressSettingsService: AddressSettingsService
     ) {
-        super();
 
         this.promiseSocket.socket.on('data', (data: Buffer) => {
             data.toString()
@@ -78,6 +78,10 @@ export class StratumV1Client extends EasyUnsubscribe {
         this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService, this.clientService);
         this.extraNonceAndSessionId = this.getRandomHexString();
         console.log(`New client ID: : ${this.extraNonceAndSessionId}`);
+    }
+
+    public destroy() {
+        this.stratumSubscription.unsubscribe();
     }
 
     private getRandomHexString() {
@@ -289,8 +293,7 @@ export class StratumV1Client extends EasyUnsubscribe {
                 bestDifficulty: 0
             });
 
-            this.stratumV1JobsService.newMiningJob$.pipe(
-                takeUntil(this.easyUnsubscribe)
+            this.stratumSubscription = this.stratumV1JobsService.newMiningJob$.pipe(
             ).subscribe(async (jobTemplate) => {
                 try {
                     await this.sendNewMiningJob(jobTemplate);

@@ -56,6 +56,8 @@ export class ClientService {
 
         const client = this.clientRepository.create(partialClient);
         this.bulkInsertClients.push(client);
+        // wait for the bulk insert to go though
+        // while we await node is free to service other requests
         await setTimeout(2000);
         return client;
     }
