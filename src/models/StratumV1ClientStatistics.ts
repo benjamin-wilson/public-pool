@@ -52,13 +52,13 @@ export class StratumV1ClientStatistics {
     public getSuggestedDifficulty(clientDifficulty: number) {
 
         // miner hasn't submitted shares in one minute
-        if (this.submissionCache.length == 0 && (new Date().getTime() - this.submissionCacheStart.getTime()) / 1000 > 60) {
+        if (this.submissionCache.length == 0 || (new Date().getTime() - this.submissionCacheStart.getTime()) / 1000 > 60) {
             return this.nearestPowerOfTwo(clientDifficulty >> 1);
         }
 
-        if (this.submissionCache.length < CACHE_SIZE) {
-            return null;
-        }
+        // if (this.submissionCache.length < CACHE_SIZE) {
+        //     return null;
+        // }
 
         const sum = this.submissionCache.reduce((pre, cur) => {
             pre += cur.difficulty;
@@ -75,7 +75,6 @@ export class StratumV1ClientStatistics {
         }
 
         return null;
-
     }
 
     private nearestPowerOfTwo(val): number {

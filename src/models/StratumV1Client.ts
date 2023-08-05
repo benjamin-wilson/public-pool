@@ -36,6 +36,7 @@ export class StratumV1Client {
     private clientAuthorization: AuthorizationMessage;
     private clientSuggestedDifficulty: SuggestDifficulty;
     private stratumSubscription: Subscription;
+    private backgroundWork: NodeJS.Timer;
 
     private statistics: StratumV1ClientStatistics;
     private stratumInitialized = false;
@@ -82,6 +83,7 @@ export class StratumV1Client {
 
     public destroy() {
         this.stratumSubscription.unsubscribe();
+        clearInterval(this.backgroundWork);
     }
 
     private getRandomHexString() {
@@ -275,6 +277,12 @@ export class StratumV1Client {
 
             this.stratumInitialized = true;
 
+            switch (this.clientSubscription.userAgent) {
+                case 'cpuminer': {
+                    this.sessionDifficulty = 0.1;
+                }
+            }
+
 
             if (this.clientSuggestedDifficulty == null) {
                 console.log(`Setting difficulty to ${this.sessionDifficulty}`)
@@ -297,13 +305,17 @@ export class StratumV1Client {
             ).subscribe(async (jobTemplate) => {
                 try {
                     await this.sendNewMiningJob(jobTemplate);
-                    await this.checkDifficulty();
-                    await this.watchdog();
+
                 } catch (e) {
                     this.promiseSocket.socket.emit('end', true);
                     console.error(e);
                 }
             });
+
+            this.backgroundWork = setInterval(async () => {
+                await this.checkDifficulty();
+                await this.watchdog();
+            }, 60 * 1000);
 
         }
     }
@@ -454,7 +466,7 @@ export class StratumV1Client {
             return false;
         }
 
-        await this.checkDifficulty();
+        //await this.checkDifficulty();
         return true;
 
     }
