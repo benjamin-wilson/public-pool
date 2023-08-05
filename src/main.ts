@@ -3,7 +3,6 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import * as bitcoinjs from 'bitcoinjs-lib';
 import { useContainer } from 'class-validator';
-import { setTimeout } from 'timers/promises';
 import * as ecc from 'tiny-secp256k1';
 
 import { AppModule } from './app.module';
@@ -23,9 +22,9 @@ async function bootstrap() {
   //const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ https: httpsOptions }));
 
   // stagger startup
-  if (process.env.NODE_APP_INSTANCE != null) {
-    await setTimeout(parseInt(process.env.NODE_APP_INSTANCE) * 5000);
-  }
+  // if (process.env.NODE_APP_INSTANCE != null) {
+  //   await setTimeout(parseInt(process.env.NODE_APP_INSTANCE) * 5000);
+  // }
 
 
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter());
