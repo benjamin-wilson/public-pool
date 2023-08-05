@@ -318,25 +318,25 @@ export class StratumV1Client {
 
             this.backgroundWork = setInterval(async () => {
                 await this.checkDifficulty();
-                await this.watchdog();
+                //await this.watchdog();
             }, 60 * 1000);
 
         }
     }
 
-    private async watchdog() {
-        let time = await this.statistics.getLastSubmissionTime();
-        if (time == null) {
-            time = this.sessionStart;
-        }
-        const now = Date.now();
-        const diffSeconds = (now - time.getTime()) / 1000;
-        // fifteen minutes
-        if (diffSeconds > 15 * 60) {
-            console.log('Watchdog ending session');
-            this.promiseSocket.socket.emit('end', true);
-        }
-    }
+    // private async watchdog() {
+    //     let time = await this.statistics.getLastSubmissionTime();
+    //     if (time == null) {
+    //         time = this.sessionStart;
+    //     }
+    //     const now = Date.now();
+    //     const diffSeconds = (now - time.getTime()) / 1000;
+    //     // one hour
+    //     if (diffSeconds > 60 * 60) {
+    //         console.log(`Watchdog ending session ${this.extraNonceAndSessionId}}`);
+    //         this.promiseSocket.socket.emit('end', true);
+    //     }
+    // }
 
     private async sendNewMiningJob(jobTemplate: IJobTemplate) {
 
