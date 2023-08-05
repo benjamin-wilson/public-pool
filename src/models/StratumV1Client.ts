@@ -82,8 +82,12 @@ export class StratumV1Client {
     }
 
     public destroy() {
-        this.stratumSubscription.unsubscribe();
-        clearInterval(this.backgroundWork);
+        if (this.stratumSubscription != null) {
+            this.stratumSubscription.unsubscribe();
+        }
+        if (this.backgroundWork != null) {
+            clearInterval(this.backgroundWork);
+        }
     }
 
     private getRandomHexString() {
