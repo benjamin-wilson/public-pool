@@ -5,7 +5,6 @@ import { plainToInstance } from 'class-transformer';
 import { validate, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
 import { Socket } from 'net';
-import PromiseSocket from 'promise-socket';
 import { firstValueFrom, Subscription } from 'rxjs';
 
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
@@ -50,7 +49,7 @@ export class StratumV1Client {
 
 
     constructor(
-        public readonly promiseSocket: PromiseSocket<Socket>,
+        public readonly socket: Socket,
         private readonly stratumV1JobsService: StratumV1JobsService,
         private readonly bitcoinRpcService: BitcoinRpcService,
         private readonly clientService: ClientService,
@@ -61,7 +60,7 @@ export class StratumV1Client {
         private readonly addressSettingsService: AddressSettingsService
     ) {
 
-        this.promiseSocket.socket.on('data', (data: Buffer) => {
+        this.socket.on('data', (data: Buffer) => {
             data.toString()
                 .split('\n')
                 .filter(m => m.length > 0)
@@ -69,7 +68,7 @@ export class StratumV1Client {
                     try {
                         await this.handleMessage(m);
                     } catch (e) {
-                        await this.promiseSocket.end();
+                        await this.socket.end();
                         console.error(e);
                     }
                 })
@@ -107,7 +106,7 @@ export class StratumV1Client {
             parsedMessage = JSON.parse(message);
         } catch (e) {
             console.log("Invalid JSON");
-            await this.promiseSocket.end();
+            await this.socket.end();
             return;
         }
 
@@ -343,7 +342,7 @@ export class StratumV1Client {
                 try {
                     await this.sendNewMiningJob(jobTemplate);
                 } catch (e) {
-                    await this.promiseSocket.end();
+                    await this.socket.end();
                     console.error(e);
                 }
             });
@@ -528,7 +527,7 @@ export class StratumV1Client {
             }) + '\n';
 
 
-            await this.promiseSocket.write(data);
+            await this.socket.write(data);
 
 
             // we need to clear the jobs so that the difficulty set takes effect. Otherwise the different miner implementations can cause issues
@@ -562,14 +561,22 @@ export class StratumV1Client {
 
     private async write(message: string): Promise<boolean> {
         try {
-            if (this.promiseSocket.isPromiseWritable) {
-                await this.promiseSocket.write(message);
+            if (!this.socket.destroyed && !this.socket.writableEnded) {
+                await new Promise((resolve, reject) => {
+                    this.socket.write(message, (error) => {
+                        if (error) {
+                            reject(error);
+                        } else {
+                            resolve(true);
+                        }
+                    });
+                });
                 return true;
             } else {
                 console.error('Error: Cannot write to closed or ended socket.');
             }
         } catch (error) {
-            await this.promiseSocket.end();
+            await this.socket.end();
             console.error('Error occurred while writing to socket:', error);
         }
         return false;

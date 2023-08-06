@@ -1,7 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'net';
-import { PromiseSocket } from 'promise-socket';
 
 import { StratumV1Client } from '../models/StratumV1Client';
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
@@ -43,10 +42,10 @@ export class StratumV1Service implements OnModuleInit {
   private startSocketServer() {
     const server = new Server(async (socket: Socket) => {
 
-      const promiseSocket = new PromiseSocket(socket);
+
 
       const client = new StratumV1Client(
-        promiseSocket,
+        socket,
         this.stratumV1JobsService,
         this.bitcoinRpcService,
         this.clientService,
@@ -58,7 +57,7 @@ export class StratumV1Service implements OnModuleInit {
       );
 
 
-      promiseSocket.socket.on('end', async (error: Error) => {
+      socket.on('end', async (error: Error) => {
         // Handle socket disconnection
         client.destroy();
 
@@ -70,7 +69,7 @@ export class StratumV1Service implements OnModuleInit {
 
       });
 
-      promiseSocket.socket.on('error', async (error: Error) => {
+      socket.on('error', async (error: Error) => {
 
         client.destroy();
 
@@ -79,7 +78,7 @@ export class StratumV1Service implements OnModuleInit {
         const clientCount = await this.clientService.connectedClientCount();
         console.log(`Client disconnected, socket error,  ${client.extraNonceAndSessionId}, ${clientCount} total clients`);
 
-        promiseSocket.destroy();
+        socket.destroy();
 
       });
 
