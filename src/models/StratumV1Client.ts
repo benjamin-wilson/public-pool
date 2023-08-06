@@ -345,7 +345,9 @@ export class StratumV1Client {
         let payoutInformation;
         const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
         //50Th/s
-        const noFee = hashRate < 50000000000000;
+        console.log('HASH RATE');
+        console.log(hashRate);
+        const noFee = hashRate != 0 && hashRate < 50000000000000;
         if (noFee || devFeeAddress == null || devFeeAddress.length < 1) {
             payoutInformation = [
                 { address: this.clientAuthorization.address, percent: 100 }
