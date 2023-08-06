@@ -41,9 +41,9 @@ export class StratumV1Service implements OnModuleInit {
   }
 
   private startSocketServer() {
-    const server = new Server(async (s: Socket) => {
+    const server = new Server(async (socket: Socket) => {
 
-      const promiseSocket = new PromiseSocket(s);
+      const promiseSocket = new PromiseSocket(socket);
 
       const client = new StratumV1Client(
         promiseSocket,
@@ -67,7 +67,6 @@ export class StratumV1Service implements OnModuleInit {
         const clientCount = await this.clientService.connectedClientCount();
 
         console.log(`Client disconnected,  ${client.extraNonceAndSessionId},  ${clientCount} total clients`);
-        promiseSocket.destroy();
 
       });
 
@@ -81,7 +80,6 @@ export class StratumV1Service implements OnModuleInit {
         console.log(`Client disconnected, socket error,  ${client.extraNonceAndSessionId}, ${clientCount} total clients`);
 
         promiseSocket.destroy();
-        //console.error(error);
 
       });
 

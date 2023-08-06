@@ -309,7 +309,6 @@ export class StratumV1Client {
             ).subscribe(async (jobTemplate) => {
                 try {
                     await this.sendNewMiningJob(jobTemplate);
-
                 } catch (e) {
                     this.promiseSocket.socket.emit('end', true);
                     console.error(e);
@@ -345,8 +344,6 @@ export class StratumV1Client {
         let payoutInformation;
         const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
         //50Th/s
-        console.log('HASH RATE');
-        console.log(hashRate);
         const noFee = hashRate != 0 && hashRate < 50000000000000;
         if (noFee || devFeeAddress == null || devFeeAddress.length < 1) {
             payoutInformation = [
