@@ -69,7 +69,7 @@ export class StratumV1Client {
                     try {
                         await this.handleMessage(m);
                     } catch (e) {
-                        this.promiseSocket.socket.emit('end', true);
+                        await this.promiseSocket.end();
                         console.error(e);
                     }
                 })
@@ -107,7 +107,7 @@ export class StratumV1Client {
             parsedMessage = JSON.parse(message);
         } catch (e) {
             console.log("Invalid JSON");
-            this.promiseSocket.socket.emit('end', true);
+            await this.promiseSocket.end();
             return;
         }
 
@@ -310,16 +310,12 @@ export class StratumV1Client {
                 try {
                     await this.sendNewMiningJob(jobTemplate);
                 } catch (e) {
-                    this.promiseSocket.socket.emit('end', true);
+                    await this.promiseSocket.end();
                     console.error(e);
                 }
             });
 
             this.backgroundWork = setInterval(async () => {
-                if (this.promiseSocket.isPromiseWritable == false) {
-                    this.destroy();
-                    return;
-                }
                 await this.checkDifficulty();
                 //await this.watchdog();
             }, 60 * 1000);
@@ -337,7 +333,7 @@ export class StratumV1Client {
     //     // one hour
     //     if (diffSeconds > 60 * 60) {
     //         console.log(`Watchdog ending session ${this.extraNonceAndSessionId}}`);
-    //         this.promiseSocket.socket.emit('end', true);
+    //         await this.promiseSocket.end();
     //     }
     // }
 
@@ -467,7 +463,7 @@ export class StratumV1Client {
             try {
                 await this.promiseSocket.write(err);
             } catch (e) {
-                this.promiseSocket.socket.emit('end', true);
+                await this.promiseSocket.end();
                 console.error(e);
             }
             return false;
@@ -494,7 +490,12 @@ export class StratumV1Client {
                 params: [targetDiff]
             }) + '\n';
 
-            await this.promiseSocket.write(data);
+            try {
+                await this.promiseSocket.write(data);
+            } catch (e) {
+                await this.promiseSocket.end();
+                return;
+            }
 
             // we need to clear the jobs so that the difficulty set takes effect. Otherwise the different miner implementations can cause issues
             const jobTemplate = await firstValueFrom(this.stratumV1JobsService.newMiningJob$);
