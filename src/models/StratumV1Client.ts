@@ -574,12 +574,15 @@ export class StratumV1Client {
                 return true;
             } else {
                 console.error('Error: Cannot write to closed or ended socket.');
+                return false;
             }
         } catch (error) {
-            await this.socket.end();
+            if (!this.socket.destroyed && !this.socket.writableEnded) {
+                await this.socket.end();
+            }
             console.error('Error occurred while writing to socket:', error);
+            return false;
         }
-        return false;
     }
 
 }
