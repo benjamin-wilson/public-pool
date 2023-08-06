@@ -98,7 +98,7 @@ export class StratumV1Client {
 
 
     private async handleMessage(message: string) {
-        //console.log(`Received from ${this.extraNonceAndSessionId}`, message);
+        console.log(`Received from ${this.extraNonceAndSessionId}`, message);
 
         // Parse the message and check if it's the initial subscription message
         let parsedMessage = null;
@@ -186,6 +186,7 @@ export class StratumV1Client {
                 break;
             }
             case eRequestMethod.AUTHORIZE: {
+
                 const authorizationMessage = plainToInstance(
                     AuthorizationMessage,
                     parsedMessage,
@@ -200,9 +201,10 @@ export class StratumV1Client {
 
                 if (errors.length === 0) {
                     this.clientAuthorization = authorizationMessage;
-
+                    console.log('AUTH START');
                     //const response = this.buildSubscriptionResponse(authorizationMessage.id);
                     const success = await this.write(JSON.stringify(this.clientAuthorization.response()) + '\n');
+                    console.log('AUTH FIN');
                     if (!success) {
                         return;
                     }
@@ -303,6 +305,7 @@ export class StratumV1Client {
             }
         }
 
+        console.log('test')
 
         if (this.clientSubscription != null
             && this.clientAuthorization != null
@@ -560,17 +563,21 @@ export class StratumV1Client {
     }
 
     private async write(message: string): Promise<boolean> {
+        console.log(message)
         try {
             if (!this.socket.destroyed && !this.socket.writableEnded) {
+
                 await new Promise((resolve, reject) => {
                     this.socket.write(message, (error) => {
                         if (error) {
                             reject(error);
                         } else {
+
                             resolve(true);
                         }
                     });
                 });
+
                 return true;
             } else {
                 console.error('Error: Cannot write to closed or ended socket.');
