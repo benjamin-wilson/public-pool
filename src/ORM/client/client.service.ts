@@ -1,7 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { setTimeout } from 'timers/promises';
 import { IsNull, LessThan, Repository } from 'typeorm';
 
 import { ClientEntity } from './client.entity';
@@ -11,7 +9,7 @@ import { ClientEntity } from './client.entity';
 @Injectable()
 export class ClientService {
 
-    private bulkInsertClients: ClientEntity[] = [];
+
 
     constructor(
         @InjectRepository(ClientEntity)
@@ -20,17 +18,6 @@ export class ClientService {
 
     }
 
-    @Cron(CronExpression.EVERY_SECOND)
-    private async bulkInsert() {
-
-        if (this.bulkInsertClients.length < 1) {
-            return;
-        }
-
-        const clientsToInsert = [...this.bulkInsertClients];;
-        this.bulkInsertClients = [];
-        await this.clientRepository.insert(clientsToInsert);
-    }
 
     public async killDeadClients() {
         var tenMinutes = new Date(new Date().getTime() - (60 * 60 * 1000));
@@ -53,13 +40,14 @@ export class ClientService {
 
 
     public async insert(partialClient: Partial<ClientEntity>): Promise<ClientEntity> {
+        const insertResult = await this.clientRepository.insert(partialClient);
 
-        const client = this.clientRepository.create(partialClient);
-        this.bulkInsertClients.push(client);
-        // wait for the bulk insert to go though
-        // while we await node is free to service other requests
-        await setTimeout(2000);
-        return client;
+        const client = {
+            ...partialClient,
+            ...insertResult.generatedMaps[0]
+        };
+
+        return client as ClientEntity;
     }
 
     public async delete(sessionId: string) {
