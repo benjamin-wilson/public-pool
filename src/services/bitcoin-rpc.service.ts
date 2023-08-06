@@ -28,10 +28,8 @@ export class BitcoinRpcService {
         // Maybe use ZeroMQ ?
         setInterval(async () => {
             const miningInfo = await this.getMiningInfo();
-            if (miningInfo.blocks > this.blockHeight) {
-
+            if (miningInfo != null && miningInfo.blocks > this.blockHeight) {
                 this._newBlock$.next(miningInfo);
-
                 this.blockHeight = miningInfo.blocks;
             }
 
@@ -53,7 +51,12 @@ export class BitcoinRpcService {
     }
 
     public async getMiningInfo(): Promise<IMiningInfo> {
-        return await this.client.getmininginfo();
+        try {
+            return await this.client.getmininginfo();
+        } catch (e) {
+            console.log('Error getmininginfo');
+            return null;
+        }
 
     }
 

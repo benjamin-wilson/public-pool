@@ -33,7 +33,7 @@ export class StratumV1JobsService {
 
     public jobs: MiningJob[] = [];
 
-    public blocks: { id: string, template: IJobTemplate }[] = [];
+    public blocks: { [id: number]: IJobTemplate } = {};
 
     constructor(
         private readonly bitcoinRpcService: BitcoinRpcService
@@ -123,18 +123,10 @@ export class StratumV1JobsService {
             }),
             tap((data) => {
                 if (data.blockData.clearJobs) {
-                    this.blocks = [];
+                    this.blocks = {};
                     this.jobs = [];
                 }
-
-                if (this.blocks.length >= 30) {
-                    this.blocks.shift();
-                }
-
-                this.blocks.push({
-                    id: data.blockData.id,
-                    template: data
-                });
+                this.blocks[data.blockData.id] = data;
             }),
             shareReplay({ refCount: true, bufferSize: 1 })
         )
@@ -157,8 +149,8 @@ export class StratumV1JobsService {
         return bytes;
     }
 
-    public getJobTemplateById(jobTemplateId: string): IJobTemplate {
-        return this.blocks.find(b => b.id === jobTemplateId)?.template;
+    public getJobTemplateById(jobTemplateId: string): IJobTemplate | null {
+        return this.blocks[jobTemplateId];
     }
 
     public addJob(job: MiningJob) {
