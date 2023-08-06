@@ -20,7 +20,7 @@ export class ClientService {
 
 
     public async killDeadClients() {
-        var tenMinutes = new Date(new Date().getTime() - (60 * 60 * 1000));
+        var tenMinutes = new Date(new Date().getTime() - (10 * 60 * 1000));
 
         return await this.clientRepository.update({
             deletedAt: IsNull(),
