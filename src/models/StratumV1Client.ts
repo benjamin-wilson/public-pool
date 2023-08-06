@@ -128,8 +128,10 @@ export class StratumV1Client {
 
                 if (errors.length === 0) {
                     this.clientSubscription = subscriptionMessage;
-
-                    await this.promiseSocket.write(JSON.stringify(this.clientSubscription.response(this.extraNonceAndSessionId)) + '\n');
+                    const success = await this.write(JSON.stringify(this.clientSubscription.response(this.extraNonceAndSessionId)) + '\n');
+                    if (!success) {
+                        return;
+                    }
                 } else {
                     console.error('Subscription validation error');
                     const err = new StratumErrorMessage(
@@ -138,7 +140,10 @@ export class StratumV1Client {
                         'Subscription validation error',
                         errors).response();
                     console.error(err);
-                    await this.promiseSocket.write(err);
+                    const success = await this.write(err);
+                    if (!success) {
+                        return;
+                    }
                 }
 
                 break;
@@ -160,7 +165,11 @@ export class StratumV1Client {
                 if (errors.length === 0) {
                     this.clientConfiguration = configurationMessage;
                     //const response = this.buildSubscriptionResponse(configurationMessage.id);
-                    await this.promiseSocket.write(JSON.stringify(this.clientConfiguration.response()) + '\n');
+                    const success = await this.write(JSON.stringify(this.clientConfiguration.response()) + '\n');
+                    if (!success) {
+                        return;
+                    }
+
                 } else {
                     console.error('Configuration validation error');
                     const err = new StratumErrorMessage(
@@ -169,7 +178,10 @@ export class StratumV1Client {
                         'Configuration validation error',
                         errors).response();
                     console.error(err);
-                    await this.promiseSocket.write(err);
+                    const success = await this.write(err);
+                    if (!success) {
+                        return;
+                    }
                 }
 
                 break;
@@ -191,7 +203,10 @@ export class StratumV1Client {
                     this.clientAuthorization = authorizationMessage;
 
                     //const response = this.buildSubscriptionResponse(authorizationMessage.id);
-                    await this.promiseSocket.write(JSON.stringify(this.clientAuthorization.response()) + '\n');
+                    const success = await this.write(JSON.stringify(this.clientAuthorization.response()) + '\n');
+                    if (!success) {
+                        return;
+                    }
                 } else {
                     console.error('Authorization validation error');
                     const err = new StratumErrorMessage(
@@ -200,7 +215,10 @@ export class StratumV1Client {
                         'Authorization validation error',
                         errors).response();
                     console.error(err);
-                    await this.promiseSocket.write(err);
+                    const success = await this.write(err);
+                    if (!success) {
+                        return;
+                    }
                 }
 
                 break;
@@ -226,7 +244,10 @@ export class StratumV1Client {
 
                     this.clientSuggestedDifficulty = suggestDifficultyMessage;
                     this.sessionDifficulty = suggestDifficultyMessage.suggestedDifficulty;
-                    await this.promiseSocket.write(JSON.stringify(this.clientSuggestedDifficulty.response(this.sessionDifficulty)) + '\n');
+                    const success = await this.write(JSON.stringify(this.clientSuggestedDifficulty.response(this.sessionDifficulty)) + '\n');
+                    if (!success) {
+                        return;
+                    }
                     this.usedSuggestedDifficulty = true;
                 } else {
                     console.error('Suggest difficulty validation error');
@@ -236,7 +257,10 @@ export class StratumV1Client {
                         'Suggest difficulty validation error',
                         errors).response();
                     console.error(err);
-                    await this.promiseSocket.write(err);
+                    const success = await this.write(err);
+                    if (!success) {
+                        return;
+                    }
                 }
                 break;
             }
@@ -256,7 +280,10 @@ export class StratumV1Client {
                 if (errors.length === 0 && this.stratumInitialized == true) {
                     const result = await this.handleMiningSubmission(miningSubmitMessage);
                     if (result == true) {
-                        await this.promiseSocket.write(JSON.stringify(miningSubmitMessage.response()) + '\n');
+                        const success = await this.write(JSON.stringify(miningSubmitMessage.response()) + '\n');
+                        if (!success) {
+                            return;
+                        }
                     }
 
 
@@ -268,7 +295,10 @@ export class StratumV1Client {
                         'Mining Submit validation error',
                         errors).response();
                     console.error(err);
-                    await this.promiseSocket.write(err);
+                    const success = await this.write(err);
+                    if (!success) {
+                        return;
+                    }
                 }
                 break;
             }
@@ -291,7 +321,10 @@ export class StratumV1Client {
             if (this.clientSuggestedDifficulty == null) {
                 console.log(`Setting difficulty to ${this.sessionDifficulty}`)
                 const setDifficulty = JSON.stringify(new SuggestDifficulty().response(this.sessionDifficulty));
-                await this.promiseSocket.write(setDifficulty + '\n');
+                const success = await this.write(setDifficulty + '\n');
+                if (!success) {
+                    return;
+                }
             }
 
 
@@ -367,10 +400,10 @@ export class StratumV1Client {
 
         this.stratumV1JobsService.addJob(job);
 
-        try {
-            await this.promiseSocket.write(job.response(jobTemplate));
-        } catch (e) {
-            console.log(e);
+
+        const success = await this.write(job.response(jobTemplate));
+        if (!success) {
+            return;
         }
 
 
@@ -390,7 +423,10 @@ export class StratumV1Client {
                 eStratumErrorCode.JobNotFound,
                 'Job not found').response();
             console.log(err);
-            await this.promiseSocket.write(err);
+            const success = await this.write(err);
+            if (!success) {
+                return false;
+            }
             return false;
         }
         const jobTemplate = this.stratumV1JobsService.getJobTemplateById(job.jobTemplateId);
@@ -439,7 +475,10 @@ export class StratumV1Client {
                     eStratumErrorCode.DuplicateShare,
                     'Duplicate share').response();
                 console.error(err);
-                await this.promiseSocket.write(err);
+                const success = await this.write(err);
+                if (!success) {
+                    return false;
+                }
                 return false;
             }
 
@@ -458,14 +497,12 @@ export class StratumV1Client {
                 submission.id,
                 eStratumErrorCode.LowDifficultyShare,
                 'Difficulty too low').response();
-            // console.error(err);
-            // console.log(`Header: ${header.toString('hex')}`);
-            try {
-                await this.promiseSocket.write(err);
-            } catch (e) {
-                await this.promiseSocket.end();
-                console.error(e);
+
+            const success = await this.write(err);
+            if (!success) {
+                return false;
             }
+
             return false;
         }
 
@@ -490,12 +527,9 @@ export class StratumV1Client {
                 params: [targetDiff]
             }) + '\n';
 
-            try {
-                await this.promiseSocket.write(data);
-            } catch (e) {
-                await this.promiseSocket.end();
-                return;
-            }
+
+            await this.promiseSocket.write(data);
+
 
             // we need to clear the jobs so that the difficulty set takes effect. Otherwise the different miner implementations can cause issues
             const jobTemplate = await firstValueFrom(this.stratumV1JobsService.newMiningJob$);
@@ -524,6 +558,21 @@ export class StratumV1Client {
         }, BigInt(0));
 
         return number;
+    }
+
+    private async write(message: string): Promise<boolean> {
+        try {
+            if (this.promiseSocket.isPromiseWritable) {
+                await this.promiseSocket.write(message);
+                return true;
+            } else {
+                console.error('Error: Cannot write to closed or ended socket.');
+            }
+        } catch (error) {
+            await this.promiseSocket.end();
+            console.error('Error occurred while writing to socket:', error);
+        }
+        return false;
     }
 
 }
