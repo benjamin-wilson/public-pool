@@ -20,13 +20,13 @@ export class ClientService {
 
 
     public async killDeadClients() {
-        var tenMinutes = new Date(new Date().getTime() - (10 * 60 * 1000)).toISOString();
+        var fiveMinutes = new Date(new Date().getTime() - (5 * 60 * 1000)).toISOString();
 
         return await this.clientRepository
             .createQueryBuilder()
             .update(ClientEntity)
             .set({ deletedAt: () => "DATETIME('now')" })
-            .where("deletedAt IS NULL AND updatedAt < :tenMinutes", { tenMinutes })
+            .where("deletedAt IS NULL AND updatedAt < :fiveMinutes", { fiveMinutes })
             .execute();
     }
 
