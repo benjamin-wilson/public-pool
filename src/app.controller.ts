@@ -10,6 +10,9 @@ import { BitcoinRpcService } from './services/bitcoin-rpc.service';
 
 @Controller()
 export class AppController {
+
+  private uptime = new Date();
+
   constructor(
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
     private readonly clientService: ClientService,
@@ -26,7 +29,8 @@ export class AppController {
 
     return {
       blockData,
-      userAgents
+      userAgents,
+      uptime: this.uptime
     };
   }
 
