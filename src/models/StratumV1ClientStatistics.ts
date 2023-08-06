@@ -42,9 +42,6 @@ export class StratumV1ClientStatistics {
             submissionHash
         });
 
-        await this.clientService.heartbeat(client.address, client.clientName, client.sessionId)
-
-
     }
     public getLastSubmissionTime(): Date | null {
         return this.submissionCache[this.submissionCache.length - 1]?.time;

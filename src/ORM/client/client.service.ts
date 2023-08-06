@@ -30,8 +30,8 @@ export class ClientService {
             .execute();
     }
 
-    public async heartbeat(address: string, clientName: string, sessionId: string) {
-        return await this.clientRepository.update({ address, clientName, sessionId }, { deletedAt: null, updatedAt: new Date() });
+    public async heartbeat(address: string, clientName: string, sessionId: string, hashRate: number) {
+        return await this.clientRepository.update({ address, clientName, sessionId }, { hashRate, deletedAt: null, updatedAt: new Date() });
     }
 
     // public async save(client: Partial<ClientEntity>) {
@@ -111,6 +111,7 @@ export class ClientService {
             .select('client.userAgent as userAgent')
             .addSelect('COUNT(client.userAgent)', 'count')
             .addSelect('MAX(client.bestDifficulty)', 'bestDifficulty')
+            .addSelect('SUM(client.hashRate)', 'totalHashRate')
             .groupBy('client.userAgent')
             .orderBy('count', 'DESC')
             .getRawMany();

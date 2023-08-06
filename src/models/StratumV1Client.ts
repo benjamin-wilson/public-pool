@@ -44,8 +44,9 @@ export class StratumV1Client {
     private entity: ClientEntity;
 
     public extraNonceAndSessionId: string;
-
     public sessionStart: Date;
+    public noFee: boolean;
+    public hashRate: number;
 
 
     constructor(
@@ -326,7 +327,6 @@ export class StratumV1Client {
             }
 
 
-
             this.entity = await this.clientService.insert({
                 sessionId: this.extraNonceAndSessionId,
                 address: this.clientAuthorization.address,
@@ -348,35 +348,20 @@ export class StratumV1Client {
 
             this.backgroundWork = setInterval(async () => {
                 await this.checkDifficulty();
-                //await this.watchdog();
             }, 60 * 1000);
 
         }
     }
 
-    // private async watchdog() {
-    //     let time = await this.statistics.getLastSubmissionTime();
-    //     if (time == null) {
-    //         time = this.sessionStart;
-    //     }
-    //     const now = Date.now();
-    //     const diffSeconds = (now - time.getTime()) / 1000;
-    //     // one hour
-    //     if (diffSeconds > 60 * 60) {
-    //         console.log(`Watchdog ending session ${this.extraNonceAndSessionId}}`);
-    //         await this.promiseSocket.end();
-    //     }
-    // }
-
     private async sendNewMiningJob(jobTemplate: IJobTemplate) {
 
-        const hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientAuthorization.address, this.clientAuthorization.worker, this.extraNonceAndSessionId);
+        this.hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientAuthorization.address, this.clientAuthorization.worker, this.extraNonceAndSessionId);
 
         let payoutInformation;
         const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
         //50Th/s
-        const noFee = hashRate != 0 && hashRate < 50000000000000;
-        if (noFee || devFeeAddress == null || devFeeAddress.length < 1) {
+        this.noFee = this.hashRate != 0 && this.hashRate < 50000000000000;
+        if (this.noFee || devFeeAddress == null || devFeeAddress.length < 1) {
             payoutInformation = [
                 { address: this.clientAuthorization.address, percent: 100 }
             ];
@@ -405,7 +390,7 @@ export class StratumV1Client {
         }
 
 
-        console.log(`Sent new job to ${this.clientAuthorization.worker}.${this.extraNonceAndSessionId}. (clearJobs: ${jobTemplate.blockData.clearJobs}, fee?: ${!noFee})`)
+        console.log(`Sent new job to ${this.clientAuthorization.worker}.${this.extraNonceAndSessionId}. (clearJobs: ${jobTemplate.blockData.clearJobs}, fee?: ${!this.noFee})`)
 
     }
 
@@ -465,7 +450,7 @@ export class StratumV1Client {
             }
             try {
                 await this.statistics.addSubmission(this.entity, submissionHash, this.sessionDifficulty);
-                //await this.addressSettingsService.addShares(this.clientAuthorization.address, this.sessionDifficulty);
+                await this.clientService.heartbeat(this.entity.address, this.entity.clientName, this.entity.sessionId, this.hashRate);
             } catch (e) {
                 console.log(e);
                 const err = new StratumErrorMessage(
