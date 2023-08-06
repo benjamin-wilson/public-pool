@@ -127,7 +127,7 @@ export class StratumV1JobsService {
                     this.jobs = [];
                 }
 
-                if (this.blocks.length >= 10) {
+                if (this.blocks.length >= 30) {
                     this.blocks.shift();
                 }
 

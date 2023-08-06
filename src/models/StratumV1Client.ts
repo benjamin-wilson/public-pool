@@ -316,6 +316,10 @@ export class StratumV1Client {
             });
 
             this.backgroundWork = setInterval(async () => {
+                if (this.promiseSocket.isPromiseWritable == false) {
+                    this.destroy();
+                    return;
+                }
                 await this.checkDifficulty();
                 //await this.watchdog();
             }, 60 * 1000);
