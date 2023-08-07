@@ -26,6 +26,9 @@ export class ClientStatisticsEntity extends TrackedEntity {
     @Column({ type: 'real' })
     shares: number;
 
+    @Column({ default: 0, type: 'integer' })
+    acceptedCount: number;
+
 
 
 

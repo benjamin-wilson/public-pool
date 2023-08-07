@@ -340,15 +340,6 @@ export class StratumV1Client {
             }
 
 
-            this.entity = await this.clientService.insert({
-                sessionId: this.extraNonceAndSessionId,
-                address: this.clientAuthorization.address,
-                clientName: this.clientAuthorization.worker,
-                userAgent: this.clientSubscription.userAgent,
-                startTime: new Date(),
-                bestDifficulty: 0
-            });
-
             this.stratumSubscription = this.stratumV1JobsService.newMiningJob$.pipe(
             ).subscribe(async (jobTemplate) => {
                 try {
@@ -409,6 +400,18 @@ export class StratumV1Client {
 
 
     private async handleMiningSubmission(submission: MiningSubmitMessage) {
+
+        if (this.entity == null) {
+            this.entity = await this.clientService.insert({
+                sessionId: this.extraNonceAndSessionId,
+                address: this.clientAuthorization.address,
+                clientName: this.clientAuthorization.worker,
+                userAgent: this.clientSubscription.userAgent,
+                startTime: new Date(),
+                bestDifficulty: 0
+            });
+        }
+
 
         const job = this.stratumV1JobsService.getJobById(submission.jobId);
 

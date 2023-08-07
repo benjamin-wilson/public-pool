@@ -21,7 +21,8 @@ export class ClientStatisticsService {
         const res1 = await this.clientStatisticsRepository.createQueryBuilder()
             .update(ClientStatisticsEntity)
             .set({
-                shares: () => `"shares" + ${clientStatistic.shares}` // Use the actual value of shares here
+                shares: () => `"shares" + ${clientStatistic.shares}`, // Use the actual value of shares here
+                acceptedCount: () => `"acceptedCount" + 1`
             })
             .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', { address: clientStatistic.address, clientName: clientStatistic.clientName, sessionId: clientStatistic.sessionId, time: clientStatistic.time })
             .execute();
