@@ -88,6 +88,9 @@ export class StratumV1ClientStatistics {
         x = x | (x >> 16);
         x = x | (x >> 32);
         const res = x - (x >> 1);
+        if (res == 0 && val * 100 < MIN_DIFF) {
+            return MIN_DIFF;
+        }
         if (res == 0) {
             return this.nearestPowerOfTwo(val * 100) / 100;
         }
