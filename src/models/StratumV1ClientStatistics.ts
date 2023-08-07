@@ -49,10 +49,9 @@ export class StratumV1ClientStatistics {
     public getSuggestedDifficulty(clientDifficulty: number) {
 
         // miner hasn't submitted shares in one minute
-        if (this.submissionCache.length == 0) {
+        if (this.submissionCache.length < 5) {
             if ((new Date().getTime() - this.submissionCacheStart.getTime()) / 1000 > 60) {
-                //return this.nearestPowerOfTwo(clientDifficulty / 6);
-                return clientDifficulty / 6;
+                return this.nearestPowerOfTwo(clientDifficulty / 6);
             } else {
                 return null;
             }
@@ -69,8 +68,7 @@ export class StratumV1ClientStatistics {
         const targetDifficulty = difficultyPerSecond * TARGET_SUBMISSION_PER_SECOND;
 
         if ((clientDifficulty * 2) < targetDifficulty || (clientDifficulty / 2) > targetDifficulty) {
-            // return this.nearestPowerOfTwo(targetDifficulty)
-            return targetDifficulty;
+            return this.nearestPowerOfTwo(targetDifficulty)
         }
 
         return null;
