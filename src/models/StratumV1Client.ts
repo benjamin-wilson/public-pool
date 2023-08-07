@@ -75,13 +75,13 @@ export class StratumV1Client {
                 })
         });
 
-        this.sessionStart = new Date();
-        this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService, this.clientService);
-        this.extraNonceAndSessionId = this.getRandomHexString();
-        console.log(`New client ID: : ${this.extraNonceAndSessionId}`);
+
     }
 
-    public destroy() {
+    public async destroy() {
+
+        await this.clientService.delete(this.extraNonceAndSessionId);
+
         if (this.stratumSubscription != null) {
             this.stratumSubscription.unsubscribe();
         }
@@ -99,18 +99,24 @@ export class StratumV1Client {
 
 
     private async handleMessage(message: string) {
-        // console.log(`Received from ${this.extraNonceAndSessionId}`, message);
+        console.log(`Received from ${this.extraNonceAndSessionId}`, message);
 
         // Parse the message and check if it's the initial subscription message
         let parsedMessage = null;
         try {
             parsedMessage = JSON.parse(message);
         } catch (e) {
-            console.log("Invalid JSON");
+            //console.log("Invalid JSON");
             await this.socket.end();
             return;
         }
 
+        if (this.sessionStart == null) {
+            this.sessionStart = new Date();
+            this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService, this.clientService);
+            this.extraNonceAndSessionId = this.getRandomHexString();
+            console.log(`New client ID: : ${this.extraNonceAndSessionId}`);
+        }
 
         switch (parsedMessage.method) {
             case eRequestMethod.SUBSCRIBE: {
@@ -264,6 +270,13 @@ export class StratumV1Client {
                 break;
             }
             case eRequestMethod.SUBMIT: {
+
+                if (this.stratumInitialized == false) {
+                    console.log('Submit before initalized');
+                    await this.socket.end();
+                }
+
+
                 const miningSubmitMessage = plainToInstance(
                     MiningSubmitMessage,
                     parsedMessage,

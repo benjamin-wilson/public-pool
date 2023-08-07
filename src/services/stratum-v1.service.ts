@@ -58,28 +58,20 @@ export class StratumV1Service implements OnModuleInit {
 
 
       socket.on('end', async (error: Error) => {
-        // Handle socket disconnection
-        client.destroy();
-
-        await this.clientService.delete(client.extraNonceAndSessionId);
-
-        const clientCount = await this.clientService.connectedClientCount();
-
-        console.log(`Client disconnected,  ${client.extraNonceAndSessionId},  ${clientCount} total clients`);
-
+        if (client.extraNonceAndSessionId != null) {
+          // Handle socket disconnection
+          await client.destroy();
+          console.log(`Client disconnected,  ${client.extraNonceAndSessionId}`);
+        }
       });
 
       socket.on('error', async (error: Error) => {
-
-        client.destroy();
-
-        await this.clientService.delete(client.extraNonceAndSessionId);
-
-        const clientCount = await this.clientService.connectedClientCount();
-        console.log(`Client disconnected, socket error,  ${client.extraNonceAndSessionId}, ${clientCount} total clients`);
+        if (client.extraNonceAndSessionId != null) {
+          await client.destroy();
+          console.log(`Client disconnected, socket error,  ${client.extraNonceAndSessionId}`);
+        }
 
         socket.destroy();
-
       });
 
     });

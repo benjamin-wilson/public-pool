@@ -38,7 +38,7 @@ const ORMModules = [
             synchronize: true,
             autoLoadEntities: true,
             cache: true,
-            logging: false,
+            logging: true,
             enableWAL: true,
             busyTimeout: 30 * 1000,
         }),
