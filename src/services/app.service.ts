@@ -36,8 +36,10 @@ export class AppService implements OnModuleInit {
         }
     }
 
-    @Cron(CronExpression.EVERY_SECOND)
+    @Cron(CronExpression.EVERY_5_MINUTES)
     private async killDeadClients() {
-        await this.clientService.killDeadClients();
+        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+            await this.clientService.killDeadClients();
+        }
     }
 }
