@@ -394,7 +394,7 @@ export class StratumV1Client {
         }
 
 
-        console.log(`Sent new job to ${this.clientAuthorization.worker}.${this.extraNonceAndSessionId}. (clearJobs: ${jobTemplate.blockData.clearJobs}, fee?: ${!this.noFee})`)
+        //console.log(`Sent new job to ${this.clientAuthorization.worker}.${this.extraNonceAndSessionId}. (clearJobs: ${jobTemplate.blockData.clearJobs}, fee?: ${!this.noFee})`)
 
     }
 
@@ -421,7 +421,7 @@ export class StratumV1Client {
                 submission.id,
                 eStratumErrorCode.JobNotFound,
                 'Job not found').response();
-            console.log(err);
+            //console.log(err);
             const success = await this.write(err);
             if (!success) {
                 return false;
