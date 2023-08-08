@@ -115,7 +115,7 @@ export class StratumV1Client {
             this.sessionStart = new Date();
             this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService, this.clientService);
             this.extraNonceAndSessionId = this.getRandomHexString();
-            console.log(`New client ID: : ${this.extraNonceAndSessionId}`);
+            console.log(`New client ID: : ${this.extraNonceAndSessionId}, ${this.socket.remoteAddress}:${this.socket.remotePort}`);
         }
 
         switch (parsedMessage.method) {
@@ -331,7 +331,7 @@ export class StratumV1Client {
 
 
             if (this.clientSuggestedDifficulty == null) {
-                console.log(`Setting difficulty to ${this.sessionDifficulty}`)
+                //console.log(`Setting difficulty to ${this.sessionDifficulty}`)
                 const setDifficulty = JSON.stringify(new SuggestDifficulty().response(this.sessionDifficulty));
                 const success = await this.write(setDifficulty + '\n');
                 if (!success) {
@@ -521,7 +521,7 @@ export class StratumV1Client {
         }
 
         if (targetDiff != this.sessionDifficulty) {
-            console.log(`Adjusting difficulty from ${this.sessionDifficulty} to ${targetDiff}`);
+            console.log(`Adjusting ${this.extraNonceAndSessionId} difficulty from ${this.sessionDifficulty} to ${targetDiff}`);
             this.sessionDifficulty = targetDiff;
 
             const data = JSON.stringify({
