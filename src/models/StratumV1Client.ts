@@ -521,7 +521,7 @@ export class StratumV1Client {
         }
 
         if (targetDiff != this.sessionDifficulty) {
-            console.log(`Adjusting ${this.extraNonceAndSessionId} difficulty from ${this.sessionDifficulty} to ${targetDiff}`);
+            //console.log(`Adjusting ${this.extraNonceAndSessionId} difficulty from ${this.sessionDifficulty} to ${targetDiff}`);
             this.sessionDifficulty = targetDiff;
 
             const data = JSON.stringify({
@@ -572,7 +572,6 @@ export class StratumV1Client {
                         if (error) {
                             reject(error);
                         } else {
-
                             resolve(true);
                         }
                     });
@@ -580,7 +579,7 @@ export class StratumV1Client {
 
                 return true;
             } else {
-                console.error(`Error: Cannot write to closed or ended socket. ${this.extraNonceAndSessionId}`);
+                console.error(`Error: Cannot write to closed or ended socket. ${this.extraNonceAndSessionId} ${message}`);
                 this.destroy();
                 return false;
             }
