@@ -359,12 +359,16 @@ export class StratumV1Client {
 
     private async sendNewMiningJob(jobTemplate: IJobTemplate) {
 
-        this.hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientAuthorization.address, this.clientAuthorization.worker, this.extraNonceAndSessionId);
+
 
         let payoutInformation;
         const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
         //50Th/s
-        this.noFee = this.hashRate != 0 && this.hashRate < 50000000000000;
+        this.noFee = false;
+        if (this.entity) {
+            this.hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientAuthorization.address, this.clientAuthorization.worker, this.extraNonceAndSessionId);
+            this.noFee = this.hashRate != 0 && this.hashRate < 50000000000000;
+        }
         if (this.noFee || devFeeAddress == null || devFeeAddress.length < 1) {
             payoutInformation = [
                 { address: this.clientAuthorization.address, percent: 100 }
@@ -576,7 +580,7 @@ export class StratumV1Client {
 
                 return true;
             } else {
-                console.error('Error: Cannot write to closed or ended socket.');
+                console.error(`Error: Cannot write to closed or ended socket. ${this.extraNonceAndSessionId}`);
                 this.destroy();
                 return false;
             }
@@ -585,7 +589,7 @@ export class StratumV1Client {
             if (!this.socket.destroyed && !this.socket.writableEnded) {
                 await this.socket.end();
             }
-            console.error('Error occurred while writing to socket:', error);
+            console.error(`Error occurred while writing to socket: ${this.extraNonceAndSessionId}`, error);
             return false;
         }
     }
