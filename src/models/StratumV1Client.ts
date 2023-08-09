@@ -318,6 +318,11 @@ export class StratumV1Client {
                 }
                 break;
             }
+            default: {
+                console.log("Invalid message");
+                await this.socket.end();
+                return;
+            }
         }
 
 
