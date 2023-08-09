@@ -19,12 +19,13 @@ async function bootstrap() {
   const secure = process.env.API_SECURE?.toLowerCase() == 'true';
   if (secure) {
 
-    const httpsOptions = {
-      key: readFileSync('./secrets/key.pem'),
-      cert: readFileSync('./secrets/cert.pem'),
-    };
 
-    options = { https: httpsOptions };
+    options = {
+      https: {
+        key: readFileSync('./secrets/key.pem'),
+        cert: readFileSync('./secrets/cert.pem'),
+      }
+    };
 
   } else {
 
