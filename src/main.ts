@@ -18,16 +18,13 @@ async function bootstrap() {
   let options = {};
   const secure = process.env.API_SECURE?.toLowerCase() == 'true';
   if (secure) {
-
-
+    const currentDirectory = process.cwd();
     options = {
       https: {
-        key: readFileSync('./secrets/key.pem'),
-        cert: readFileSync('./secrets/cert.pem'),
+        key: readFileSync(`${currentDirectory}/secrets/key.pem`),
+        cert: readFileSync(`${currentDirectory}/secrets/cert.pem`),
       }
     };
-
-  } else {
 
   }
 
@@ -48,8 +45,8 @@ async function bootstrap() {
   //Taproot
   bitcoinjs.initEccLib(ecc);
 
-  await app.listen(process.env.PORT, '0.0.0.0', () => {
-    console.log(`${secure ? 'https' : 'http'} listening on port ${process.env.PORT}`);
+  await app.listen(process.env.PORT, '0.0.0.0', (err, address) => {
+    console.log(`API listening on ${address}`);
   });
 
 }
