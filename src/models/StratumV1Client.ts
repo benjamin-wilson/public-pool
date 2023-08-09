@@ -318,12 +318,12 @@ export class StratumV1Client {
                 }
                 break;
             }
-            default: {
-                console.log("Invalid message");
-                console.log(parsedMessage);
-                await this.socket.end();
-                return;
-            }
+            // default: {
+            //     console.log("Invalid message");
+            //     console.log(parsedMessage);
+            //     await this.socket.end();
+            //     return;
+            // }
         }
 
 
