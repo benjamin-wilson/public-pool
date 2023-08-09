@@ -111,12 +111,7 @@ export class StratumV1Client {
             return;
         }
 
-        if (this.sessionStart == null) {
-            this.sessionStart = new Date();
-            this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService, this.clientService);
-            this.extraNonceAndSessionId = this.getRandomHexString();
-            console.log(`New client ID: : ${this.extraNonceAndSessionId}, ${this.socket.remoteAddress}:${this.socket.remotePort}`);
-        }
+
 
         switch (parsedMessage.method) {
             case eRequestMethod.SUBSCRIBE: {
@@ -133,6 +128,14 @@ export class StratumV1Client {
                 const errors = await validate(subscriptionMessage, validatorOptions);
 
                 if (errors.length === 0) {
+
+                    if (this.sessionStart == null) {
+                        this.sessionStart = new Date();
+                        this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService, this.clientService);
+                        this.extraNonceAndSessionId = this.getRandomHexString();
+                        console.log(`New client ID: : ${this.extraNonceAndSessionId}, ${this.socket.remoteAddress}:${this.socket.remotePort}`);
+                    }
+
                     this.clientSubscription = subscriptionMessage;
                     const success = await this.write(JSON.stringify(this.clientSubscription.response(this.extraNonceAndSessionId)) + '\n');
                     if (!success) {
@@ -274,6 +277,7 @@ export class StratumV1Client {
                 if (this.stratumInitialized == false) {
                     console.log('Submit before initalized');
                     await this.socket.end();
+                    return;
                 }
 
 

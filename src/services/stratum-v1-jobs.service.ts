@@ -42,8 +42,6 @@ export class StratumV1JobsService {
         private readonly bitcoinRpcService: BitcoinRpcService
     ) {
 
-        console.log(this.delay)
-
         this.newMiningJob$ = combineLatest([this.bitcoinRpcService.newBlock$, interval(60000).pipe(delay(this.delay), startWith(-1))]).pipe(
             switchMap(([miningInfo, interval]) => {
                 return from(this.bitcoinRpcService.getBlockTemplate()).pipe(map((blockTemplate) => {

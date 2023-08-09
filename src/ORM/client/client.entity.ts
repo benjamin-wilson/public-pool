@@ -4,7 +4,6 @@ import { DateTimeTransformer } from '../utils/DateTimeTransformer';
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
 @Entity()
-@Index(['address', 'clientName', 'sessionId'], { unique: true })
 export class ClientEntity extends TrackedEntity {
 
     @PrimaryGeneratedColumn()
@@ -20,7 +19,8 @@ export class ClientEntity extends TrackedEntity {
     @Column({ length: 128, type: 'varchar', nullable: true })
     userAgent: string;
 
-    @Column({ length: 8, type: 'varchar' })
+    @Index()
+    @Column({ length: 8, type: 'varchar', unique: true })
     sessionId: string;
 
     @Column({ type: 'datetime', transformer: new DateTimeTransformer() })
