@@ -320,6 +320,7 @@ export class StratumV1Client {
             }
             default: {
                 console.log("Invalid message");
+                console.log(parsedMessage);
                 await this.socket.end();
                 return;
             }
