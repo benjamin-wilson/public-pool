@@ -41,7 +41,9 @@ export class StratumV1Client {
     private stratumInitialized = false;
     private usedSuggestedDifficulty = false;
     private sessionDifficulty: number = 16384;
+
     private entity: ClientEntity;
+    private creatingEntity: Promise<void>;
 
     public extraNonceAndSessionId: string;
     public sessionStart: Date;
@@ -416,14 +418,27 @@ export class StratumV1Client {
     private async handleMiningSubmission(submission: MiningSubmitMessage) {
 
         if (this.entity == null) {
-            this.entity = await this.clientService.insert({
-                sessionId: this.extraNonceAndSessionId,
-                address: this.clientAuthorization.address,
-                clientName: this.clientAuthorization.worker,
-                userAgent: this.clientSubscription.userAgent,
-                startTime: new Date(),
-                bestDifficulty: 0
-            });
+            if (this.creatingEntity == null) {
+                this.creatingEntity = new Promise(async (resolve, reject) => {
+                    try {
+                        this.entity = await this.clientService.insert({
+                            sessionId: this.extraNonceAndSessionId,
+                            address: this.clientAuthorization.address,
+                            clientName: this.clientAuthorization.worker,
+                            userAgent: this.clientSubscription.userAgent,
+                            startTime: new Date(),
+                            bestDifficulty: 0
+                        });
+                    } catch (e) {
+                        reject(e);
+                    }
+                    resolve();
+                });
+                await this.creatingEntity;
+
+            } else {
+                await this.creatingEntity;
+            }
         }
 
 
