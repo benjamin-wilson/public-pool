@@ -3,6 +3,7 @@ import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
 @Entity()
+//Index for the heartbeat update
 @Index(["address", "clientName", "sessionId", "time"])
 export class ClientStatisticsEntity extends TrackedEntity {
 
