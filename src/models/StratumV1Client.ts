@@ -606,12 +606,17 @@ export class StratumV1Client {
             } else {
                 console.error(`Error: Cannot write to closed or ended socket. ${this.extraNonceAndSessionId} ${message}`);
                 this.destroy();
+                if (!this.socket.destroyed) {
+                    this.socket.destroy();
+                }
                 return false;
             }
         } catch (error) {
             this.destroy();
-            if (!this.socket.destroyed && !this.socket.writableEnded) {
+            if (!this.socket.writableEnded) {
                 await this.socket.end();
+            } else if (!this.socket.destroyed) {
+                this.socket.destroy();
             }
             console.error(`Error occurred while writing to socket: ${this.extraNonceAndSessionId}`, error);
             return false;
