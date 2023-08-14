@@ -3,6 +3,7 @@ import * as bitcoinjs from 'bitcoinjs-lib';
 
 import { IJobTemplate } from '../services/stratum-v1-jobs.service';
 import { eResponseMethod } from './enums/eResponseMethod';
+import { IMiningNotify } from './stratum-messages/IMiningNotify';
 
 
 interface AddressObject {
@@ -161,7 +162,7 @@ export class MiningJob {
 
     public response(jobTemplate: IJobTemplate): string {
 
-        const job = {
+        const job: IMiningNotify = {
             id: null,
             method: eResponseMethod.MINING_NOTIFY,
             params: [

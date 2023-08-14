@@ -28,15 +28,13 @@ export class StratumV1Service implements OnModuleInit {
 
   }
 
-
   async onModuleInit(): Promise<void> {
 
-    //await this.clientStatisticsService.deleteAll();
-
-    await this.clientService.deleteAll();
-
-
-    this.startSocketServer();
+    if (process.env.ENABLE_SOLO == 'true') {
+      //await this.clientStatisticsService.deleteAll();
+      await this.clientService.deleteAll();
+      this.startSocketServer();
+    }
   }
 
   private startSocketServer() {
@@ -70,8 +68,8 @@ export class StratumV1Service implements OnModuleInit {
 
     });
 
-    server.listen(3333, () => {
-      console.log(`Bitcoin Stratum server is listening on port ${3333}`);
+    server.listen(process.env.STRATUM_PORT, () => {
+      console.log(`Stratum server is listening on port ${process.env.STRATUM_PORT}`);
     });
 
   }

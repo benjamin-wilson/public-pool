@@ -20,6 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@nestjs/axios": "^3.0.0",
     "@nestjs/cache-manager": "^2.0.1",
     "@nestjs/common": "^9.0.0",
     "@nestjs/config": "^2.3.2",
@@ -27,6 +28,7 @@
     "@nestjs/platform-fastify": "^9.4.2",
     "@nestjs/schedule": "^3.0.1",
     "@nestjs/typeorm": "^10.0.0",
+    "axios": "^1.4.0",
     "big.js": "^6.2.1",
     "bitcoin-address-validation": "^2.2.1",
     "bitcoinjs-lib": "^6.1.3",

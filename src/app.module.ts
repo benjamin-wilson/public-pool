@@ -1,3 +1,4 @@
+import { HttpModule } from '@nestjs/axios';
 import { CacheModule } from '@nestjs/cache-manager';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
@@ -15,8 +16,11 @@ import { ClientModule } from './ORM/client/client.module';
 import { TelegramSubscriptionsModule } from './ORM/telegram-subscriptions/telegram-subscriptions.module';
 import { AppService } from './services/app.service';
 import { BitcoinRpcService } from './services/bitcoin-rpc.service';
+import { BraiinsService } from './services/braiins.service';
+import { BTCPayService } from './services/btc-pay.service';
 import { DiscordService } from './services/discord.service';
 import { NotificationService } from './services/notification.service';
+import { ProxyService } from './services/proxy.service';
 import { StratumV1JobsService } from './services/stratum-v1-jobs.service';
 import { StratumV1Service } from './services/stratum-v1.service';
 import { TelegramService } from './services/telegram.service';
@@ -44,7 +48,7 @@ const ORMModules = [
         }),
         CacheModule.register(),
         ScheduleModule.forRoot(),
-
+        HttpModule,
         ...ORMModules
     ],
     controllers: [
@@ -60,7 +64,10 @@ const ORMModules = [
         BitcoinRpcService,
         NotificationService,
         BitcoinAddressValidator,
-        StratumV1JobsService
+        StratumV1JobsService,
+        ProxyService,
+        BTCPayService,
+        BraiinsService
     ],
 })
 export class AppModule {

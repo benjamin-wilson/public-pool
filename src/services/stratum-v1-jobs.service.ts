@@ -91,7 +91,6 @@ export class StratumV1JobsService {
                 tempCoinbaseTx.ins[0].witness = [Buffer.alloc(32, 0)];
                 transactions.unshift(tempCoinbaseTx);
 
-
                 const transactionBuffers = transactions.map(tx => tx.getHash(false));
 
                 const merkleTree = merkle(transactionBuffers, bitcoinjs.crypto.hash256);

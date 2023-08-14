@@ -28,7 +28,7 @@ export class AppService implements OnModuleInit {
 
     @Cron(CronExpression.EVERY_HOUR)
     private async deleteOldStatistics() {
-        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+        if (process.env.ENABLE_SOLO == 'true' && (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0')) {
             const deletedStatistics = await this.clientStatisticsService.deleteOldStatistics();
             console.log(`Deleted ${deletedStatistics.affected} old statistics`);
             const deletedClients = await this.clientService.deleteOldClients();
@@ -38,7 +38,7 @@ export class AppService implements OnModuleInit {
 
     @Cron(CronExpression.EVERY_5_MINUTES)
     private async killDeadClients() {
-        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+        if (process.env.ENABLE_SOLO == 'true' && (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0')) {
             await this.clientService.killDeadClients();
         }
     }

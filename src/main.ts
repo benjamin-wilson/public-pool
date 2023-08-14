@@ -10,7 +10,7 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
 
-  if (process.env.PORT == null) {
+  if (process.env.API_PORT == null) {
     console.error('It appears your environment is not configured, create and populate an .env file.');
     return;
   }
@@ -45,7 +45,7 @@ async function bootstrap() {
   //Taproot
   bitcoinjs.initEccLib(ecc);
 
-  await app.listen(process.env.PORT, '0.0.0.0', (err, address) => {
+  await app.listen(process.env.API_PORT, '0.0.0.0', (err, address) => {
     console.log(`API listening on ${address}`);
   });
 
