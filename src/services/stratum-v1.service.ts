@@ -32,7 +32,7 @@ export class StratumV1Service implements OnModuleInit {
 
     if (process.env.ENABLE_SOLO == 'true') {
       //await this.clientStatisticsService.deleteAll();
-      await this.clientService.deleteAll();
+      // await this.clientService.deleteAll();
       this.startSocketServer();
     }
   }
