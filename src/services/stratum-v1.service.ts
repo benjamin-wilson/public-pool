@@ -45,8 +45,8 @@ export class StratumV1Service implements OnModuleInit {
   private startSocketServer() {
     const server = new Server(async (socket: Socket) => {
 
-      //5 min
-      socket.setTimeout(1000 * 60 * 5);
+      //1 min
+      socket.setTimeout(1000 * 60);
 
       const client = new StratumV1Client(
         socket,
@@ -67,6 +67,11 @@ export class StratumV1Service implements OnModuleInit {
           await client.destroy();
           console.log(`Client ${client.extraNonceAndSessionId} disconnected, hadError?:${hadError}`);
         }
+      });
+
+      socket.on('timeout', () => {
+        console.log('socket timeout');
+        socket.end();
       });
 
       socket.on('error', async (error: Error) => { });
