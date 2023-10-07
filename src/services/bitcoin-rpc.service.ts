@@ -38,14 +38,19 @@ export class BitcoinRpcService {
 
 
     public async getBlockTemplate(): Promise<IBlockTemplate> {
-
-        const result: IBlockTemplate = await this.client.getblocktemplate({
-            template_request: {
-                rules: ['segwit'],
-                mode: 'template',
-                capabilities: ['serverlist', 'proposal']
-            }
-        });
+        let result: IBlockTemplate;
+        try {
+            result = await this.client.getblocktemplate({
+                template_request: {
+                    rules: ['segwit'],
+                    mode: 'template',
+                    capabilities: ['serverlist', 'proposal']
+                }
+            });
+        } catch (e) {
+            console.log('Error getblocktemplate');
+            throw new Error('Error getblocktemplate');
+        }
         console.log(`getblocktemplate tx count: ${result.transactions.length}`);
         return result;
     }
