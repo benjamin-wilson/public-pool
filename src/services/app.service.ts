@@ -17,9 +17,9 @@ export class AppService implements OnModuleInit {
     }
 
     async onModuleInit() {
-        if (process.env.NODE_APP_INSTANCE == '0') {
-            await this.dataSource.query(`VACUUM;`);
-        }
+        // if (process.env.NODE_APP_INSTANCE == '0') {
+        //     await this.dataSource.query(`VACUUM;`);
+        // }
         //https://phiresky.github.io/blog/2020/sqlite-performance-tuning/
         //500 MB DB cache
         await this.dataSource.query(`PRAGMA cache_size = -500000;`);
