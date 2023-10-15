@@ -5,6 +5,7 @@ import { BehaviorSubject, filter, shareReplay } from 'rxjs';
 
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { IMiningInfo } from '../models/bitcoin-rpc/IMiningInfo';
+import * as zmq from 'zeromq';
 
 @Injectable()
 export class BitcoinRpcService {
@@ -25,17 +26,28 @@ export class BitcoinRpcService {
 
         console.log('Bitcoin RPC connected');
 
-        // Maybe use ZeroMQ ?
-        setInterval(async () => {
-            const miningInfo = await this.getMiningInfo();
-            if (miningInfo != null && miningInfo.blocks > this.blockHeight) {
-                this._newBlock$.next(miningInfo);
-                this.blockHeight = miningInfo.blocks;
-            }
-
-        }, 500);
+        if (this.configService.get('BITCOIN_ZMQ_HOST')) {
+            const sock = zmq.socket("sub");
+            sock.connect(this.configService.get('BITCOIN_ZMQ_HOST'));
+            sock.subscribe("rawblock");
+            sock.on("message", async (topic: Buffer, message: Buffer) => {
+                console.log("new block zmq");
+                this.pollMiningInfo();
+            });
+            this.pollMiningInfo();
+        } else {
+            setInterval(this.pollMiningInfo.bind(this), 500);
+        }    
     }
 
+    public async pollMiningInfo() {
+        const miningInfo = await this.getMiningInfo();
+        if (miningInfo != null && miningInfo.blocks > this.blockHeight) {
+            console.log("block height change");
+            this._newBlock$.next(miningInfo);
+            this.blockHeight = miningInfo.blocks;
+        }
+    }
 
     public async getBlockTemplate(): Promise<IBlockTemplate> {
         let result: IBlockTemplate;
