@@ -25,7 +25,6 @@ async function bootstrap() {
         cert: readFileSync(`${currentDirectory}/secrets/cert.pem`),
       }
     };
-
   }
 
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(options));
@@ -38,9 +37,14 @@ async function bootstrap() {
       forbidUnknownValues: true
     }),
   );
+
+  process.on('SIGINT', () => {
+    console.log(`Stopping services`);
+    process.exit(0);
+  });
+
   app.enableCors();
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
-
 
   //Taproot
   bitcoinjs.initEccLib(ecc);
@@ -50,4 +54,5 @@ async function bootstrap() {
   });
 
 }
+
 bootstrap();
