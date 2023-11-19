@@ -13,6 +13,7 @@ services:
       - "127.0.0.1:3333:3333/tcp"
       - "127.0.0.1:3334:3334/tcp"
     volumes:
+      - "./DB:/public-pool/DB"
       - "./.env:/public-pool/.env:ro"
     environment:
       - NODE_ENV=production
