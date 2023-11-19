@@ -37,7 +37,7 @@ export class BitcoinRpcService {
             this.pollMiningInfo();
         } else {
             setInterval(this.pollMiningInfo.bind(this), 500);
-        }    
+        }
     }
 
     public async pollMiningInfo() {
@@ -60,7 +60,7 @@ export class BitcoinRpcService {
                 }
             });
         } catch (e) {
-            console.log('Error getblocktemplate');
+            console.error('Error getblocktemplate:' ,e.message);
             throw new Error('Error getblocktemplate');
         }
         console.log(`getblocktemplate tx count: ${result.transactions.length}`);
@@ -71,7 +71,7 @@ export class BitcoinRpcService {
         try {
             return await this.client.getmininginfo();
         } catch (e) {
-            console.log('Error getmininginfo');
+            console.error('Error getmininginfo', e.message);
             return null;
         }
 
