@@ -53,14 +53,29 @@ Build container:
 $ docker build -t public-pool .
 ```
 
-Run container (with default configuration):
-
-```bash
-$ docker container run --name public-pool --rm -p 3333:3333 -p 3334:3334 -p 8332:8332 public-pool
-```
-
-Run container (with custom configuration):
+Run container:
 
 ```bash
 $ docker container run --name public-pool --rm -p 3333:3333 -p 3334:3334 -p 8332:8332 -v .env:.env public-pool
+```
+
+### Docker Compose
+
+Build container:
+```bash
+$ docker compose build
+```
+
+Run container:
+```bash
+$ docker compose up -d
+```
+
+The docker-compose binds to `127.0.0.1`. If you want to bind it to `0.0.0.0` to expose the Stratum services change:
+```diff
+    ports:
+-      - "127.0.0.1:3333:3333/tcp"
+-      - "127.0.0.1:3334:3334/tcp"
++      - "3333"
++      - "3334"
 ```
