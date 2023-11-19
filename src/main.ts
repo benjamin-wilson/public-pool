@@ -43,6 +43,11 @@ async function bootstrap() {
     process.exit(0);
   });
 
+  process.on('SIGTERM', () => {
+    console.log(`Stopping services`);
+    process.exit(0);
+  });
+
   app.enableCors();
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
 
