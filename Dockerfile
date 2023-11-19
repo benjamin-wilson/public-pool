@@ -24,6 +24,6 @@ EXPOSE 8332
 WORKDIR /public-pool
 
 COPY --from=build /build .
-COPY .env.example .env
+#COPY .env.example .env
 
 CMD ["/usr/local/bin/node", "dist/main"]

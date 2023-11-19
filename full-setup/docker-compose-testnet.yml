@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  bitcoin-testnet:
+    container_name: bitcoin-testnet
+    build:
+      context: ./docker/bitcoin
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - bitcoin-testnet
+    ports:
+      - "127.0.0.1:18882:18882/tcp"
+      - "127.0.0.1:18883:18883/tcp"
+    command: >
+      -printtoconsole
+      -datadir=/app/data
+      -testnet
+    volumes:
+      - "./data/testnet/bitcoin:/app/data"
+
+  public-pool-testnet:
+    container_name: public-pool-testnet
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - bitcoin-testnet
+    ports:
+      - "127.0.0.1:13333:13333/tcp"
+      - "127.0.0.1:13334:13334/tcp"
+    volumes:
+      - "./data/testnet/public-pool:/public-pool/DB"
+      - "./public-pool-testnet.env:/public-pool/.env:ro"
+    environment:
+      - NODE_ENV=production
+
+networks:
+  bitcoin-testnet:

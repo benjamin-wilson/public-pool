@@ -4,3 +4,4 @@ LICENSE.txt
 Dockerfile
 .vscode
 .gitignore
+full-setup/
