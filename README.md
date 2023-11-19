@@ -71,7 +71,7 @@ Run container:
 $ docker compose up -d
 ```
 
-The docker-compose binds to `127.0.0.1`. If you want to bind it to `0.0.0.0` to expose the Stratum services change:
+The docker-compose binds to `127.0.0.1` by default. To expose the Stratum services on your server change:
 ```diff
     ports:
 -      - "127.0.0.1:3333:3333/tcp"
@@ -79,3 +79,11 @@ The docker-compose binds to `127.0.0.1`. If you want to bind it to `0.0.0.0` to 
 +      - "3333"
 +      - "3334"
 ```
+
+**note**: To successfully connect to the bitcoin RPC you will need to add
+
+```
+rpcallowip=172.16.0.0/12
+```
+
+to your bitcoin.conf.
