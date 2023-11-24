@@ -55,7 +55,7 @@ export class BitcoinRpcService {
         }
     }
 
-    private async waitForBlock(blockHeight: number) {
+    private async waitForBlock(blockHeight: number): Promise<IBlockTemplate> {
         while (true) {
             await new Promise(r => setTimeout(r, 100));
 
@@ -80,21 +80,21 @@ export class BitcoinRpcService {
                 const { lockedBy } = await this.rpcBlockService.lockBlock(blockHeight, process.env.NODE_APP_INSTANCE);
 
                 if (lockedBy != process.env.NODE_APP_INSTANCE) {
-                    await this.waitForBlock(blockHeight);
-                    return;
-                }
+                    result = await this.waitForBlock(blockHeight);
+                } else {
 
-                result = await this.client.getblocktemplate({
-                    template_request: {
-                        rules: ['segwit'],
-                        mode: 'template',
-                        capabilities: ['serverlist', 'proposal']
-                    }
-                });
-                await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(result));
+                    result = await this.client.getblocktemplate({
+                        template_request: {
+                            rules: ['segwit'],
+                            mode: 'template',
+                            capabilities: ['serverlist', 'proposal']
+                        }
+                    });
+                    await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(result));
+                }
             } else {
                 //wait for block
-                await this.waitForBlock(blockHeight);
+                result = await this.waitForBlock(blockHeight);
 
             }
 
