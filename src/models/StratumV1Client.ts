@@ -352,8 +352,7 @@ export class StratumV1Client {
             }
 
 
-            this.stratumSubscription = this.stratumV1JobsService.newMiningJob$.pipe(
-            ).subscribe(async (jobTemplate) => {
+            this.stratumSubscription = this.stratumV1JobsService.newMiningJob$.subscribe(async (jobTemplate) => {
                 try {
                     await this.sendNewMiningJob(jobTemplate);
                 } catch (e) {

@@ -15,5 +15,6 @@
         "Satoshis",
         "submitblock",
         "Tempalte"
-    ]
+    ],
+    "idf.portWin": "COM30"
 }

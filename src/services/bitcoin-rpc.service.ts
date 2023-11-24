@@ -2,10 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RPCClient } from 'rpc-bitcoin';
 import { BehaviorSubject, filter, shareReplay } from 'rxjs';
+import { RpcBlockService } from 'src/ORM/rpc-block/rpc-block.service';
 
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { IMiningInfo } from '../models/bitcoin-rpc/IMiningInfo';
-import * as zmq from 'zeromq';
+
+// import * as zmq from 'zeromq';
 
 @Injectable()
 export class BitcoinRpcService {
@@ -15,7 +17,11 @@ export class BitcoinRpcService {
     private _newBlock$: BehaviorSubject<IMiningInfo> = new BehaviorSubject(undefined);
     public newBlock$ = this._newBlock$.pipe(filter(block => block != null), shareReplay({ refCount: true, bufferSize: 1 }));
 
-    constructor(private readonly configService: ConfigService) {
+    constructor(
+        private readonly configService: ConfigService,
+        private rpcBlockService: RpcBlockService
+    ) {
+
         const url = this.configService.get('BITCOIN_RPC_URL');
         const user = this.configService.get('BITCOIN_RPC_USER');
         const pass = this.configService.get('BITCOIN_RPC_PASSWORD');
@@ -27,13 +33,13 @@ export class BitcoinRpcService {
         console.log('Bitcoin RPC connected');
 
         if (this.configService.get('BITCOIN_ZMQ_HOST')) {
-            const sock = zmq.socket("sub");
-            sock.connect(this.configService.get('BITCOIN_ZMQ_HOST'));
-            sock.subscribe("rawblock");
-            sock.on("message", async (topic: Buffer, message: Buffer) => {
-                console.log("new block zmq");
-                this.pollMiningInfo();
-            });
+            // const sock = zmq.socket("sub");
+            // sock.connect(this.configService.get('BITCOIN_ZMQ_HOST'));
+            // sock.subscribe("rawblock");
+            // sock.on("message", async (topic: Buffer, message: Buffer) => {
+            //     console.log("new block zmq");
+            //     this.pollMiningInfo();
+            // });
             this.pollMiningInfo();
         } else {
             setInterval(this.pollMiningInfo.bind(this), 500);
@@ -49,18 +55,53 @@ export class BitcoinRpcService {
         }
     }
 
-    public async getBlockTemplate(): Promise<IBlockTemplate> {
+    private async waitForBlock(blockHeight: number) {
+        while (true) {
+            await new Promise(r => setTimeout(r, 100));
+
+            const block = await this.rpcBlockService.getBlock(blockHeight);
+            if (block != null && block.data != null) {
+                console.log('promise loop resolved');
+                return Promise.resolve(JSON.parse(block.data));
+            }
+            console.log('promise loop');
+        }
+    }
+
+    public async getBlockTemplate(blockHeight: number): Promise<IBlockTemplate> {
         let result: IBlockTemplate;
         try {
-            result = await this.client.getblocktemplate({
-                template_request: {
-                    rules: ['segwit'],
-                    mode: 'template',
-                    capabilities: ['serverlist', 'proposal']
+
+            const block = await this.rpcBlockService.getBlock(blockHeight);
+
+            if (block != null && block.data != null) {
+                return Promise.resolve(JSON.parse(block.data));
+            } else if (block == null) {
+                const { lockedBy } = await this.rpcBlockService.lockBlock(blockHeight, process.env.NODE_APP_INSTANCE);
+
+                if (lockedBy != process.env.NODE_APP_INSTANCE) {
+                    await this.waitForBlock(blockHeight);
+                    return;
                 }
-            });
+
+                result = await this.client.getblocktemplate({
+                    template_request: {
+                        rules: ['segwit'],
+                        mode: 'template',
+                        capabilities: ['serverlist', 'proposal']
+                    }
+                });
+                await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(result));
+            } else {
+                //wait for block
+                await this.waitForBlock(blockHeight);
+
+            }
+
+
+
         } catch (e) {
-            console.error('Error getblocktemplate:' ,e.message);
+            console.error('Error getblocktemplate:', e.message);
             throw new Error('Error getblocktemplate');
         }
         console.log(`getblocktemplate tx count: ${result.transactions.length}`);
