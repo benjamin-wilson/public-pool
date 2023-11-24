@@ -77,21 +77,22 @@ export class BitcoinRpcService {
             if (block != null && block.data != null) {
                 return Promise.resolve(JSON.parse(block.data));
             } else if (block == null) {
-                const { lockedBy } = await this.rpcBlockService.lockBlock(blockHeight, process.env.NODE_APP_INSTANCE);
-
-                if (lockedBy != process.env.NODE_APP_INSTANCE) {
+                // There is a unique constraint on the block height so if another process tries to lock, it'll throw
+                try {
+                    await this.rpcBlockService.lockBlock(blockHeight, process.env.NODE_APP_INSTANCE);
+                } catch (e) {
                     result = await this.waitForBlock(blockHeight);
-                } else {
-
-                    result = await this.client.getblocktemplate({
-                        template_request: {
-                            rules: ['segwit'],
-                            mode: 'template',
-                            capabilities: ['serverlist', 'proposal']
-                        }
-                    });
-                    await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(result));
                 }
+
+                result = await this.client.getblocktemplate({
+                    template_request: {
+                        rules: ['segwit'],
+                        mode: 'template',
+                        capabilities: ['serverlist', 'proposal']
+                    }
+                });
+                await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(result));
+
             } else {
                 //wait for block
                 result = await this.waitForBlock(blockHeight);
