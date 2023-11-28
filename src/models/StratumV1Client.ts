@@ -623,4 +623,3 @@ export class StratumV1Client {
     }
 
 }
-
