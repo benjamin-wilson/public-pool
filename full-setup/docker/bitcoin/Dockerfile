@@ -19,7 +19,7 @@ RUN find -ls
 FROM gcr.io/distroless/cc-debian11:nonroot
 
 # Copy the app dir into distroless image
-COPY --chown=bitcoin:bitcoin --from=build /app /app
+COPY --chown=1000:1000 --from=build /app /app
 
 # Expose port 8332/18332 for RPC and 8333/18333 for peer connections
 EXPOSE 8332 8333
