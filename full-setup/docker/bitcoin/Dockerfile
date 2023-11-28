@@ -19,15 +19,18 @@ RUN find -ls
 FROM gcr.io/distroless/cc-debian11:nonroot
 
 # Copy the app dir into distroless image
-COPY --chown=nonroot:nonroot --from=build /app /app
+COPY --chown=bitcoin:bitcoin --from=build /app /app
 
-
-# Expose port 8332 for RPC and 8333 for peer connections
+# Expose port 8332/18332 for RPC and 8333/18333 for peer connections
 EXPOSE 8332 8333
 EXPOSE 18332 18333
 
 # Run bitcoind by default when the container starts.
 ENTRYPOINT ["/app/bin/bitcoind"]
+
+# use user with 1000:1000 for simplicity of ownerships
+# because it's the default UID:GID on debian and Ubuntu and derivatives
+USER 1000:1000
 
 # Additional arguments can be passed to bitcoind via CMD
 # For example, to run in testnet mode, use docker run with the argument `-testnet`

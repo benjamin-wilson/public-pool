@@ -7,17 +7,19 @@ services:
       context: ./docker/bitcoin
       dockerfile: Dockerfile
     restart: unless-stopped
+    stop_grace_period: 30s
     networks:
       - bitcoin-testnet
     ports:
-      - "127.0.0.1:18882:18882/tcp"
-      - "127.0.0.1:18883:18883/tcp"
+      - "127.0.0.1:18332:18332/tcp"
+      - "0.0.0.0:18333:18333/tcp"
     command: >
       -printtoconsole
       -datadir=/app/data
       -testnet
     volumes:
       - "./data/testnet/bitcoin:/app/data"
+      - "./bitcoin-testnet.conf:/app/data/bitcoin.conf:ro"
 
   public-pool-testnet:
     container_name: public-pool-testnet
@@ -25,10 +27,11 @@ services:
       context: ..
       dockerfile: Dockerfile
     restart: unless-stopped
+    stop_grace_period: 30s
     networks:
       - bitcoin-testnet
     ports:
-      - "127.0.0.1:13333:13333/tcp"
+      - "0.0.0.0:13333:13333/tcp"
       - "127.0.0.1:13334:13334/tcp"
     volumes:
       - "./data/testnet/public-pool:/public-pool/DB"
