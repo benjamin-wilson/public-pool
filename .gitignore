@@ -38,6 +38,7 @@ settings.json
 
 #DB
 **.sqlite**
+./full-setup/data/*
 
 #https
 **.pem
