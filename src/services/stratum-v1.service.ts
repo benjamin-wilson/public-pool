@@ -29,9 +29,10 @@ export class StratumV1Service implements OnModuleInit {
   }
 
   async onModuleInit(): Promise<void> {
-
+    console.log(`Enable Solo: ${process.env.ENABLE_SOLO}`)
     if (process.env.ENABLE_SOLO == 'true') {
       //await this.clientStatisticsService.deleteAll();
+      console.log(`NODE_APP_INSTANCE: ${process.env.NODE_APP_INSTANCE}`)
       if (process.env.NODE_APP_INSTANCE == '0') {
         await this.clientService.deleteAll();
       }
