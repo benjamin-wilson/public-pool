@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Interval } from '@nestjs/schedule';
 import { Server, Socket } from 'net';
 
 import { StratumV1Client } from '../models/StratumV1Client';
@@ -15,6 +16,9 @@ import { StratumV1JobsService } from './stratum-v1-jobs.service';
 @Injectable()
 export class StratumV1Service implements OnModuleInit {
 
+  private maxConnections = 100;
+  private currentConnections = 0;
+
   constructor(
     private readonly bitcoinRpcService: BitcoinRpcService,
     private readonly clientService: ClientService,
@@ -28,6 +32,11 @@ export class StratumV1Service implements OnModuleInit {
 
   }
 
+  @Interval(1000 * 30)
+  public async incrementConnections() {
+    this.maxConnections += 100;
+  }
+
   async onModuleInit(): Promise<void> {
     console.log(`Enable Solo: ${process.env.ENABLE_SOLO}`)
     if (process.env.ENABLE_SOLO == 'true') {
@@ -36,6 +45,7 @@ export class StratumV1Service implements OnModuleInit {
       if (process.env.NODE_APP_INSTANCE == '0') {
         await this.clientService.deleteAll();
       }
+
       setTimeout(() => {
         this.startSocketServer();
       }, 1000 * 10)
@@ -45,6 +55,15 @@ export class StratumV1Service implements OnModuleInit {
 
   private startSocketServer() {
     const server = new Server(async (socket: Socket) => {
+
+      this.currentConnections++;
+
+      if (this.currentConnections > this.maxConnections) {
+        // If the maximum number of connections is reached, reject the new connection
+        console.log('Connection limit reached. Rejecting new connection.');
+        socket.end(); // Close the socket immediately
+        this.currentConnections--; // Decrement the count as the connection is rejected
+      }
 
       //5 min
       socket.setTimeout(1000 * 60 * 5);
@@ -76,12 +95,18 @@ export class StratumV1Service implements OnModuleInit {
         socket.destroy();
       });
 
+
+      socket.on('end', () => {
+        this.currentConnections--;
+      });
+
       socket.on('error', async (error: Error) => { });
 
       //   //console.log(`Client disconnected, socket error,  ${client.extraNonceAndSessionId}`);
 
 
     });
+
 
     server.listen(process.env.STRATUM_PORT, () => {
       console.log(`Stratum server is listening on port ${process.env.STRATUM_PORT}`);
