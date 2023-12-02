@@ -16,7 +16,7 @@ import { StratumV1JobsService } from './stratum-v1-jobs.service';
 @Injectable()
 export class StratumV1Service implements OnModuleInit {
 
-  private maxConnections = 100;
+  private maxConnections = 50;
   private currentConnections = 0;
 
   constructor(
@@ -34,7 +34,7 @@ export class StratumV1Service implements OnModuleInit {
 
   @Interval(1000 * 30)
   public async incrementConnections() {
-    this.maxConnections += 100;
+    this.maxConnections += 50;
   }
 
   async onModuleInit(): Promise<void> {
