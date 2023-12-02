@@ -25,8 +25,8 @@ export class AppService implements OnModuleInit {
         await this.dataSource.query(`PRAGMA cache_size = -500000;`);
         //Normal is still completely corruption safe in WAL mode, and means only WAL checkpoints have to wait for FSYNC. 
         await this.dataSource.query(`PRAGMA synchronous = off;`);
-        //3Gb
-        await this.dataSource.query(`PRAGMA mmap_size = 3000000000;`);
+        //6Gb
+        await this.dataSource.query(`PRAGMA mmap_size = 6000000000;`);
     }
 
     @Interval(1000 * 60 * 60)
