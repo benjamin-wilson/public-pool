@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import { Interval } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { BehaviorSubject, firstValueFrom } from 'rxjs';
+import { ObjectLiteral, Repository } from 'typeorm';
 
 import { ClientEntity } from './client.entity';
 
@@ -10,6 +12,8 @@ import { ClientEntity } from './client.entity';
 export class ClientService {
 
 
+    public insertQueue: { result: BehaviorSubject<ObjectLiteral | null>, partialClient: Partial<ClientEntity> }[] = [];
+
 
     constructor(
         @InjectRepository(ClientEntity)
@@ -18,6 +22,17 @@ export class ClientService {
 
     }
 
+    @Interval(1000 * 5)
+    public async insertClients() {
+        const queueCopy = [...this.insertQueue];
+        this.insertQueue = [];
+
+        const results = await this.clientRepository.insert(queueCopy.map(c => c.partialClient));
+
+        queueCopy.forEach((c, index) => {
+            c.result.next(results.generatedMaps[index]);
+        });
+    }
 
     public async killDeadClients() {
         var fiveMinutes = new Date(new Date().getTime() - (5 * 60 * 1000)).toISOString();
@@ -40,11 +55,19 @@ export class ClientService {
 
 
     public async insert(partialClient: Partial<ClientEntity>): Promise<ClientEntity> {
-        const insertResult = await this.clientRepository.insert(partialClient);
+
+        const result = new BehaviorSubject(null);
+
+        this.insertQueue.push({ result, partialClient });
+
+
+        //  const insertResult = await this.clientRepository.insert(partialClient);
+
+        const generatedMap = await firstValueFrom(result);
 
         const client = {
             ...partialClient,
-            ...insertResult.generatedMaps[0]
+            ...generatedMap
         };
 
         return client as ClientEntity;

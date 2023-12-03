@@ -1,5 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Interval } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
 
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
@@ -25,12 +25,13 @@ export class AppService implements OnModuleInit {
         await this.dataSource.query(`PRAGMA cache_size = -500000;`);
         //Normal is still completely corruption safe in WAL mode, and means only WAL checkpoints have to wait for FSYNC. 
         await this.dataSource.query(`PRAGMA synchronous = off;`);
-        //3Gb
-        await this.dataSource.query(`PRAGMA mmap_size = 3000000000;`);
+        //6Gb
+        await this.dataSource.query(`PRAGMA mmap_size = 6000000000;`);
     }
 
-    @Cron(CronExpression.EVERY_HOUR)
+    @Interval(1000 * 60 * 60)
     private async deleteOldStatistics() {
+        console.log('Deleting statistics');
         if (process.env.ENABLE_SOLO == 'true' && (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0')) {
             const deletedStatistics = await this.clientStatisticsService.deleteOldStatistics();
             console.log(`Deleted ${deletedStatistics.affected} old statistics`);
@@ -39,10 +40,12 @@ export class AppService implements OnModuleInit {
         }
     }
 
-    @Cron(CronExpression.EVERY_5_MINUTES)
+    @Interval(1000 * 60 * 5)
     private async killDeadClients() {
+        console.log('Killing dead clients');
         if (process.env.ENABLE_SOLO == 'true' && (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0')) {
             await this.clientService.killDeadClients();
         }
     }
+
 }
