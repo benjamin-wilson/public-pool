@@ -392,9 +392,21 @@ export class StratumV1Client {
             ];
         }
 
+        const networkConfig = this.configService.get('NETWORK');
+        let network;
+
+        if (networkConfig === 'mainnet') {
+            network = bitcoinjs.networks.bitcoin;
+        } else if (networkConfig === 'testnet') {
+            network = bitcoinjs.networks.testnet;
+        } else if (networkConfig === 'regtest') {
+            network = bitcoinjs.networks.regtest;
+        } else {
+            throw new Error('Invalid network configuration');
+        }
 
         const job = new MiningJob(
-            this.configService.get('NETWORK') === 'mainnet' ? bitcoinjs.networks.bitcoin : bitcoinjs.networks.testnet,
+            network,
             this.stratumV1JobsService.getNextId(),
             payoutInformation,
             jobTemplate

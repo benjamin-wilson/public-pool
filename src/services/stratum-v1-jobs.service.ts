@@ -13,7 +13,6 @@ export interface IJobTemplate {
     merkle_branch: string[];
     blockData: {
         id: string,
-        littleEndianBlockHeight: Buffer;
         coinbasevalue: number;
         networkDifficulty: number;
         height: number;
@@ -72,7 +71,6 @@ export class StratumV1JobsService {
                     bits: parseInt(blockTemplate.bits, 16),
                     prevHash: this.convertToLittleEndian(blockTemplate.previousblockhash),
                     transactions: blockTemplate.transactions.map(t => bitcoinjs.Transaction.fromHex(t.data)),
-                    littleEndianBlockHeight: this.convertToLittleEndian(blockTemplate.height.toString(16).padStart(6, '0')),
                     coinbasevalue: blockTemplate.coinbasevalue,
                     timestamp: Math.floor(new Date().getTime() / 1000),
                     networkDifficulty: this.calculateNetworkDifficulty(parseInt(blockTemplate.bits, 16)),
@@ -81,7 +79,7 @@ export class StratumV1JobsService {
                 };
             }),
             filter(next => next != null),
-            map(({ version, bits, prevHash, transactions, timestamp, littleEndianBlockHeight, coinbasevalue, networkDifficulty, clearJobs, height }) => {
+            map(({ version, bits, prevHash, transactions, timestamp, coinbasevalue, networkDifficulty, clearJobs, height }) => {
                 const block = new bitcoinjs.Block();
 
                 //create an empty coinbase tx
@@ -115,7 +113,6 @@ export class StratumV1JobsService {
                     merkle_branch,
                     blockData: {
                         id,
-                        littleEndianBlockHeight,
                         coinbasevalue,
                         networkDifficulty,
                         height,
