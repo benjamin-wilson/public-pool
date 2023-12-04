@@ -205,14 +205,14 @@ export class ClientStatisticsService {
             if (time < 1) {
                 return 0;
             }
-            return (latestStat.shares * 4294967296) / (time / 1000);
+            return (parseFloat(latestStat.shares) * 4294967296) / (time / 1000);
         } else {
             const secondLatestStat = result[1];
             const time = new Date(latestStat.updatedAt).getTime() - new Date(secondLatestStat.createdAt).getTime();
             if (time < 1) {
                 return 0;
             }
-            return ((latestStat.shares + secondLatestStat.shares) * 4294967296) / (time / 1000);
+            return ((parseFloat(latestStat.shares) + parseFloat(secondLatestStat.shares)) * 4294967296) / (time / 1000);
         }
 
     }
