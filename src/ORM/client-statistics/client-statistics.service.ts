@@ -67,7 +67,7 @@ export class ClientStatisticsService {
 
 
         return result.map(res => {
-            res.label = new Date(res.label).toISOString();
+            res.label = new Date(parseInt(res.label)).toISOString();
             return res;
         }).slice(0, result.length - 1)
 
@@ -84,7 +84,7 @@ export class ClientStatisticsService {
     //         FROM
     //             client_statistics_entity AS entry
     //         WHERE
-    //             entry.address = ? AND entry.time > ${oneHour}
+    //             entry.address = $1 AND entry.time > ${oneHour}
     //     `;
 
     //     const result = await this.clientStatisticsRepository.query(query, [address]);
@@ -101,12 +101,12 @@ export class ClientStatisticsService {
 
         const query = `
                 SELECT
-                    time label,
+                    time AS label,
                     (SUM(shares) * 4294967296) / 600 AS data
                 FROM
                     client_statistics_entity AS entry
                 WHERE
-                    entry.address = ? AND entry.time > ${yesterday.getTime()}
+                    entry.address = $1 AND entry.time > $2
                 GROUP BY
                     time
                 ORDER BY
@@ -115,10 +115,10 @@ export class ClientStatisticsService {
 
         `;
 
-        const result = await this.clientStatisticsRepository.query(query, [address]);
+        const result = await this.clientStatisticsRepository.query(query, [address, yesterday.getTime()]);
 
         return result.map(res => {
-            res.label = new Date(res.label).toISOString();
+            res.label = new Date(parseInt(res.label)).toISOString();
             return res;
         }).slice(0, result.length - 1);
 
@@ -136,7 +136,7 @@ export class ClientStatisticsService {
             FROM
                 client_statistics_entity AS entry
             WHERE
-                entry.address = ? AND entry.clientName = ? AND entry.time > ${oneHour.getTime()}
+                entry.address = $1 AND entry.clientName = $2 AND entry.time > ${oneHour.getTime()}
         `;
 
         const result = await this.clientStatisticsRepository.query(query, [address, clientName]);
@@ -153,12 +153,12 @@ export class ClientStatisticsService {
 
         const query = `
             SELECT
-                time label,
+                time AS label,
                 (SUM(shares) * 4294967296) / 600 AS data
             FROM
                 client_statistics_entity AS entry
             WHERE
-                entry.address = ? AND entry.clientName = ? AND entry.time > ${yesterday.getTime()}
+                entry.address = $1 AND entry."clientName" = $2 AND entry.time > ${yesterday.getTime()}
             GROUP BY
                 time
             ORDER BY
@@ -169,7 +169,7 @@ export class ClientStatisticsService {
         const result = await this.clientStatisticsRepository.query(query, [address, clientName]);
 
         return result.map(res => {
-            res.label = new Date(res.label).toISOString();
+            res.label = new Date(parseInt(res.label)).toISOString();
             return res;
         }).slice(0, result.length - 1);
 
@@ -181,13 +181,13 @@ export class ClientStatisticsService {
 
         const query = `
             SELECT
-                createdAt,
-                updatedAt,
+                "createdAt",
+                "updatedAt",
                 shares
             FROM
                 client_statistics_entity AS entry
             WHERE
-                entry.address = ? AND entry.clientName = ? AND entry.sessionId = ?
+                entry.address = $1 AND entry."clientName" = $2 AND entry."sessionId" = $3
             ORDER BY time DESC
             LIMIT 2;
         `;
@@ -227,7 +227,7 @@ export class ClientStatisticsService {
             FROM
                 client_statistics_entity AS entry
             WHERE
-                entry.address = ? AND entry.clientName = ? AND entry.sessionId = ? AND entry.time > ${yesterday.getTime()}
+                entry.address = $1 AND entry."clientName" = $2 AND entry."sessionId" = $3 AND entry.time > ${yesterday.getTime()}
             GROUP BY
                 time
             ORDER BY
@@ -238,7 +238,7 @@ export class ClientStatisticsService {
         const result = await this.clientStatisticsRepository.query(query, [address, clientName, sessionId]);
 
         return result.map(res => {
-            res.label = new Date(res.label).toISOString();
+            res.label = new Date(parseInt(res.label)).toISOString();
             return res;
         }).slice(0, result.length - 1);
 

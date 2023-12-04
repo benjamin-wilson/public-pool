@@ -2,7 +2,7 @@ import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
 
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
-@Entity({ withoutRowid: true })
+@Entity()
 //Index for the heartbeat update
 @Index(["address", "clientName", "sessionId", "time"])
 export class ClientStatisticsEntity extends TrackedEntity {
@@ -21,13 +21,13 @@ export class ClientStatisticsEntity extends TrackedEntity {
     sessionId: string;
 
     @Index()
-    @Column({ type: 'integer' })
+    @Column({ type: 'bigint' })
     time: number;
 
-    @Column({ type: 'real' })
+    @Column({ type: 'decimal' })
     shares: number;
 
-    @Column({ default: 0, type: 'integer' })
+    @Column({ default: 0, type: 'bigint' })
     acceptedCount: number;
 
 

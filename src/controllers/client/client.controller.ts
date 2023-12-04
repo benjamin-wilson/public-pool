@@ -30,7 +30,7 @@ export class ClientController {
                     return {
                         sessionId: worker.sessionId,
                         name: worker.clientName,
-                        bestDifficulty: worker.bestDifficulty.toFixed(2),
+                        bestDifficulty: parseFloat(worker.bestDifficulty as any).toFixed(2),
                         hashRate: worker.hashRate,
                         startTime: worker.startTime,
                         lastSeen: worker.updatedAt
