@@ -524,7 +524,7 @@ export class StratumV1Client {
             if (submissionDifficulty > this.entity.bestDifficulty) {
                 await this.clientService.updateBestDifficulty(this.extraNonceAndSessionId, submissionDifficulty);
                 this.entity.bestDifficulty = submissionDifficulty;
-                if (submissionDifficulty > (await this.addressSettingsService.getSettings(this.clientAuthorization.address)).bestDifficulty) {
+                if (submissionDifficulty > (await this.addressSettingsService.getSettings(this.clientAuthorization.address, true)).bestDifficulty) {
                     await this.addressSettingsService.updateBestDifficulty(this.clientAuthorization.address, submissionDifficulty);
                 }
             }
