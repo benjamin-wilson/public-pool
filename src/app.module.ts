@@ -62,7 +62,7 @@ const ORMModules = [
                         RpcBlockEntity,
                         TelegramSubscriptionsEntity
                     ],
-                    synchronize: configService.get('PRODUCTION') != true,
+                    synchronize: configService.get('PRODUCTION') != 'true',
                     logging: false,
 
                 }
