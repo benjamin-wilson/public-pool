@@ -106,7 +106,7 @@ export class ClientService {
 
     public async getUserAgents() {
         const result = await this.clientRepository.createQueryBuilder('client')
-            .select('client.userAgent as userAgent')
+            .select('client.userAgent as "userAgent"')
             .addSelect('COUNT(client.userAgent)', 'count')
             .addSelect('MAX(client.bestDifficulty)', 'bestDifficulty')
             .addSelect('SUM(client.hashRate)', 'totalHashRate')
