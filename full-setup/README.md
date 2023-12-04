@@ -64,3 +64,15 @@ To stop the setup use:
 ```
 docker compose -f docker-compose-mainnet.yml down
 ```
+
+# Regtest
+
+After running the `regtest` setup a couple of blocks need to be generated:
+
+```bash
+# create wallet
+$ docker exec -it  bitcoin-regtest /app/bin/bitcoin-cli -conf=/app/data/bitcoin.conf -regtest createwallet "regtestwallet"
+
+# generate 101 blocks
+$ docker exec -it  bitcoin-regtest /app/bin/bitcoin-cli -conf=/app/data/bitcoin.conf -regtest  -generate 101
+```

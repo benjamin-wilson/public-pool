@@ -40,8 +40,19 @@ export class MiningJob {
 
         //    39th byte onwards: Optional data with no consensus meaning
         const extra = Buffer.from('\\public-pool\\');
+
+        // Encode the block height
         // https://github.com/bitcoin/bips/blob/master/bip-0034.mediawiki
-        this.coinbaseTransaction.ins[0].script = Buffer.concat([Buffer.from([jobTemplate.blockData.littleEndianBlockHeight.byteLength]), jobTemplate.blockData.littleEndianBlockHeight, extra, Buffer.alloc(8, 0)]);
+        const blockHeightEncoded = bitcoinjs.script.number.encode(jobTemplate.blockData.height);
+
+        // Get the length of the block height encoding
+        const blockHeightLengthByte = Buffer.from([blockHeightEncoded.length]);
+
+        // generate padding and take length of encode blockHeight into account
+        const padding = Buffer.alloc(8 + (3 - blockHeightEncoded.length), 0)
+
+        // build the script
+        this.coinbaseTransaction.ins[0].script = Buffer.concat([blockHeightLengthByte, blockHeightEncoded, extra, padding])
 
         this.coinbaseTransaction.addOutput(bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, jobTemplate.block.witnessCommit])]), 0);
 
