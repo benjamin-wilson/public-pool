@@ -222,7 +222,7 @@ export class ClientStatisticsService {
 
         const query = `
             SELECT
-                time label,
+                time AS label,
                 (SUM(shares) * 4294967296) / 600 AS data
             FROM
                 client_statistics_entity AS entry
