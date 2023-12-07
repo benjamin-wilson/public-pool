@@ -48,6 +48,8 @@ export class ClientStatisticsService {
         var yesterday = new Date(new Date().getTime() - (24 * 60 * 60 * 1000));
 
         const query = `
+            SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
             SELECT
                 time AS label,
                 ROUND(((SUM(shares) * 4294967296) / 600)) AS data

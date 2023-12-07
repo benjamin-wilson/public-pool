@@ -44,17 +44,17 @@ export class AppController {
   public async infoChart() {
 
 
-    // const CACHE_KEY = 'SITE_HASHRATE_GRAPH';
-    // const cachedResult = await this.cacheManager.get(CACHE_KEY);
+    const CACHE_KEY = 'SITE_HASHRATE_GRAPH';
+    const cachedResult = await this.cacheManager.get(CACHE_KEY);
 
-    // if (cachedResult != null) {
-    //   return cachedResult;
-    // }
+    if (cachedResult != null) {
+      return cachedResult;
+    }
 
     const chartData = await this.clientStatisticsService.getChartDataForSite();
 
-    //5 min
-    //await this.cacheManager.set(CACHE_KEY, chartData, 5 * 60 * 1000);
+    //10 min
+    await this.cacheManager.set(CACHE_KEY, chartData, 10 * 60 * 1000);
 
     return chartData;
 
