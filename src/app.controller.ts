@@ -24,14 +24,29 @@ export class AppController {
   @Get('info')
   public async info() {
 
+
+    const CACHE_KEY = 'SITE_INFO';
+    const cachedResult = await this.cacheManager.get(CACHE_KEY);
+
+    if (cachedResult != null) {
+      return cachedResult;
+    }
+
+
     const blockData = await this.blocksService.getFoundBlocks();
     const userAgents = await this.clientService.getUserAgents();
 
-    return {
+    const data = {
       blockData,
       userAgents,
       uptime: this.uptime
     };
+
+    //1 min
+    await this.cacheManager.set(CACHE_KEY, data, 1 * 60 * 1000);
+
+    return data;
+
   }
 
   @Get('network')
