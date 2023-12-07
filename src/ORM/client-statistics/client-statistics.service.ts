@@ -17,18 +17,56 @@ export class ClientStatisticsService {
 
     }
 
-    public async save(clientStatistic: Partial<ClientStatisticsEntity>) {
-        const res1 = await this.clientStatisticsRepository.createQueryBuilder()
-            .update(ClientStatisticsEntity)
-            .set({
-                shares: () => `"shares" + ${clientStatistic.shares}`, // Use the actual value of shares here
-                acceptedCount: () => `"acceptedCount" + 1`
-            })
-            .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', { address: clientStatistic.address, clientName: clientStatistic.clientName, sessionId: clientStatistic.sessionId, time: clientStatistic.time })
-            .execute();
+    // public async save(clientStatistic: Partial<ClientStatisticsEntity>) {
+    //     const res1 = await this.clientStatisticsRepository.createQueryBuilder()
+    //         .update(ClientStatisticsEntity)
+    //         .set({
+    //             shares: () => `"shares" + ${clientStatistic.shares}`, // Use the actual value of shares here
+    //             acceptedCount: () => `"acceptedCount" + 1`
+    //         })
+    //         .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', { address: clientStatistic.address, clientName: clientStatistic.clientName, sessionId: clientStatistic.sessionId, time: clientStatistic.time })
+    //         .execute();
 
-        if (res1.affected == 0) {
-            await this.clientStatisticsRepository.insert(clientStatistic);
+    //     if (res1.affected == 0) {
+    //         await this.clientStatisticsRepository.insert(clientStatistic);
+    //     }
+    // }
+    public async save(clientStatistic: Partial<ClientStatisticsEntity>) {
+        const queryRunner = this.clientStatisticsRepository.manager.connection.createQueryRunner();
+
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            // Acquire a lock on the selected rows
+            const selectedRows = await queryRunner.manager.getRepository(ClientStatisticsEntity)
+                .createQueryBuilder()
+                .setLock('pessimistic_write') // Acquire a write lock
+                .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', { address: clientStatistic.address, clientName: clientStatistic.clientName, sessionId: clientStatistic.sessionId, time: clientStatistic.time })
+                .getMany();
+
+            // Update the rows
+            if (selectedRows.length > 0) {
+                await queryRunner.manager.getRepository(ClientStatisticsEntity)
+                    .createQueryBuilder()
+                    .update(ClientStatisticsEntity)
+                    .set({
+                        shares: () => `"shares" + ${clientStatistic.shares}`,
+                        acceptedCount: () => `"acceptedCount" + 1`
+                    })
+                    .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', { address: clientStatistic.address, clientName: clientStatistic.clientName, sessionId: clientStatistic.sessionId, time: clientStatistic.time })
+                    .execute();
+            } else {
+                // If no rows were found, insert a new record
+                await queryRunner.manager.getRepository(ClientStatisticsEntity).insert(clientStatistic);
+            }
+
+            await queryRunner.commitTransaction();
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw error;
+        } finally {
+            await queryRunner.release();
         }
     }
 
