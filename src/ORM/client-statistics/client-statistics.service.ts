@@ -1,20 +1,27 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, QueryRunner, Repository } from 'typeorm';
 
 import { ClientStatisticsEntity } from './client-statistics.entity';
 
 
 @Injectable()
-export class ClientStatisticsService {
+export class ClientStatisticsService implements OnModuleDestroy {
+
+    private readUncommittedQueryRunner: QueryRunner;
 
     constructor(
 
-
+        private readonly dataSource: DataSource,
         @InjectRepository(ClientStatisticsEntity)
         private clientStatisticsRepository: Repository<ClientStatisticsEntity>,
     ) {
+        this.readUncommittedQueryRunner = this.dataSource.createQueryRunner();
+        this.readUncommittedQueryRunner.query('SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;')
+    }
 
+    onModuleDestroy() {
+        this.readUncommittedQueryRunner.release();
     }
 
     public async save(clientStatistic: Partial<ClientStatisticsEntity>) {
@@ -47,9 +54,9 @@ export class ClientStatisticsService {
 
         var yesterday = new Date(new Date().getTime() - (24 * 60 * 60 * 1000));
 
-        const query = `
-            SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
+        var result = await this.readUncommittedQueryRunner.query(
+            `
             SELECT
                 time AS label,
                 ROUND(((SUM(shares) * 4294967296) / 600)) AS data
@@ -61,11 +68,9 @@ export class ClientStatisticsService {
                 time
             ORDER BY
                 time
-            LIMIT 144;
-        
-    `;
-
-        const result: any[] = await this.clientStatisticsRepository.query(query);
+            LIMIT 144;        
+    `
+        );
 
 
         return result.map(res => {
