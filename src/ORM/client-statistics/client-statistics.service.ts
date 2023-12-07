@@ -42,7 +42,7 @@ export class ClientStatisticsService {
             const selectedRows = await queryRunner.manager.getRepository(ClientStatisticsEntity)
                 .createQueryBuilder()
                 .setLock('pessimistic_write') // Acquire a write lock
-                .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', { address: clientStatistic.address, clientName: clientStatistic.clientName, sessionId: clientStatistic.sessionId, time: clientStatistic.time })
+                .where('address = :address AND "clientName" = :clientName AND "sessionId" = :sessionId AND time = :time', { address: clientStatistic.address, clientName: clientStatistic.clientName, sessionId: clientStatistic.sessionId, time: clientStatistic.time })
                 .getMany();
 
             // Update the rows
@@ -54,7 +54,7 @@ export class ClientStatisticsService {
                         shares: () => `"shares" + ${clientStatistic.shares}`,
                         acceptedCount: () => `"acceptedCount" + 1`
                     })
-                    .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', { address: clientStatistic.address, clientName: clientStatistic.clientName, sessionId: clientStatistic.sessionId, time: clientStatistic.time })
+                    .where('address = :address AND "clientName" = :clientName AND "sessionId" = :sessionId AND time = :time', { address: clientStatistic.address, clientName: clientStatistic.clientName, sessionId: clientStatistic.sessionId, time: clientStatistic.time })
                     .execute();
             } else {
                 // If no rows were found, insert a new record
