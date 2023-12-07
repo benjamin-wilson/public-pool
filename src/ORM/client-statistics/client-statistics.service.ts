@@ -33,13 +33,13 @@ export class ClientStatisticsService {
     }
 
     public async deleteOldStatistics() {
-        const eightDays = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
         return await this.clientStatisticsRepository
             .createQueryBuilder()
             .delete()
             .from(ClientStatisticsEntity)
-            .where('time < :time', { time: eightDays.getTime() })
+            .where('time < :time', { time: oneDayAgo.getTime() })
             .execute();
     }
 
