@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { ClientStatisticsEntity } from './client-statistics.entity';
 
@@ -10,7 +10,8 @@ export class ClientStatisticsService {
 
     constructor(
 
-
+        @InjectDataSource()
+        private dataSource: DataSource,
         @InjectRepository(ClientStatisticsEntity)
         private clientStatisticsRepository: Repository<ClientStatisticsEntity>,
     ) {
@@ -18,18 +19,30 @@ export class ClientStatisticsService {
     }
 
     public async save(clientStatistic: Partial<ClientStatisticsEntity>) {
-        const res1 = await this.clientStatisticsRepository.createQueryBuilder()
-            .update(ClientStatisticsEntity)
-            .set({
-                shares: () => `"shares" + ${clientStatistic.shares}`, // Use the actual value of shares here
-                acceptedCount: () => `"acceptedCount" + 1`
-            })
-            .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', { address: clientStatistic.address, clientName: clientStatistic.clientName, sessionId: clientStatistic.sessionId, time: clientStatistic.time })
-            .execute();
+        // Use transaction to ensure atomicity
+        await this.dataSource.transaction(async (entityManager: EntityManager) => {
+            // Attempt to update the existing record
+            const updateResult = await entityManager
+                .createQueryBuilder()
+                .update(ClientStatisticsEntity)
+                .set({
+                    shares: () => `"shares" + ${clientStatistic.shares}`,
+                    acceptedCount: () => `"acceptedCount" + 1`
+                })
+                .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', {
+                    address: clientStatistic.address,
+                    clientName: clientStatistic.clientName,
+                    sessionId: clientStatistic.sessionId,
+                    time: clientStatistic.time
+                })
+                .execute();
 
-        if (res1.affected == 0) {
-            await this.clientStatisticsRepository.insert(clientStatistic);
-        }
+            // Check if the update affected any rows
+            if (updateResult.affected === 0) {
+                // If no rows were updated, insert a new record
+                await entityManager.insert(ClientStatisticsEntity, clientStatistic);
+            }
+        });
     }
 
     public async deleteOldStatistics() {
