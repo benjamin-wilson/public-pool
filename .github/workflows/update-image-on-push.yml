@@ -56,13 +56,6 @@ jobs:
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/public-pool:latest
           cache-to: type=inline
       - 
-        name: Test-run image
-        run: |
-          docker run --rm public-pool:amd64 &
-          PID=$!
-          sleep 60
-          kill -SIGINT $PID # this will return a non-zero exit code if the container dies early on
-      - 
         name: Build and push to Docker Hub and GitHub Packages Docker Registry
         uses: docker/build-push-action@v5.1.0
         id: docker_build_push

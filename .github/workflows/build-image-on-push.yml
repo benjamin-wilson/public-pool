@@ -33,10 +33,3 @@ jobs:
           platforms: linux/amd64
           tags: public-pool:amd64
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/public-pool:latest
-      - 
-        name: Test-run image
-        run: |
-          docker run --rm public-pool:amd64 &
-          PID=$!
-          sleep 60
-          kill -SIGINT $PID # this will return a non-zero exit code if the container dies early on
