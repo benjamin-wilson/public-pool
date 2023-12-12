@@ -2,7 +2,7 @@
 # Docker build environment #
 ############################
 
-FROM node:18.16.1-bookworm AS build
+FROM node:18.16.1-bookworm-slim AS build
 
 WORKDIR /build
 
@@ -15,7 +15,7 @@ RUN npm run build
 # Docker final environment #
 ############################
 
-FROM node:18.16.1-bookworm
+FROM node:18.16.1-bookworm-slim
 
 EXPOSE 3333
 EXPOSE 3334
