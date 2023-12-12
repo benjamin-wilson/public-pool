@@ -8,8 +8,8 @@ WORKDIR /build
 
 COPY . .
 
-RUN npm i
-RUN npm run build
+# Build Public Pool using NPM
+RUN npm i && npm run build
 
 ############################
 # Docker final environment #
@@ -17,12 +17,12 @@ RUN npm run build
 
 FROM node:18.16.1-bookworm-slim
 
-EXPOSE 3333
-EXPOSE 3334
-EXPOSE 8332
+# Expose ports for Stratum and Bitcoin RPC
+EXPOSE 3333 3334 8332
 
 WORKDIR /public-pool
 
+# Copy built binaries into the final image
 COPY --from=build /build .
 #COPY .env.example .env
 
