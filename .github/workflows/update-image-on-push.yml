@@ -45,17 +45,6 @@ jobs:
         id: get_short_sha
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
       - 
-        name: Build image
-        id: docker_build_amd64
-        uses: docker/build-push-action@v5.1.0
-        with:
-          push: false
-          load: true
-          platforms: linux/amd64
-          tags: public-pool:amd64
-          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/public-pool:latest
-          cache-to: type=inline
-      - 
         name: Build and push to Docker Hub and GitHub Packages Docker Registry
         uses: docker/build-push-action@v5.1.0
         id: docker_build_push
