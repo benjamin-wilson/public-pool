@@ -52,7 +52,7 @@ jobs:
           push: false
           load: true
           platforms: linux/amd64
-          tags: bitcoind:amd64
+          tags: public-pool:amd64
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/public-pool:latest
           cache-to: type=inline
       - 

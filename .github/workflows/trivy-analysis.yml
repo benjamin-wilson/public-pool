@@ -21,12 +21,12 @@ jobs:
         with:
           push: false
           load: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/bitcoind:latest
+          tags: ${{ secrets.DOCKER_USERNAME }}/public-pool:latest
       - 
         name: Run Trivy vulnerability scanner against "latest" image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: '${{ secrets.DOCKER_USERNAME }}/bitcoind:latest'
+          image-ref: '${{ secrets.DOCKER_USERNAME }}/public-pool:latest'
           format: 'template'
           template: '@/contrib/sarif.tpl'
           output: 'trivy-results.sarif'
