@@ -1,0 +1,37 @@
+name: Build and scan container for vulnerabilities with Trivy
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '22 14 * * 0'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and scan images
+    runs-on: ubuntu-latest
+    steps:
+      - 
+        name: Checkout code
+        uses: actions/checkout@v4
+      - 
+        name: Build image from Dockerfile
+        uses: docker/build-push-action@v5.1.0
+        with:
+          push: false
+          load: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/public-pool:latest
+      - 
+        name: Run Trivy vulnerability scanner against "latest" image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ secrets.DOCKER_USERNAME }}/public-pool:latest'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+      - 
+        name: Upload "latest" Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
