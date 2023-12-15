@@ -30,7 +30,7 @@ export class StratumV1JobsService {
     public latestJobId: number = 1;
     public latestJobTemplateId: number = 1;
 
-    public jobs: MiningJob[] = [];
+    public jobs: { [jobId: string]: MiningJob } = {};
 
     public blocks: { [id: number]: IJobTemplate } = {};
 
@@ -123,7 +123,7 @@ export class StratumV1JobsService {
             tap((data) => {
                 if (data.blockData.clearJobs) {
                     this.blocks = {};
-                    this.jobs = [];
+                    this.jobs = {};
                 }
                 this.blocks[data.blockData.id] = data;
             }),
@@ -153,16 +153,12 @@ export class StratumV1JobsService {
     }
 
     public addJob(job: MiningJob) {
-        this.jobs.push(job);
+        this.jobs[job.jobId] = job;
         this.latestJobId++;
     }
 
-    public getLatestJob() {
-        return this.jobs[this.jobs.length - 1];
-    }
-
     public getJobById(jobId: string) {
-        return this.jobs.find(job => job.jobId == jobId);
+        return this.jobs[jobId];
     }
 
     public getNextTemplateId() {
