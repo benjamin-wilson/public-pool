@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { ClientStatisticsEntity } from './client-statistics.entity';
 
@@ -19,28 +19,31 @@ export class ClientStatisticsService {
     }
 
     public async save(clientStatistic: Partial<ClientStatisticsEntity>) {
-        // Use transaction to ensure atomicity
-        await this.dataSource.transaction(async (entityManager: EntityManager) => {
-            // Attempt to update the existing record
-            const updateResult = await entityManager
-                .createQueryBuilder()
-                .update(ClientStatisticsEntity)
-                .set({
-                    shares: () => `"shares" + ${clientStatistic.shares}`,
-                    acceptedCount: () => `"acceptedCount" + 1`
-                })
-                .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', {
-                    address: clientStatistic.address,
-                    clientName: clientStatistic.clientName,
-                    sessionId: clientStatistic.sessionId,
-                    time: clientStatistic.time
-                })
-                .execute();
+        await this.dataSource.transaction(async (entityManager) => {
+            const query = `
+                UPDATE client_statistics_entity
+                SET shares = shares + $1, accepted_count = accepted_count + 1
+                WHERE address = $2 AND client_name = $3 AND session_id = $4 AND time = $5
+                RETURNING *;`;
 
-            // Check if the update affected any rows
-            if (updateResult.affected === 0) {
-                // If no rows were updated, insert a new record
-                await entityManager.insert(ClientStatisticsEntity, clientStatistic);
+            const parameters = [
+                clientStatistic.shares || 0,  // Ensure a default value for shares
+                clientStatistic.address,
+                clientStatistic.clientName,
+                clientStatistic.sessionId,
+                clientStatistic.time
+            ];
+
+            try {
+                const result = await entityManager.query(query, parameters);
+
+                if (result.length === 0) {
+                    await entityManager.insert(ClientStatisticsEntity, clientStatistic);
+                }
+            } catch (error) {
+                // Handle errors
+                console.error('Error during transaction:', error);
+                throw error;
             }
         });
     }
