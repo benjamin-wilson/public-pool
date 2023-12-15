@@ -1,15 +1,14 @@
-import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
+import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
 @Entity()
-//Index for the heartbeat update
-@Index(["address", "clientName", "sessionId", "time"])
+//Index for getHashRateForSession
+@Index(["address", "clientName", "sessionId"])
 export class ClientStatisticsEntity extends TrackedEntity {
 
-    @PrimaryColumn({ length: 64, type: 'varchar' })
-    submissionHash: string;
-
+    @PrimaryGeneratedColumn()
+    id: number;
 
     @Column({ length: 62, type: 'varchar' })
     address: string;

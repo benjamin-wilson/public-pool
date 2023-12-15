@@ -505,7 +505,7 @@ export class StratumV1Client {
                 }
             }
             try {
-                await this.statistics.addSubmission(this.entity, submissionHash, this.sessionDifficulty);
+                await this.statistics.addSubmission(this.entity, this.sessionDifficulty);
                 await this.clientService.heartbeat(this.entity.address, this.entity.clientName, this.entity.sessionId, this.hashRate);
             } catch (e) {
                 console.log(e);

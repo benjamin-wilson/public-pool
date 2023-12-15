@@ -64,7 +64,7 @@ const ORMModules = [
                     ],
                     synchronize: configService.get('PRODUCTION') != 'true',
                     logging: false,
-
+                    poolSize: 30
                 }
             },
             imports: [ConfigModule],

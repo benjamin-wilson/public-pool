@@ -17,7 +17,7 @@ export class StratumV1ClientStatistics {
         this.submissionCacheStart = new Date();
     }
 
-    public async addSubmission(client: ClientEntity, submissionHash: string, targetDifficulty: number) {
+    public async addSubmission(client: ClientEntity, targetDifficulty: number) {
 
         if (this.submissionCache.length > CACHE_SIZE) {
             this.submissionCache.shift();
@@ -31,15 +31,14 @@ export class StratumV1ClientStatistics {
         // 10 min
         var coeff = 1000 * 60 * 10;
         var date = new Date();
-        var rounded = new Date(Math.round(date.getTime() / coeff) * coeff);
+        var rounded = new Date(Math.floor(date.getTime() / coeff) * coeff);
 
         await this.clientStatisticsService.save({
             time: rounded.getTime(),
             shares: targetDifficulty,
             address: client.address,
             clientName: client.clientName,
-            sessionId: client.sessionId,
-            submissionHash
+            sessionId: client.sessionId
         });
 
     }
