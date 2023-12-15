@@ -133,7 +133,7 @@ export class StratumV1Client {
 
                     if (this.sessionStart == null) {
                         this.sessionStart = new Date();
-                        this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService, this.clientService);
+                        this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService);
                         this.extraNonceAndSessionId = this.getRandomHexString();
                         console.log(`New client ID: : ${this.extraNonceAndSessionId}, ${this.socket.remoteAddress}:${this.socket.remotePort}`);
                     }
@@ -363,6 +363,7 @@ export class StratumV1Client {
 
             this.backgroundWork = setInterval(async () => {
                 await this.checkDifficulty();
+                await this.statistics.saveShares(this.entity);
             }, 60 * 1000);
 
         }
@@ -505,7 +506,7 @@ export class StratumV1Client {
                 }
             }
             try {
-                await this.statistics.addSubmission(this.entity, this.sessionDifficulty);
+                await this.statistics.addShares(this.sessionDifficulty);
                 await this.clientService.heartbeat(this.entity.address, this.entity.clientName, this.entity.sessionId, this.hashRate);
             } catch (e) {
                 console.log(e);
