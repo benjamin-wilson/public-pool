@@ -19,33 +19,30 @@ export class ClientStatisticsService {
     }
 
     public async save(clientStatistic: Partial<ClientStatisticsEntity>) {
-        await this.dataSource.transaction(async (entityManager) => {
-            const query = `
-                UPDATE client_statistics_entity
-                SET shares = shares + $1, "acceptedCount" = "acceptedCount" + 1
-                WHERE address = $2 AND "clientName" = $3 AND "sessionId" = $4 AND time = $5
-                RETURNING *;`;
 
-            const parameters = [
-                clientStatistic.shares || 0,  // Ensure a default value for shares
-                clientStatistic.address,
-                clientStatistic.clientName,
-                clientStatistic.sessionId,
-                clientStatistic.time
-            ];
+        // Attempt to update the existing record
+        const updateResult = await this.clientStatisticsRepository
+            .createQueryBuilder()
+            .update(ClientStatisticsEntity)
+            .set({
+                shares: () => `"shares" + :sharesIncrement`,
+                acceptedCount: () => `"acceptedCount" + 1`
+            })
+            .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', {
+                address: clientStatistic.address,
+                clientName: clientStatistic.clientName,
+                sessionId: clientStatistic.sessionId,
+                time: clientStatistic.time,
+                sharesIncrement: clientStatistic.shares
+            })
+            .execute();
 
-            try {
-                const result = await entityManager.query(query, parameters);
+        // Check if the update affected any rows
+        if (updateResult.affected === 0) {
+            // If no rows were updated, insert a new record
+            await this.clientStatisticsRepository.insert(clientStatistic);
+        }
 
-                if (result.length === 0) {
-                    await entityManager.insert(ClientStatisticsEntity, clientStatistic);
-                }
-            } catch (error) {
-                // Handle errors
-                console.error('Error during transaction:', error);
-                throw error;
-            }
-        });
     }
 
     public async deleteOldStatistics() {
