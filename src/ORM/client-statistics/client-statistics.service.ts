@@ -22,8 +22,8 @@ export class ClientStatisticsService {
         await this.dataSource.transaction(async (entityManager) => {
             const query = `
                 UPDATE client_statistics_entity
-                SET shares = shares + $1, accepted_count = accepted_count + 1
-                WHERE address = $2 AND client_name = $3 AND session_id = $4 AND time = $5
+                SET shares = shares + $1, "acceptedCount" = "acceptedCount" + 1
+                WHERE address = $2 AND "clientName" = $3 AND "sessionId" = $4 AND time = $5
                 RETURNING *;`;
 
             const parameters = [
