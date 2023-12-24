@@ -479,7 +479,7 @@ export class StratumV1Client {
             parseInt(submission.ntime, 16)
         );
         const header = updatedJobBlock.toBuffer(true);
-        const { submissionDifficulty, submissionHash } = this.calculateDifficulty(header);
+        const { submissionDifficulty } = this.calculateDifficulty(header);
 
         //console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonceAndSessionId}`);
 
@@ -505,7 +505,7 @@ export class StratumV1Client {
                 }
             }
             try {
-                await this.statistics.addSubmission(this.entity, submissionHash, this.sessionDifficulty);
+                await this.statistics.addSubmission(this.entity, this.sessionDifficulty);
                 await this.clientService.heartbeat(this.entity.address, this.entity.clientName, this.entity.sessionId, this.hashRate);
             } catch (e) {
                 console.log(e);
@@ -524,7 +524,7 @@ export class StratumV1Client {
             if (submissionDifficulty > this.entity.bestDifficulty) {
                 await this.clientService.updateBestDifficulty(this.extraNonceAndSessionId, submissionDifficulty);
                 this.entity.bestDifficulty = submissionDifficulty;
-                if (submissionDifficulty > (await this.addressSettingsService.getSettings(this.clientAuthorization.address)).bestDifficulty) {
+                if (submissionDifficulty > (await this.addressSettingsService.getSettings(this.clientAuthorization.address, true)).bestDifficulty) {
                     await this.addressSettingsService.updateBestDifficulty(this.clientAuthorization.address, submissionDifficulty);
                 }
             }

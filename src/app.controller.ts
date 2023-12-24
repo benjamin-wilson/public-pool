@@ -21,17 +21,31 @@ export class AppController {
     private readonly bitcoinRpcService: BitcoinRpcService
   ) { }
 
-  @Get('info')
   public async info() {
+
+
+    const CACHE_KEY = 'SITE_INFO';
+    const cachedResult = await this.cacheManager.get(CACHE_KEY);
+
+    if (cachedResult != null) {
+      return cachedResult;
+    }
+
 
     const blockData = await this.blocksService.getFoundBlocks();
     const userAgents = await this.clientService.getUserAgents();
 
-    return {
+    const data = {
       blockData,
       userAgents,
       uptime: this.uptime
     };
+
+    //1 min
+    await this.cacheManager.set(CACHE_KEY, data, 1 * 60 * 1000);
+
+    return data;
+
   }
 
   @Get('network')
@@ -44,17 +58,17 @@ export class AppController {
   public async infoChart() {
 
 
-    // const CACHE_KEY = 'SITE_HASHRATE_GRAPH';
-    // const cachedResult = await this.cacheManager.get(CACHE_KEY);
+    const CACHE_KEY = 'SITE_HASHRATE_GRAPH';
+    const cachedResult = await this.cacheManager.get(CACHE_KEY);
 
-    // if (cachedResult != null) {
-    //   return cachedResult;
-    // }
+    if (cachedResult != null) {
+      return cachedResult;
+    }
 
     const chartData = await this.clientStatisticsService.getChartDataForSite();
 
-    //5 min
-    //await this.cacheManager.set(CACHE_KEY, chartData, 5 * 60 * 1000);
+    //10 min
+    await this.cacheManager.set(CACHE_KEY, chartData, 10 * 60 * 1000);
 
     return chartData;
 
