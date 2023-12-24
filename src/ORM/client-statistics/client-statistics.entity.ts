@@ -2,7 +2,7 @@ import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
-@Entity({ withoutRowid: true })
+@Entity()
 //Index for getHashRateForSession
 @Index(["address", "clientName", "sessionId"])
 //Index for statistics save
