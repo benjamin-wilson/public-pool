@@ -27,9 +27,9 @@ export class MiningJob {
         jobTemplate: IJobTemplate
     ) {
 
-        this.jobTemplateId = jobTemplate.blockData.id,
+        this.jobTemplateId = jobTemplate.blockData.id;
 
-            this.coinbaseTransaction = this.createCoinbaseTransaction(payoutInformation, jobTemplate.blockData.coinbasevalue);
+        this.coinbaseTransaction = this.createCoinbaseTransaction(payoutInformation, jobTemplate.blockData.coinbasevalue);
 
         //The commitment is recorded in a scriptPubKey of the coinbase transaction. It must be at least 38 bytes, with the first 6-byte of 0x6a24aa21a9ed, that is:
         //     1-byte - OP_RETURN (0x6a)

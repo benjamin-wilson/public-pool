@@ -18,28 +18,38 @@ export class ClientStatisticsService {
     }
 
     public async save(clientStatistic: Partial<ClientStatisticsEntity>) {
-        const res1 = await this.clientStatisticsRepository.createQueryBuilder()
+        // Attempt to update the existing record
+        const updateResult = await this.clientStatisticsRepository
+            .createQueryBuilder()
             .update(ClientStatisticsEntity)
             .set({
-                shares: () => `"shares" + ${clientStatistic.shares}`, // Use the actual value of shares here
+                shares: () => `"shares" + :sharesIncrement`,
                 acceptedCount: () => `"acceptedCount" + 1`
             })
-            .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', { address: clientStatistic.address, clientName: clientStatistic.clientName, sessionId: clientStatistic.sessionId, time: clientStatistic.time })
+            .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', {
+                address: clientStatistic.address,
+                clientName: clientStatistic.clientName,
+                sessionId: clientStatistic.sessionId,
+                time: clientStatistic.time,
+                sharesIncrement: clientStatistic.shares
+            })
             .execute();
 
-        if (res1.affected == 0) {
+        // Check if the update affected any rows
+        if (updateResult.affected === 0) {
+            // If no rows were updated, insert a new record
             await this.clientStatisticsRepository.insert(clientStatistic);
         }
     }
 
     public async deleteOldStatistics() {
-        const eightDays = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
         return await this.clientStatisticsRepository
             .createQueryBuilder()
             .delete()
             .from(ClientStatisticsEntity)
-            .where('time < :time', { time: eightDays.getTime() })
+            .where('time < :time', { time: oneDayAgo.getTime() })
             .execute();
     }
 
@@ -60,7 +70,7 @@ export class ClientStatisticsService {
             ORDER BY
                 time
             LIMIT 144;
-        
+
     `;
 
         const result: any[] = await this.clientStatisticsRepository.query(query);

@@ -1,23 +1,48 @@
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientEntity } from '../ORM/client/client.entity';
-import { ClientService } from '../ORM/client/client.service';
 
 const CACHE_SIZE = 30;
 const TARGET_SUBMISSION_PER_SECOND = 10;
 const MIN_DIFF = 0.00001;
 export class StratumV1ClientStatistics {
 
+    private shareBacklog: number = 0;
+
     private submissionCacheStart: Date;
     private submissionCache = [];
 
     constructor(
-        private readonly clientStatisticsService: ClientStatisticsService,
-        private readonly clientService: ClientService
+        private readonly clientStatisticsService: ClientStatisticsService
     ) {
         this.submissionCacheStart = new Date();
     }
 
-    public async addSubmission(client: ClientEntity, submissionHash: string, targetDifficulty: number) {
+
+    public async saveShares(client: ClientEntity) {
+
+        if (client == null || client.address == null || client.clientName == null || client.sessionId == null) {
+            return;
+        }
+
+        // 10 min
+        var coeff = 1000 * 60 * 10;
+        var date = new Date();
+        var rounded = new Date(Math.floor(date.getTime() / coeff) * coeff);
+
+        await this.clientStatisticsService.save({
+            time: rounded.getTime(),
+            shares: this.shareBacklog,
+            address: client.address,
+            clientName: client.clientName,
+            sessionId: client.sessionId
+        });
+
+        this.shareBacklog = 0;
+    }
+
+    // We don't want to save them here because it can be DB intensive, stead do it every once in
+    // awhile with saveShares()
+    public async addShares(targetDifficulty: number) {
 
         if (this.submissionCache.length > CACHE_SIZE) {
             this.submissionCache.shift();
@@ -28,24 +53,10 @@ export class StratumV1ClientStatistics {
             difficulty: targetDifficulty,
         });
 
-        // 10 min
-        var coeff = 1000 * 60 * 10;
-        var date = new Date();
-        var rounded = new Date(Math.round(date.getTime() / coeff) * coeff);
-
-        await this.clientStatisticsService.save({
-            time: rounded.getTime(),
-            shares: targetDifficulty,
-            address: client.address,
-            clientName: client.clientName,
-            sessionId: client.sessionId,
-            submissionHash
-        });
+        this.shareBacklog += targetDifficulty;
 
     }
-    public getLastSubmissionTime(): Date | null {
-        return this.submissionCache[this.submissionCache.length - 1]?.time;
-    }
+
     public getSuggestedDifficulty(clientDifficulty: number) {
 
         // miner hasn't submitted shares in one minute

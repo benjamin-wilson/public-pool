@@ -20,7 +20,7 @@ export class ClientController {
 
         const workers = await this.clientService.getByAddress(address);
 
-        const addressSettings = await this.addressSettingsService.getSettings(address);
+        const addressSettings = await this.addressSettingsService.getSettings(address, false);
 
         return {
             bestDifficulty: addressSettings?.bestDifficulty,

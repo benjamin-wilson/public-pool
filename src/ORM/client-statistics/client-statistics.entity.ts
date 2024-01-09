@@ -1,15 +1,16 @@
-import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
+import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
-@Entity({ withoutRowid: true })
-//Index for the heartbeat update
+@Entity()
+//Index for getHashRateForSession
+@Index(["address", "clientName", "sessionId"])
+//Index for statistics save
 @Index(["address", "clientName", "sessionId", "time"])
 export class ClientStatisticsEntity extends TrackedEntity {
 
-    @PrimaryColumn({ length: 64, type: 'varchar' })
-    submissionHash: string;
-
+    @PrimaryGeneratedColumn()
+    id: number;
 
     @Column({ length: 62, type: 'varchar' })
     address: string;
@@ -29,8 +30,6 @@ export class ClientStatisticsEntity extends TrackedEntity {
 
     @Column({ default: 0, type: 'integer' })
     acceptedCount: number;
-
-
 
 
 }
