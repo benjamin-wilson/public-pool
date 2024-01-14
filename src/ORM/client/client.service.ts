@@ -28,8 +28,8 @@ export class ClientService {
             .execute();
     }
 
-    public async heartbeat(address: string, clientName: string, sessionId: string, hashRate: number) {
-        return await this.clientRepository.update({ address, clientName, sessionId }, { hashRate, deletedAt: null, updatedAt: new Date() });
+    public async heartbeat(address: string, clientName: string, sessionId: string, hashRate: number, updatedAt: Date) {
+        return await this.clientRepository.update({ address, clientName, sessionId }, { hashRate, deletedAt: null, updatedAt });
     }
 
     // public async save(client: Partial<ClientEntity>) {
