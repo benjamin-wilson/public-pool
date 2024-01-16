@@ -21,6 +21,7 @@ export class AppController {
     private readonly bitcoinRpcService: BitcoinRpcService
   ) { }
 
+  @Get('info')
   public async info() {
 
 

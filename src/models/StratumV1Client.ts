@@ -385,12 +385,12 @@ export class StratumV1Client {
         let payoutInformation;
         const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
         //50Th/s
-        this.noFee = devFeeAddress == null || devFeeAddress.length < 1;
-        if (this.noFee == false && this.entity) {
+        this.noFee = false;
+        if (this.entity) {
             this.hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientAuthorization.address, this.clientAuthorization.worker, this.extraNonceAndSessionId);
             this.noFee = this.hashRate != 0 && this.hashRate < 50000000000000;
         }
-        if (this.noFee) {
+        if (this.noFee || devFeeAddress == null || devFeeAddress.length < 1) {
             payoutInformation = [
                 { address: this.clientAuthorization.address, percent: 100 }
             ];
@@ -518,7 +518,7 @@ export class StratumV1Client {
                 await this.statistics.addShares(this.sessionDifficulty);
                 const now = new Date();
                 // only update every minute
-                if (now.getTime() - this.entity.updatedAt.getTime() > 1000 * 60) {
+                if (this.entity.updatedAt == null || now.getTime() - this.entity.updatedAt.getTime() > 1000 * 60) {
                     await this.clientService.heartbeat(this.entity.address, this.entity.clientName, this.entity.sessionId, this.hashRate, now);
                     this.entity.updatedAt = now;
                 }
