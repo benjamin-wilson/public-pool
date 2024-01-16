@@ -509,7 +509,7 @@ export class StratumV1Client {
                 await this.statistics.addShares(this.sessionDifficulty);
                 const now = new Date();
                 // only update every minute
-                if (now.getTime() - this.entity.updatedAt.getTime() > 1000 * 60) {
+                if (this.entity.updatedAt == null || now.getTime() - this.entity.updatedAt.getTime() > 1000 * 60) {
                     await this.clientService.heartbeat(this.entity.address, this.entity.clientName, this.entity.sessionId, this.hashRate, now);
                     this.entity.updatedAt = now;
                 }
