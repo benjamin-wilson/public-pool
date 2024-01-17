@@ -17,6 +17,8 @@ import { ClientStatisticsEntity } from './ORM/client-statistics/client-statistic
 import { ClientStatisticsModule } from './ORM/client-statistics/client-statistics.module';
 import { ClientEntity } from './ORM/client/client.entity';
 import { ClientModule } from './ORM/client/client.module';
+import { HomeGraphEntity } from './ORM/home-graph/home-graph.entity';
+import { HomeGraphModule } from './ORM/home-graph/home-graph.module';
 import { RpcBlockEntity } from './ORM/rpc-block/rpc-block.entity';
 import { RpcBlocksModule } from './ORM/rpc-block/rpc-block.module';
 import { TelegramSubscriptionsEntity } from './ORM/telegram-subscriptions/telegram-subscriptions.entity';
@@ -39,7 +41,8 @@ const ORMModules = [
     AddressSettingsModule,
     TelegramSubscriptionsModule,
     BlocksModule,
-    RpcBlocksModule
+    RpcBlocksModule,
+    HomeGraphModule
 ]
 
 @Module({
@@ -60,7 +63,8 @@ const ORMModules = [
                         BlocksEntity,
                         ClientStatisticsEntity,
                         RpcBlockEntity,
-                        TelegramSubscriptionsEntity
+                        TelegramSubscriptionsEntity,
+                        HomeGraphEntity
                     ],
                     synchronize: configService.get('PRODUCTION') != 'true',
                     logging: false,

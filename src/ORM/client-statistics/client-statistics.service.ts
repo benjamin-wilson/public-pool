@@ -85,6 +85,34 @@ export class ClientStatisticsService {
 
     }
 
+    public async getChartDataForSiteSince(date: Date) {
+
+        const query = `
+            SELECT
+                time AS label,
+                ROUND(((SUM(shares) * 4294967296) / 600)) AS data
+            FROM
+                client_statistics_entity AS entry
+            WHERE
+                entry.time > ${date.getTime()}
+            GROUP BY
+                time
+            ORDER BY
+                time
+            LIMIT 144;
+    `;
+
+        const result: any[] = await this.clientStatisticsRepository.query(query);
+
+
+        return result.map(res => {
+            res.label = new Date(parseInt(res.label)).toISOString();
+            return res;
+        }).slice(0, result.length - 1)
+
+    }
+
+
 
     // public async getHashRateForAddress(address: string) {
 

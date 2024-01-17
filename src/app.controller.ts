@@ -6,6 +6,7 @@ import { firstValueFrom } from 'rxjs';
 import { BlocksService } from './ORM/blocks/blocks.service';
 import { ClientStatisticsService } from './ORM/client-statistics/client-statistics.service';
 import { ClientService } from './ORM/client/client.service';
+import { HomeGraphService } from './ORM/home-graph/home-graph.service';
 import { BitcoinRpcService } from './services/bitcoin-rpc.service';
 
 @Controller()
@@ -18,7 +19,8 @@ export class AppController {
     private readonly clientService: ClientService,
     private readonly clientStatisticsService: ClientStatisticsService,
     private readonly blocksService: BlocksService,
-    private readonly bitcoinRpcService: BitcoinRpcService
+    private readonly bitcoinRpcService: BitcoinRpcService,
+    private readonly homeGraphService: HomeGraphService
   ) { }
 
   @Get('info')
@@ -66,7 +68,7 @@ export class AppController {
       return cachedResult;
     }
 
-    const chartData = await this.clientStatisticsService.getChartDataForSite();
+    const chartData = await this.homeGraphService.getChartDataForSite();
 
     //10 min
     await this.cacheManager.set(CACHE_KEY, chartData, 10 * 60 * 1000);

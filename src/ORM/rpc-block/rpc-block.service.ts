@@ -25,4 +25,19 @@ export class RpcBlockService {
     public saveBlock(blockHeight: number, data: string) {
         return this.rpcBlockRepository.update(blockHeight, { data })
     }
+
+    public async deleteOldBlocks() {
+        const result = await this.rpcBlockRepository.createQueryBuilder('entity')
+            .select('MAX(entity.blockHeight)', 'maxNumber')
+            .getRawOne();
+
+        const newestBlock = result ? result.maxNumber : null;
+
+        await this.rpcBlockRepository.createQueryBuilder()
+            .delete()
+            .where('"blockHeight" < :newestBlock', { newestBlock })
+            .execute();
+
+        return;
+    }
 }
