@@ -14,6 +14,7 @@ export class ClientEntity extends TrackedEntity {
     @PrimaryColumn({ length: 64, type: 'varchar' })
     clientName: string;
 
+    @Index()
     @PrimaryColumn({ length: 8, type: 'varchar' })
     sessionId: string;
 
