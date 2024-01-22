@@ -44,7 +44,6 @@ const ORMModules = [
             database: './DB/public-pool.sqlite',
             synchronize: true,
             autoLoadEntities: true,
-            cache: true,
             logging: false,
             enableWAL: true,
             busyTimeout: 30 * 1000,
