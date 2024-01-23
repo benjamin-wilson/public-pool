@@ -30,7 +30,11 @@ export class BitcoinRpcService {
 
         this.client = new RPCClient({ url, port, timeout, user, pass });
 
-        console.log('Bitcoin RPC connected');
+        this.client.getrpcinfo().then((res) => {
+            console.log('Bitcoin RPC connected');
+        }, () => {
+            console.error('Could not reach RPC host');
+        });
 
         if (this.configService.get('BITCOIN_ZMQ_HOST')) {
             // const sock = zmq.socket("sub");
@@ -77,11 +81,14 @@ export class BitcoinRpcService {
             if (block != null && block.data != null) {
                 return Promise.resolve(JSON.parse(block.data));
             } else if (block == null) {
-                // There is a unique constraint on the block height so if another process tries to lock, it'll throw
-                try {
-                    await this.rpcBlockService.lockBlock(blockHeight, process.env.NODE_APP_INSTANCE);
-                } catch (e) {
-                    result = await this.waitForBlock(blockHeight);
+
+                if (process.env.NODE_APP_INSTANCE != null) {
+                    // There is a unique constraint on the block height so if another process tries to lock, it'll throw
+                    try {
+                        await this.rpcBlockService.lockBlock(blockHeight, process.env.NODE_APP_INSTANCE);
+                    } catch (e) {
+                        result = await this.waitForBlock(blockHeight);
+                    }
                 }
 
                 result = await this.client.getblocktemplate({
