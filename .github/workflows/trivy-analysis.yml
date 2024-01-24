@@ -21,12 +21,12 @@ jobs:
         with:
           push: false
           load: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/public-pool:latest
+          tags: ghcr.io/sethforprivacy/public-pool:latest
       - 
         name: Run Trivy vulnerability scanner against "latest" image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: '${{ secrets.DOCKER_USERNAME }}/public-pool:latest'
+          image-ref: 'ghcr.io/sethforprivacy/public-pool:latest'
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
