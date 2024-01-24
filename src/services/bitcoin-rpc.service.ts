@@ -41,9 +41,9 @@ export class BitcoinRpcService {
             sock.subscribe("rawblock");
             sock.on("message", async (topic: Buffer, message: Buffer) => {
                 console.log("new block zmq");
-                this.pollMiningInfo();
+                await this.pollMiningInfo();
             });
-            this.pollMiningInfo();
+            this.pollMiningInfo().then(() => { });
         } else {
             setInterval(this.pollMiningInfo.bind(this), 500);
         }
