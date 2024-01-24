@@ -3,11 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { RPCClient } from 'rpc-bitcoin';
 import { BehaviorSubject, filter, shareReplay } from 'rxjs';
 import { RpcBlockService } from 'src/ORM/rpc-block/rpc-block.service';
+import * as zmq from 'zeromq/v5-compat';
 
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { IMiningInfo } from '../models/bitcoin-rpc/IMiningInfo';
-
-// import * as zmq from 'zeromq';
 
 @Injectable()
 export class BitcoinRpcService {
@@ -37,13 +36,13 @@ export class BitcoinRpcService {
         });
 
         if (this.configService.get('BITCOIN_ZMQ_HOST')) {
-            // const sock = zmq.socket("sub");
-            // sock.connect(this.configService.get('BITCOIN_ZMQ_HOST'));
-            // sock.subscribe("rawblock");
-            // sock.on("message", async (topic: Buffer, message: Buffer) => {
-            //     console.log("new block zmq");
-            //     this.pollMiningInfo();
-            // });
+            const sock = zmq.socket("sub");
+            sock.connect(this.configService.get('BITCOIN_ZMQ_HOST'));
+            sock.subscribe("rawblock");
+            sock.on("message", async (topic: Buffer, message: Buffer) => {
+                console.log("new block zmq");
+                this.pollMiningInfo();
+            });
             this.pollMiningInfo();
         } else {
             setInterval(this.pollMiningInfo.bind(this), 500);
