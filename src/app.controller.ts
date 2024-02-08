@@ -49,6 +49,37 @@ export class AppController {
 
   }
 
+  @Get('pool')
+  public async pool() {
+
+    const CACHE_KEY = 'POOL_INFO';
+    const cachedResult = await this.cacheManager.get(CACHE_KEY);
+
+    if (cachedResult != null) {
+      return cachedResult;
+    }
+
+
+    const userAgents = await this.clientService.getUserAgents();
+    const totalHashRate = userAgents.reduce((acc, userAgent) => acc + parseFloat(userAgent.totalHashRate), 0);
+    const totalMiners = userAgents.reduce((acc, userAgent) => acc + parseInt(userAgent.count), 0);
+    const blockHeight = (await firstValueFrom(this.bitcoinRpcService.newBlock$)).blocks;
+    const blocksFound = await this.blocksService.getFoundBlocks();
+    
+    const data = {
+      totalHashRate,
+      blockHeight,
+      totalMiners,
+      blocksFound,
+      fee: 0
+    }
+
+    //5 min
+    await this.cacheManager.set(CACHE_KEY, data, 5 * 60 * 1000);
+
+    return data;
+  }
+
   @Get('network')
   public async network() {
     const miningInfo = await firstValueFrom(this.bitcoinRpcService.newBlock$);
