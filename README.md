@@ -56,7 +56,7 @@ $ docker build -t public-pool .
 Run container:
 
 ```bash
-$ docker container run --name public-pool --rm -p 3333:3333 -p 3334:3334 -p 8332:8332 -v .env:.env public-pool
+$ docker container run --name public-pool --rm -p 3333:3333 -p 3334:3334 -p 8332:8332 -v .env:/public-pool/.env public-pool
 ```
 
 ### Docker Compose
