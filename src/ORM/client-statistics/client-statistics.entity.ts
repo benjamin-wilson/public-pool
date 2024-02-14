@@ -32,6 +32,4 @@ export class ClientStatisticsEntity extends TrackedEntity {
     acceptedCount: number;
 
 
-
-
 }

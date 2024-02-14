@@ -3,11 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { RPCClient } from 'rpc-bitcoin';
 import { BehaviorSubject, filter, shareReplay } from 'rxjs';
 import { RpcBlockService } from 'src/ORM/rpc-block/rpc-block.service';
+import * as zmq from 'zeromq/v5-compat';
 
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { IMiningInfo } from '../models/bitcoin-rpc/IMiningInfo';
-
-// import * as zmq from 'zeromq';
 
 @Injectable()
 export class BitcoinRpcService {
@@ -30,17 +29,21 @@ export class BitcoinRpcService {
 
         this.client = new RPCClient({ url, port, timeout, user, pass });
 
-        console.log('Bitcoin RPC connected');
+        this.client.getrpcinfo().then((res) => {
+            console.log('Bitcoin RPC connected');
+        }, () => {
+            console.error('Could not reach RPC host');
+        });
 
         if (this.configService.get('BITCOIN_ZMQ_HOST')) {
-            // const sock = zmq.socket("sub");
-            // sock.connect(this.configService.get('BITCOIN_ZMQ_HOST'));
-            // sock.subscribe("rawblock");
-            // sock.on("message", async (topic: Buffer, message: Buffer) => {
-            //     console.log("new block zmq");
-            //     this.pollMiningInfo();
-            // });
-            this.pollMiningInfo();
+            const sock = zmq.socket("sub");
+            sock.connect(this.configService.get('BITCOIN_ZMQ_HOST'));
+            sock.subscribe("rawblock");
+            sock.on("message", async (topic: Buffer, message: Buffer) => {
+                console.log("new block zmq");
+                await this.pollMiningInfo();
+            });
+            this.pollMiningInfo().then(() => { });
         } else {
             setInterval(this.pollMiningInfo.bind(this), 500);
         }
@@ -77,11 +80,14 @@ export class BitcoinRpcService {
             if (block != null && block.data != null) {
                 return Promise.resolve(JSON.parse(block.data));
             } else if (block == null) {
-                // There is a unique constraint on the block height so if another process tries to lock, it'll throw
-                try {
-                    await this.rpcBlockService.lockBlock(blockHeight, process.env.NODE_APP_INSTANCE);
-                } catch (e) {
-                    result = await this.waitForBlock(blockHeight);
+
+                if (process.env.NODE_APP_INSTANCE != null) {
+                    // There is a unique constraint on the block height so if another process tries to lock, it'll throw
+                    try {
+                        await this.rpcBlockService.lockBlock(blockHeight, process.env.NODE_APP_INSTANCE);
+                    } catch (e) {
+                        result = await this.waitForBlock(blockHeight);
+                    }
                 }
 
                 result = await this.client.getblocktemplate({

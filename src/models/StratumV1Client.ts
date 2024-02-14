@@ -6,6 +6,7 @@ import { validate, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
 import { Socket } from 'net';
 import { firstValueFrom, Subscription } from 'rxjs';
+import { clearInterval } from 'timers';
 
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
@@ -35,7 +36,7 @@ export class StratumV1Client {
     private clientAuthorization: AuthorizationMessage;
     private clientSuggestedDifficulty: SuggestDifficulty;
     private stratumSubscription: Subscription;
-    private backgroundWork: NodeJS.Timer;
+    private backgroundWork: NodeJS.Timer[] = [];
 
     private statistics: StratumV1ClientStatistics;
     private stratumInitialized = false;
@@ -87,9 +88,10 @@ export class StratumV1Client {
         if (this.stratumSubscription != null) {
             this.stratumSubscription.unsubscribe();
         }
-        if (this.backgroundWork != null) {
-            clearInterval(this.backgroundWork);
-        }
+
+        this.backgroundWork.forEach(work => {
+            clearInterval(work);
+        });
     }
 
     private getRandomHexString() {
@@ -333,45 +335,52 @@ export class StratumV1Client {
             && this.clientAuthorization != null
             && this.stratumInitialized == false) {
 
-            this.stratumInitialized = true;
-
-            switch (this.clientSubscription.userAgent) {
-                case 'cpuminer': {
-                    this.sessionDifficulty = 0.1;
-                }
-            }
-
-
-            if (this.clientSuggestedDifficulty == null) {
-                //console.log(`Setting difficulty to ${this.sessionDifficulty}`)
-                const setDifficulty = JSON.stringify(new SuggestDifficulty().response(this.sessionDifficulty));
-                const success = await this.write(setDifficulty + '\n');
-                if (!success) {
-                    return;
-                }
-            }
-
-
-            this.stratumSubscription = this.stratumV1JobsService.newMiningJob$.subscribe(async (jobTemplate) => {
-                try {
-                    await this.sendNewMiningJob(jobTemplate);
-                } catch (e) {
-                    await this.socket.end();
-                    console.error(e);
-                }
-            });
-
-            this.backgroundWork = setInterval(async () => {
-                await this.checkDifficulty();
-                await this.statistics.saveShares(this.entity);
-            }, 60 * 1000);
+            this.initStratum();
 
         }
     }
 
+    private async initStratum() {
+        this.stratumInitialized = true;
+
+        switch (this.clientSubscription.userAgent) {
+            case 'cpuminer': {
+                this.sessionDifficulty = 0.1;
+            }
+        }
+
+        if (this.clientSuggestedDifficulty == null) {
+            //console.log(`Setting difficulty to ${this.sessionDifficulty}`)
+            const setDifficulty = JSON.stringify(new SuggestDifficulty().response(this.sessionDifficulty));
+            const success = await this.write(setDifficulty + '\n');
+            if (!success) {
+                return;
+            }
+        }
+
+        this.stratumSubscription = this.stratumV1JobsService.newMiningJob$.subscribe(async (jobTemplate) => {
+            try {
+                await this.sendNewMiningJob(jobTemplate);
+            } catch (e) {
+                await this.socket.end();
+                console.error(e);
+            }
+        });
+
+        this.backgroundWork.push(
+            setInterval(async () => {
+                await this.checkDifficulty();
+            }, 60 * 1000)
+        );
+
+        this.backgroundWork.push(
+            setInterval(async () => {
+                await this.statistics.saveShares(this.entity);
+            }, 60 * 1000)
+        );
+    }
+
     private async sendNewMiningJob(jobTemplate: IJobTemplate) {
-
-
 
         let payoutInformation;
         const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
@@ -480,7 +489,7 @@ export class StratumV1Client {
             parseInt(submission.ntime, 16)
         );
         const header = updatedJobBlock.toBuffer(true);
-        const { submissionDifficulty, submissionHash } = this.calculateDifficulty(header);
+        const { submissionDifficulty } = this.calculateDifficulty(header);
 
         //console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonceAndSessionId}`);
 

@@ -19,7 +19,6 @@ export class ClientStatisticsService {
     }
 
     public async save(clientStatistic: Partial<ClientStatisticsEntity>) {
-
         // Attempt to update the existing record
         const updateResult = await this.clientStatisticsRepository
             .createQueryBuilder()

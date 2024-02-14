@@ -21,7 +21,6 @@ export class AppService implements OnModuleInit {
     }
 
     async onModuleInit() {
-
     }
 
     @Interval(1000 * 60 * 60)
