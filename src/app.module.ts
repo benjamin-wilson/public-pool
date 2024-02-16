@@ -9,6 +9,7 @@ import { AppController } from './app.controller';
 import { AddressController } from './controllers/address/address.controller';
 import { ClientController } from './controllers/client/client.controller';
 import { BitcoinAddressValidator } from './models/validators/bitcoin-address.validator';
+import { UniqueNonceIndex } from './ORM/_migrations/UniqueNonceIndex';
 import { AddressSettingsEntity } from './ORM/address-settings/address-settings.entity';
 import { AddressSettingsModule } from './ORM/address-settings/address-settings.module';
 import { BlocksEntity } from './ORM/blocks/blocks.entity';
@@ -68,7 +69,10 @@ const ORMModules = [
                     ],
                     synchronize: configService.get('PRODUCTION') != 'true',
                     logging: false,
-                    poolSize: 30
+                    poolSize: 30,
+                    migrations: [
+                        UniqueNonceIndex
+                    ]
                 }
             },
             imports: [ConfigModule],

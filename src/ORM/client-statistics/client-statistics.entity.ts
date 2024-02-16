@@ -1,12 +1,11 @@
-import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, Index, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 
+import { ClientEntity } from '../client/client.entity';
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
 @Entity()
-//Index for getHashRateForSession
-@Index(["address", "clientName", "sessionId"])
 //Index for statistics save
-@Index(["address", "clientName", "sessionId", "time"])
+@Index(["clientId", "time"])
 export class ClientStatisticsEntity extends TrackedEntity {
 
     @PrimaryGeneratedColumn()
@@ -30,6 +29,19 @@ export class ClientStatisticsEntity extends TrackedEntity {
 
     @Column({ default: 0, type: 'bigint' })
     acceptedCount: number;
+
+
+
+    @ManyToOne(
+        () => ClientEntity,
+        clientEntity => clientEntity.statistics,
+        { nullable: false, }
+    )
+    client: ClientEntity;
+
+    @Index()
+    @Column({ name: 'clientId' })
+    public clientId: string;
 
 
 }

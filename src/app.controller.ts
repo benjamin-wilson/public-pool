@@ -3,6 +3,7 @@ import { Controller, Get, Inject } from '@nestjs/common';
 import { Cache } from 'cache-manager';
 import { firstValueFrom } from 'rxjs';
 
+import { AddressSettingsService } from './ORM/address-settings/address-settings.service';
 import { BlocksService } from './ORM/blocks/blocks.service';
 import { ClientStatisticsService } from './ORM/client-statistics/client-statistics.service';
 import { ClientService } from './ORM/client/client.service';
@@ -20,7 +21,8 @@ export class AppController {
     private readonly clientStatisticsService: ClientStatisticsService,
     private readonly blocksService: BlocksService,
     private readonly bitcoinRpcService: BitcoinRpcService,
-    private readonly homeGraphService: HomeGraphService
+    private readonly homeGraphService: HomeGraphService,
+    private readonly addressSettingsService: AddressSettingsService
   ) { }
 
   @Get('info')
@@ -37,10 +39,12 @@ export class AppController {
 
     const blockData = await this.blocksService.getFoundBlocks();
     const userAgents = await this.clientService.getUserAgents();
+    const highScores = await this.addressSettingsService.getHighScores();
 
     const data = {
       blockData,
       userAgents,
+      highScores,
       uptime: this.uptime
     };
 

@@ -19,25 +19,15 @@ export class ClientStatisticsService {
     }
 
     public async save(clientStatistic: Partial<ClientStatisticsEntity>) {
-        // Attempt to update the existing record
-        const updateResult = await this.clientStatisticsRepository
-            .createQueryBuilder()
-            .update(ClientStatisticsEntity)
-            .set({
-                shares: () => `"shares" + :sharesIncrement`,
-                acceptedCount: () => `"acceptedCount" + 1`
+        // // Attempt to update the existing record
+        const result = await this.clientStatisticsRepository.update({ clientId: clientStatistic.clientId, time: clientStatistic.time },
+            {
+                shares: clientStatistic.shares,
+                acceptedCount: clientStatistic.acceptedCount
             })
-            .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', {
-                address: clientStatistic.address,
-                clientName: clientStatistic.clientName,
-                sessionId: clientStatistic.sessionId,
-                time: clientStatistic.time,
-                sharesIncrement: clientStatistic.shares
-            })
-            .execute();
 
         // Check if the update affected any rows
-        if (updateResult.affected === 0) {
+        if (result.affected === 0) {
             // If no rows were updated, insert a new record
             await this.clientStatisticsRepository.insert(clientStatistic);
         }
@@ -139,7 +129,7 @@ export class ClientStatisticsService {
     }
 
 
-    public async getHashRateForSession(address: string, clientName: string, sessionId: string) {
+    public async getHashRateForSession(clientId: string) {
 
         const query = `
             SELECT
@@ -149,12 +139,12 @@ export class ClientStatisticsService {
             FROM
                 client_statistics_entity AS entry
             WHERE
-                entry.address = $1 AND entry."clientName" = $2 AND entry."sessionId" = $3
+                entry."clientId" = $1
             ORDER BY time DESC
             LIMIT 2;
         `;
 
-        const result = await this.clientStatisticsRepository.query(query, [address, clientName, sessionId]);
+        const result = await this.clientStatisticsRepository.query(query, [clientId]);
 
         if (result.length < 1) {
             return 0;
@@ -179,7 +169,7 @@ export class ClientStatisticsService {
 
     }
 
-    public async getChartDataForSession(address: string, clientName: string, sessionId: string) {
+    public async getChartDataForSession(clientId: string) {
         var yesterday = new Date(new Date().getTime() - (24 * 60 * 60 * 1000));
 
         const query = `
@@ -189,7 +179,7 @@ export class ClientStatisticsService {
             FROM
                 client_statistics_entity AS entry
             WHERE
-                entry.address = $1 AND entry."clientName" = $2 AND entry."sessionId" = $3 AND entry.time > ${yesterday.getTime()}
+                entry."clientId" = $1 AND entry.time > ${yesterday.getTime()}
             GROUP BY
                 time
             ORDER BY
@@ -197,7 +187,7 @@ export class ClientStatisticsService {
             LIMIT 144;
         `;
 
-        const result = await this.clientStatisticsRepository.query(query, [address, clientName, sessionId]);
+        const result = await this.clientStatisticsRepository.query(query, [clientId]);
 
         return result.map(res => {
             res.label = new Date(parseInt(res.label)).toISOString();

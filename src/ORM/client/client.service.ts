@@ -28,8 +28,8 @@ export class ClientService {
             .execute();
     }
 
-    public async heartbeat(address: string, clientName: string, sessionId: string, hashRate: number, updatedAt: Date) {
-        return await this.clientRepository.update({ address, clientName, sessionId }, { hashRate, deletedAt: null, updatedAt });
+    public async heartbeat(id, hashRate: number, updatedAt: Date) {
+        return await this.clientRepository.update({ id }, { hashRate, deletedAt: null, updatedAt });
     }
 
     // public async save(client: Partial<ClientEntity>) {
@@ -48,8 +48,8 @@ export class ClientService {
         return client as ClientEntity;
     }
 
-    public async delete(sessionId: string) {
-        return await this.clientRepository.softDelete({ sessionId });
+    public async delete(id: string) {
+        return await this.clientRepository.softDelete({ id });
     }
 
     public async deleteOldClients() {
@@ -65,8 +65,8 @@ export class ClientService {
 
     }
 
-    public async updateBestDifficulty(sessionId: string, bestDifficulty: number) {
-        return await this.clientRepository.update({ sessionId }, { bestDifficulty });
+    public async updateBestDifficulty(id: string, bestDifficulty: number) {
+        return await this.clientRepository.update({ id }, { bestDifficulty });
     }
     public async connectedClientCount(): Promise<number> {
         return await this.clientRepository.count();
@@ -111,7 +111,7 @@ export class ClientService {
             .addSelect('MAX(client.bestDifficulty)', 'bestDifficulty')
             .addSelect('SUM(client.hashRate)', 'totalHashRate')
             .groupBy('client.userAgent')
-            .orderBy('count', 'DESC')
+            .orderBy('"totalHashRate"', 'DESC')
             .getRawMany();
         return result;
     }

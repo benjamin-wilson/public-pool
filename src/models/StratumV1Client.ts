@@ -43,7 +43,7 @@ export class StratumV1Client {
     private usedSuggestedDifficulty = false;
     private sessionDifficulty: number = 16384;
 
-    private entity: ClientEntity;
+    private clientEntity: ClientEntity;
     private creatingEntity: Promise<void>;
 
     public extraNonceAndSessionId: string;
@@ -83,7 +83,7 @@ export class StratumV1Client {
 
     public async destroy() {
 
-        await this.clientService.delete(this.extraNonceAndSessionId);
+        await this.clientService.delete(this.clientEntity.id);
 
         if (this.stratumSubscription != null) {
             this.stratumSubscription.unsubscribe();
@@ -373,11 +373,11 @@ export class StratumV1Client {
             }, 60 * 1000)
         );
 
-        this.backgroundWork.push(
-            setInterval(async () => {
-                await this.statistics.saveShares(this.entity);
-            }, 60 * 1000)
-        );
+        // this.backgroundWork.push(
+        //     setInterval(async () => {
+        //         await this.statistics.saveShares(this.clientEntity);
+        //     }, 60 * 1000)
+        // );
     }
 
     private async sendNewMiningJob(jobTemplate: IJobTemplate) {
@@ -386,8 +386,8 @@ export class StratumV1Client {
         const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
         //50Th/s
         this.noFee = false;
-        if (this.entity) {
-            this.hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientAuthorization.address, this.clientAuthorization.worker, this.extraNonceAndSessionId);
+        if (this.clientEntity) {
+            this.hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientEntity.id);
             this.noFee = this.hashRate != 0 && this.hashRate < 50000000000000;
         }
         if (this.noFee || devFeeAddress == null || devFeeAddress.length < 1) {
@@ -438,11 +438,11 @@ export class StratumV1Client {
 
     private async handleMiningSubmission(submission: MiningSubmitMessage) {
 
-        if (this.entity == null) {
+        if (this.clientEntity == null) {
             if (this.creatingEntity == null) {
                 this.creatingEntity = new Promise(async (resolve, reject) => {
                     try {
-                        this.entity = await this.clientService.insert({
+                        this.clientEntity = await this.clientService.insert({
                             sessionId: this.extraNonceAndSessionId,
                             address: this.clientAuthorization.address,
                             clientName: this.clientAuthorization.worker,
@@ -515,12 +515,12 @@ export class StratumV1Client {
                 }
             }
             try {
-                await this.statistics.addShares(this.sessionDifficulty);
+                await this.statistics.addShares(this.clientEntity, this.sessionDifficulty);
                 const now = new Date();
                 // only update every minute
-                if (this.entity.updatedAt == null || now.getTime() - this.entity.updatedAt.getTime() > 1000 * 60) {
-                    await this.clientService.heartbeat(this.entity.address, this.entity.clientName, this.entity.sessionId, this.hashRate, now);
-                    this.entity.updatedAt = now;
+                if (this.clientEntity.updatedAt == null || now.getTime() - this.clientEntity.updatedAt.getTime() > 1000 * 60) {
+                    await this.clientService.heartbeat(this.clientEntity.id, this.hashRate, now);
+                    this.clientEntity.updatedAt = now;
                 }
 
             } catch (e) {
@@ -537,11 +537,11 @@ export class StratumV1Client {
                 return false;
             }
 
-            if (submissionDifficulty > this.entity.bestDifficulty) {
-                await this.clientService.updateBestDifficulty(this.extraNonceAndSessionId, submissionDifficulty);
-                this.entity.bestDifficulty = submissionDifficulty;
+            if (submissionDifficulty > this.clientEntity.bestDifficulty) {
+                await this.clientService.updateBestDifficulty(this.clientEntity.id, submissionDifficulty);
+                this.clientEntity.bestDifficulty = submissionDifficulty;
                 if (submissionDifficulty > (await this.addressSettingsService.getSettings(this.clientAuthorization.address, true)).bestDifficulty) {
-                    await this.addressSettingsService.updateBestDifficulty(this.clientAuthorization.address, submissionDifficulty);
+                    await this.addressSettingsService.updateBestDifficulty(this.clientAuthorization.address, submissionDifficulty, this.clientEntity.userAgent);
                 }
             }
 
