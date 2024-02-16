@@ -83,7 +83,9 @@ export class StratumV1Client {
 
     public async destroy() {
 
-        await this.clientService.delete(this.clientEntity.id);
+        if (this.clientEntity.id) {
+            await this.clientService.delete(this.clientEntity.id);
+        }
 
         if (this.stratumSubscription != null) {
             this.stratumSubscription.unsubscribe();
