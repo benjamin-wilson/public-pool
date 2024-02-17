@@ -18,20 +18,16 @@ export class ClientStatisticsService {
 
     }
 
-    public async save(clientStatistic: Partial<ClientStatisticsEntity>) {
-        // // Attempt to update the existing record
-        const result = await this.clientStatisticsRepository.update({ clientId: clientStatistic.clientId, time: clientStatistic.time },
+    public async update(clientStatistic: Partial<ClientStatisticsEntity>) {
+
+        await this.clientStatisticsRepository.update({ clientId: clientStatistic.clientId, time: clientStatistic.time },
             {
                 shares: clientStatistic.shares,
                 acceptedCount: clientStatistic.acceptedCount
             })
-
-        // Check if the update affected any rows
-        if (result.affected === 0) {
-            // If no rows were updated, insert a new record
-            await this.clientStatisticsRepository.insert(clientStatistic);
-        }
-
+    }
+    public async insert(clientStatistic: Partial<ClientStatisticsEntity>) {
+        await this.clientStatisticsRepository.insert(clientStatistic);
     }
 
     public async deleteOldStatistics() {

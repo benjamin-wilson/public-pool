@@ -22,25 +22,6 @@ export class StratumV1ClientStatistics {
     }
 
 
-    public async saveShares(client: ClientEntity) {
-
-        // if (client == null || client.address == null || client.clientName == null || client.sessionId == null) {
-        //     return;
-        // }
-
-        await this.clientStatisticsService.save({
-            time: this.currentTimeSlot,
-            clientId: client.id,
-            shares: this.shares,
-            acceptedCount: this.acceptedCount,
-            address: client.address,
-            clientName: client.clientName,
-            sessionId: client.sessionId
-        });
-
-
-
-    }
 
     // We don't want to save them here because it can be DB intensive, instead do it every once in
     // awhile with saveShares()
@@ -66,12 +47,28 @@ export class StratumV1ClientStatistics {
         }
 
         if (this.currentTimeSlot != timeSlot) {
-            await this.saveShares(client);
+            await this.clientStatisticsService.insert({
+                time: this.currentTimeSlot,
+                clientId: client.id,
+                shares: this.shares,
+                acceptedCount: this.acceptedCount,
+                address: client.address,
+                clientName: client.clientName,
+                sessionId: client.sessionId
+            });
             this.shares = 0;
             this.acceptedCount = 0;
             this.currentTimeSlot = timeSlot;
         } else if ((date.getTime() - 60 * 1000) > this.lastSave) {
-            await this.saveShares(client);
+            await this.clientStatisticsService.update({
+                time: this.currentTimeSlot,
+                clientId: client.id,
+                shares: this.shares,
+                acceptedCount: this.acceptedCount,
+                address: client.address,
+                clientName: client.clientName,
+                sessionId: client.sessionId
+            });
             this.lastSave = new Date().getTime();
         }
 
