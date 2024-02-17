@@ -17,29 +17,23 @@ export class ClientStatisticsService {
 
     }
 
-    public async save(clientStatistic: Partial<ClientStatisticsEntity>) {
-        // Attempt to update the existing record
-        const updateResult = await this.clientStatisticsRepository
-            .createQueryBuilder()
-            .update(ClientStatisticsEntity)
-            .set({
-                shares: () => `"shares" + :sharesIncrement`,
-                acceptedCount: () => `"acceptedCount" + 1`
-            })
-            .where('address = :address AND clientName = :clientName AND sessionId = :sessionId AND time = :time', {
-                address: clientStatistic.address,
-                clientName: clientStatistic.clientName,
-                sessionId: clientStatistic.sessionId,
-                time: clientStatistic.time,
-                sharesIncrement: clientStatistic.shares
-            })
-            .execute();
+    public async update(clientStatistic: Partial<ClientStatisticsEntity>) {
 
-        // Check if the update affected any rows
-        if (updateResult.affected === 0) {
-            // If no rows were updated, insert a new record
-            await this.clientStatisticsRepository.insert(clientStatistic);
-        }
+        await this.clientStatisticsRepository.update({
+            address: clientStatistic.address,
+            clientName: clientStatistic.clientName,
+            sessionId: clientStatistic.sessionId,
+            time: clientStatistic.time
+        },
+            {
+                shares: clientStatistic.shares,
+                acceptedCount: clientStatistic.acceptedCount
+            });
+
+    }
+    public async insert(clientStatistic: Partial<ClientStatisticsEntity>) {
+        // If no rows were updated, insert a new record
+        await this.clientStatisticsRepository.insert(clientStatistic);
     }
 
     public async deleteOldStatistics() {

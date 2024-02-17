@@ -22,8 +22,16 @@ export class AddressSettingsService {
         return settings;
     }
 
-    public async updateBestDifficulty(address: string, bestDifficulty: number) {
-        return await this.addressSettingsRepository.update({ address }, { bestDifficulty });
+    public async updateBestDifficulty(address: string, bestDifficulty: number, bestDifficultyUserAgent: string) {
+        return await this.addressSettingsRepository.update({ address }, { bestDifficulty, bestDifficultyUserAgent });
+    }
+
+    public async getHighScores() {
+        return await this.addressSettingsRepository.createQueryBuilder()
+            .select('"updatedAt", "bestDifficulty", "bestDifficultyUserAgent"')
+            .orderBy('"bestDifficulty"', 'DESC')
+            .limit(10)
+            .execute();
     }
 
     public async createNew(address: string) {
