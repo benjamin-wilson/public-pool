@@ -104,16 +104,16 @@ export class ClientService {
         return await this.clientRepository.softDelete({})
     }
 
-    public async getUserAgents() {
-        const result = await this.clientRepository.createQueryBuilder('client')
-            .select('client.userAgent as "userAgent"')
-            .addSelect('COUNT(client.userAgent)', 'count')
-            .addSelect('MAX(client.bestDifficulty)', 'bestDifficulty')
-            .addSelect('SUM(client.hashRate)', 'totalHashRate')
-            .groupBy('client.userAgent')
-            .orderBy('"totalHashRate"', 'DESC')
-            .getRawMany();
-        return result;
-    }
+    // public async getUserAgents() {
+    //     const result = await this.clientRepository.createQueryBuilder('client')
+    //         .select('client.userAgent as "userAgent"')
+    //         .addSelect('COUNT(client.userAgent)', 'count')
+    //         .addSelect('MAX(client.bestDifficulty)', 'bestDifficulty')
+    //         .addSelect('SUM(client.hashRate)', 'totalHashRate')
+    //         .groupBy('client.userAgent')
+    //         .orderBy('"totalHashRate"', 'DESC')
+    //         .getRawMany();
+    //     return result;
+    // }
 
 }

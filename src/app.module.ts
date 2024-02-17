@@ -10,6 +10,8 @@ import { AddressController } from './controllers/address/address.controller';
 import { ClientController } from './controllers/client/client.controller';
 import { BitcoinAddressValidator } from './models/validators/bitcoin-address.validator';
 import { UniqueNonceIndex } from './ORM/_migrations/UniqueNonceIndex';
+import { UserAgentReportModule } from './ORM/_views/user-agent-report/user-agent-report.module';
+import { UserAgentReportView } from './ORM/_views/user-agent-report/user-agent-report.view';
 import { AddressSettingsEntity } from './ORM/address-settings/address-settings.entity';
 import { AddressSettingsModule } from './ORM/address-settings/address-settings.module';
 import { BlocksEntity } from './ORM/blocks/blocks.entity';
@@ -43,7 +45,8 @@ const ORMModules = [
     TelegramSubscriptionsModule,
     BlocksModule,
     RpcBlocksModule,
-    HomeGraphModule
+    HomeGraphModule,
+    UserAgentReportModule
 ]
 
 @Module({
@@ -65,7 +68,8 @@ const ORMModules = [
                         ClientStatisticsEntity,
                         RpcBlockEntity,
                         TelegramSubscriptionsEntity,
-                        HomeGraphEntity
+                        HomeGraphEntity,
+                        UserAgentReportView
                     ],
                     synchronize: configService.get('PRODUCTION') != 'true',
                     logging: false,

@@ -3,6 +3,7 @@ import { Controller, Get, Inject } from '@nestjs/common';
 import { Cache } from 'cache-manager';
 import { firstValueFrom } from 'rxjs';
 
+import { UserAgentReportService } from './ORM/_views/user-agent-report/user-agent-report.service';
 import { AddressSettingsService } from './ORM/address-settings/address-settings.service';
 import { BlocksService } from './ORM/blocks/blocks.service';
 import { ClientStatisticsService } from './ORM/client-statistics/client-statistics.service';
@@ -22,7 +23,8 @@ export class AppController {
     private readonly blocksService: BlocksService,
     private readonly bitcoinRpcService: BitcoinRpcService,
     private readonly homeGraphService: HomeGraphService,
-    private readonly addressSettingsService: AddressSettingsService
+    private readonly addressSettingsService: AddressSettingsService,
+    private readonly userAgentReportService: UserAgentReportService
   ) { }
 
   @Get('info')
@@ -38,7 +40,7 @@ export class AppController {
 
 
     const blockData = await this.blocksService.getFoundBlocks();
-    const userAgents = await this.clientService.getUserAgents();
+    const userAgents = await this.userAgentReportService.getReport();
     const highScores = await this.addressSettingsService.getHighScores();
 
     const data = {
@@ -48,8 +50,8 @@ export class AppController {
       uptime: this.uptime
     };
 
-    //1 min
-    await this.cacheManager.set(CACHE_KEY, data, 1 * 60 * 1000);
+    //5 min
+    await this.cacheManager.set(CACHE_KEY, data, 5 * 60 * 1000);
 
     return data;
 
@@ -66,9 +68,9 @@ export class AppController {
     }
 
 
-    const userAgents = await this.clientService.getUserAgents();
-    const totalHashRate = userAgents.reduce((acc, userAgent) => acc + parseFloat(userAgent.totalHashRate), 0);
-    const totalMiners = userAgents.reduce((acc, userAgent) => acc + parseInt(userAgent.count), 0);
+    const userAgents = await this.userAgentReportService.getReport();
+    const totalHashRate = userAgents.reduce((acc, userAgent) => acc + userAgent.totalHashRate, 0);
+    const totalMiners = userAgents.reduce((acc, userAgent) => acc + userAgent.count, 0);
     const blockHeight = (await firstValueFrom(this.bitcoinRpcService.newBlock$)).blocks;
     const blocksFound = await this.blocksService.getFoundBlocks();
 

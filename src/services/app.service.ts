@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { Interval } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
 
+import { UserAgentReportService } from '../ORM/_views/user-agent-report/user-agent-report.service';
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientService } from '../ORM/client/client.service';
 import { HomeGraphService } from '../ORM/home-graph/home-graph.service';
@@ -16,41 +16,54 @@ export class AppService implements OnModuleInit {
         private readonly rpcBlockService: RpcBlockService,
         private readonly homeGraphService: HomeGraphService,
         private readonly dataSource: DataSource,
+        private readonly userAgentReportService: UserAgentReportService
     ) {
 
     }
 
     async onModuleInit() {
+        if (process.env.ENABLE_SOLO == 'true' && (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0')) {
+
+            setInterval(async () => {
+                await this.deleteOldStatistics();
+            }, 1000 * 60 * 60);
+
+            setInterval(async () => {
+                console.log('Killing dead clients');
+                await this.clientService.killDeadClients();
+            }, 1000 * 60 * 5);
+
+            setInterval(async () => {
+                console.log('Deleting Old Blocks');
+                await this.rpcBlockService.deleteOldBlocks();
+            }, 1000 * 60 * 60 * 24);
+
+            setInterval(async () => {
+                await this.updateChart();
+            }, 1000 * 60 * 10);
+
+
+            setInterval(async () => {
+                console.log('Refreshing user agent report view')
+                await this.userAgentReportService.refreshReport();
+                console.log('Finished Refreshing user agent report view')
+            }, 1000 * 60 * 5);
+
+        }
+
     }
 
-    @Interval(1000 * 60 * 60)
     private async deleteOldStatistics() {
         console.log('Deleting statistics');
-        if (process.env.ENABLE_SOLO == 'true' && (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0')) {
-            const deletedStatistics = await this.clientStatisticsService.deleteOldStatistics();
-            console.log(`Deleted ${deletedStatistics.affected} old statistics`);
-            const deletedClients = await this.clientService.deleteOldClients();
-            console.log(`Deleted ${deletedClients.affected} old clients`);
-        }
+
+        const deletedStatistics = await this.clientStatisticsService.deleteOldStatistics();
+        console.log(`Deleted ${deletedStatistics.affected} old statistics`);
+        const deletedClients = await this.clientService.deleteOldClients();
+        console.log(`Deleted ${deletedClients.affected} old clients`);
+
     }
 
-    @Interval(1000 * 60 * 5)
-    private async killDeadClients() {
-        console.log('Killing dead clients');
-        if (process.env.ENABLE_SOLO == 'true' && (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0')) {
-            await this.clientService.killDeadClients();
-        }
-    }
 
-    @Interval(1000 * 60 * 60 * 24)
-    private async deleteOldBlocks() {
-        console.log('Deleting Old Blocks');
-        if (process.env.ENABLE_SOLO == 'true' && (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0')) {
-            await this.rpcBlockService.deleteOldBlocks();
-        }
-    }
-
-    @Interval(1000 * 60 * 10)
     private async updateChart() {
         console.log('Updating Chart');
 
