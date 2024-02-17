@@ -22,11 +22,6 @@ export class StratumV1ClientStatistics {
     }
 
 
-    private async saveShares(client: ClientEntity) {
-
-
-    }
-
     // We don't want to save them here because it can be DB intensive, stead do it every once in
     // awhile with saveShares()
     public async addShares(client: ClientEntity, targetDifficulty: number) {
@@ -45,12 +40,18 @@ export class StratumV1ClientStatistics {
         });
 
 
-
         if (this.currentTimeSlot == null) {
             this.currentTimeSlot = timeSlot;
-        }
-
-        if (this.currentTimeSlot != timeSlot) {
+            await this.clientStatisticsService.insert({
+                time: this.currentTimeSlot,
+                shares: this.shares,
+                acceptedCount: this.acceptedCount,
+                address: client.address,
+                clientName: client.clientName,
+                sessionId: client.sessionId
+            });
+            this.lastSave = new Date().getTime();
+        } else if (this.currentTimeSlot != timeSlot) {
             await this.clientStatisticsService.insert({
                 time: this.currentTimeSlot,
                 shares: this.shares,
