@@ -19,9 +19,9 @@ export class UserAgentReportView {
     @ViewColumn()
     userAgent: string;
     @ViewColumn()
-    count: number;
+    count: string;
     @ViewColumn()
     bestDifficulty: number;
     @ViewColumn()
-    totalHashRate: number;
+    totalHashRate: string;
 }
