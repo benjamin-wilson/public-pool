@@ -27,7 +27,8 @@ export class ClientStatisticsService {
         },
             {
                 shares: clientStatistic.shares,
-                acceptedCount: clientStatistic.acceptedCount
+                acceptedCount: clientStatistic.acceptedCount,
+                updatedAt: new Date()
             });
 
     }
@@ -206,14 +207,16 @@ export class ClientStatisticsService {
 
         if (result.length < 2) {
             const time = new Date(latestStat.updatedAt).getTime() - new Date(latestStat.createdAt).getTime();
-            if (time < 1) {
+            // 1min
+            if (time < 1000 * 60) {
                 return 0;
             }
             return (latestStat.shares * 4294967296) / (time / 1000);
         } else {
             const secondLatestStat = result[1];
             const time = new Date(latestStat.updatedAt).getTime() - new Date(secondLatestStat.createdAt).getTime();
-            if (time < 1) {
+            // 1min
+            if (time < 1000 * 60) {
                 return 0;
             }
             return ((latestStat.shares + secondLatestStat.shares) * 4294967296) / (time / 1000);
