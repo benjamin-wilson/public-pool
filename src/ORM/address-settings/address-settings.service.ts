@@ -17,7 +17,12 @@ export class AddressSettingsService {
     public async getSettings(address: string, createIfNotFound: boolean) {
         const settings = await this.addressSettingsRepository.findOne({ where: { address } });
         if (createIfNotFound == true && settings == null) {
-            return await this.createNew(address);
+            // It's possible to have a race condition here so if we get a PK violation, fetch it
+            try {
+                return await this.createNew(address);
+            } catch (e) {
+                return await this.addressSettingsRepository.findOne({ where: { address } });
+            }
         }
         return settings;
     }
