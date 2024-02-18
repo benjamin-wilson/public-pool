@@ -41,9 +41,11 @@ export class StratumV1ClientStatistics {
         });
 
 
-
         if (this.currentTimeSlot == null) {
+            // First record, insert it
             this.currentTimeSlot = timeSlot;
+            this.shares += targetDifficulty;
+            this.acceptedCount++;
             await this.clientStatisticsService.insert({
                 time: this.currentTimeSlot,
                 clientId: client.id,
@@ -55,6 +57,21 @@ export class StratumV1ClientStatistics {
             });
             this.lastSave = new Date().getTime();
         } else if (this.currentTimeSlot != timeSlot) {
+            // Transitioning to a new time slot,
+            // First update the old time slot with the latest data
+            await this.clientStatisticsService.update({
+                time: this.currentTimeSlot,
+                clientId: client.id,
+                shares: this.shares,
+                acceptedCount: this.acceptedCount,
+                address: client.address,
+                clientName: client.clientName,
+                sessionId: client.sessionId
+            });
+            // Set the new time slot and add incoming shares then insert it
+            this.currentTimeSlot = timeSlot;
+            this.shares = targetDifficulty;
+            this.acceptedCount = 1
             await this.clientStatisticsService.insert({
                 time: this.currentTimeSlot,
                 clientId: client.id,
@@ -64,11 +81,11 @@ export class StratumV1ClientStatistics {
                 clientName: client.clientName,
                 sessionId: client.sessionId
             });
-            this.shares = 0;
-            this.acceptedCount = 0;
-            this.currentTimeSlot = timeSlot;
             this.lastSave = new Date().getTime();
         } else if ((date.getTime() - 60 * 1000) > this.lastSave) {
+            // If we haven't saved for a minute, update the table
+            this.shares += targetDifficulty;
+            this.acceptedCount++;
             await this.clientStatisticsService.update({
                 time: this.currentTimeSlot,
                 clientId: client.id,
@@ -79,11 +96,12 @@ export class StratumV1ClientStatistics {
                 sessionId: client.sessionId
             });
             this.lastSave = new Date().getTime();
+        } else {
+            // Accept the shares if none of the prior conditions are met,
+            // saving to memory for storing later
+            this.shares += targetDifficulty;
+            this.acceptedCount++;
         }
-
-
-        this.shares += targetDifficulty;
-        this.acceptedCount++;
 
     }
 
