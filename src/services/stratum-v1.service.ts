@@ -35,9 +35,8 @@ export class StratumV1Service implements OnModuleInit {
       if (process.env.NODE_APP_INSTANCE == '0') {
         await this.clientService.deleteAll();
       }
-      setTimeout(() => {
-        this.startSocketServer();
-      }, 1000 * 10)
+      this.startSocketServer();
+
 
     }
   }
