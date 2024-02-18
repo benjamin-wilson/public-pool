@@ -23,7 +23,8 @@ export class ClientStatisticsService {
         await this.clientStatisticsRepository.update({ clientId: clientStatistic.clientId, time: clientStatistic.time },
             {
                 shares: clientStatistic.shares,
-                acceptedCount: clientStatistic.acceptedCount
+                acceptedCount: clientStatistic.acceptedCount,
+                updatedAt: new Date()
             })
     }
     public async insert(clientStatistic: Partial<ClientStatisticsEntity>) {
