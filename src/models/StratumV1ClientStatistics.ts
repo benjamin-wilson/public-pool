@@ -67,6 +67,7 @@ export class StratumV1ClientStatistics {
             this.shares = 0;
             this.acceptedCount = 0;
             this.currentTimeSlot = timeSlot;
+            this.lastSave = new Date().getTime();
         } else if ((date.getTime() - 60 * 1000) > this.lastSave) {
             await this.clientStatisticsService.update({
                 time: this.currentTimeSlot,
