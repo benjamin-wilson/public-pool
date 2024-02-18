@@ -46,6 +46,7 @@ export class StratumV1ClientStatistics {
             this.currentTimeSlot = timeSlot;
             await this.clientStatisticsService.insert({
                 time: this.currentTimeSlot,
+                clientId: client.id,
                 shares: this.shares,
                 acceptedCount: this.acceptedCount,
                 address: client.address,
@@ -56,6 +57,7 @@ export class StratumV1ClientStatistics {
         } else if (this.currentTimeSlot != timeSlot) {
             await this.clientStatisticsService.insert({
                 time: this.currentTimeSlot,
+                clientId: client.id,
                 shares: this.shares,
                 acceptedCount: this.acceptedCount,
                 address: client.address,
@@ -68,6 +70,7 @@ export class StratumV1ClientStatistics {
         } else if ((date.getTime() - 60 * 1000) > this.lastSave) {
             await this.clientStatisticsService.update({
                 time: this.currentTimeSlot,
+                clientId: client.id,
                 shares: this.shares,
                 acceptedCount: this.acceptedCount,
                 address: client.address,
