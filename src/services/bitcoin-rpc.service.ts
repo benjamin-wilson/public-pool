@@ -1,15 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RPCClient } from 'rpc-bitcoin';
 import { BehaviorSubject, filter, shareReplay } from 'rxjs';
 import { RpcBlockService } from 'src/ORM/rpc-block/rpc-block.service';
-import * as zmq from 'zeromq/v5-compat';
+import * as zmq from 'zeromq';
 
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { IMiningInfo } from '../models/bitcoin-rpc/IMiningInfo';
 
 @Injectable()
-export class BitcoinRpcService {
+export class BitcoinRpcService implements OnModuleInit {
 
     private blockHeight = 0;
     private client: RPCClient;
@@ -20,7 +20,9 @@ export class BitcoinRpcService {
         private readonly configService: ConfigService,
         private rpcBlockService: RpcBlockService
     ) {
+    }
 
+    async onModuleInit() {
         const url = this.configService.get('BITCOIN_RPC_URL');
         const user = this.configService.get('BITCOIN_RPC_USER');
         const pass = this.configService.get('BITCOIN_RPC_PASSWORD');
@@ -36,16 +38,33 @@ export class BitcoinRpcService {
         });
 
         if (this.configService.get('BITCOIN_ZMQ_HOST')) {
-            const sock = zmq.socket("sub");
-            sock.connect(this.configService.get('BITCOIN_ZMQ_HOST'));
-            sock.subscribe("rawblock");
-            sock.on("message", async (topic: Buffer, message: Buffer) => {
-                console.log("new block zmq");
-                await this.pollMiningInfo();
+            console.log('Using ZMQ');
+            const sock = new zmq.Subscriber;
+
+
+            sock.connectTimeout = 1000;
+            sock.events.on('connect', () => {
+                console.log('ZMQ Connected');
             });
-            this.pollMiningInfo().then(() => { });
+            sock.events.on('connect:retry', () => {
+                console.log('ZMQ Unable to connect, Retrying');
+            });
+
+            sock.connect(this.configService.get('BITCOIN_ZMQ_HOST'));
+            sock.subscribe('rawblock');
+            // Don't await this, otherwise it will block the rest of the program
+            this.listenForNewBlocks(sock);
+            await this.pollMiningInfo();
+
         } else {
             setInterval(this.pollMiningInfo.bind(this), 500);
+        }
+    }
+
+    private async listenForNewBlocks(sock: zmq.Subscriber) {
+        for await (const [topic, msg] of sock) {
+            console.log("New Block");
+            await this.pollMiningInfo();
         }
     }
 

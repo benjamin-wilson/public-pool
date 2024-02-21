@@ -83,7 +83,9 @@ export class StratumV1Client {
 
     public async destroy() {
 
-        await this.clientService.delete(this.extraNonceAndSessionId);
+        if (this.extraNonceAndSessionId) {
+            await this.clientService.delete(this.extraNonceAndSessionId);
+        }
 
         if (this.stratumSubscription != null) {
             this.stratumSubscription.unsubscribe();
@@ -373,11 +375,6 @@ export class StratumV1Client {
             }, 60 * 1000)
         );
 
-        this.backgroundWork.push(
-            setInterval(async () => {
-                await this.statistics.saveShares(this.entity);
-            }, 60 * 1000)
-        );
     }
 
     private async sendNewMiningJob(jobTemplate: IJobTemplate) {
@@ -515,7 +512,7 @@ export class StratumV1Client {
                 }
             }
             try {
-                await this.statistics.addShares(this.sessionDifficulty);
+                await this.statistics.addShares(this.entity, this.sessionDifficulty);
                 const now = new Date();
                 // only update every minute
                 if (this.entity.updatedAt == null || now.getTime() - this.entity.updatedAt.getTime() > 1000 * 60) {
@@ -541,7 +538,7 @@ export class StratumV1Client {
                 await this.clientService.updateBestDifficulty(this.extraNonceAndSessionId, submissionDifficulty);
                 this.entity.bestDifficulty = submissionDifficulty;
                 if (submissionDifficulty > (await this.addressSettingsService.getSettings(this.clientAuthorization.address, true)).bestDifficulty) {
-                    await this.addressSettingsService.updateBestDifficulty(this.clientAuthorization.address, submissionDifficulty);
+                    await this.addressSettingsService.updateBestDifficulty(this.clientAuthorization.address, submissionDifficulty, this.entity.userAgent);
                 }
             }
 

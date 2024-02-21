@@ -17,13 +17,26 @@ export class AddressSettingsService {
     public async getSettings(address: string, createIfNotFound: boolean) {
         const settings = await this.addressSettingsRepository.findOne({ where: { address } });
         if (createIfNotFound == true && settings == null) {
-            return await this.createNew(address);
+            // It's possible to have a race condition here so if we get a PK violation, fetch it
+            try {
+                return await this.createNew(address);
+            } catch (e) {
+                return await this.addressSettingsRepository.findOne({ where: { address } });
+            }
         }
         return settings;
     }
 
-    public async updateBestDifficulty(address: string, bestDifficulty: number) {
-        return await this.addressSettingsRepository.update({ address }, { bestDifficulty });
+    public async updateBestDifficulty(address: string, bestDifficulty: number, bestDifficultyUserAgent: string) {
+        return await this.addressSettingsRepository.update({ address }, { bestDifficulty, bestDifficultyUserAgent });
+    }
+
+    public async getHighScores() {
+        return await this.addressSettingsRepository.createQueryBuilder()
+            .select('"updatedAt", "bestDifficulty", "bestDifficultyUserAgent"')
+            .orderBy('"bestDifficulty"', 'DESC')
+            .limit(10)
+            .execute();
     }
 
     public async createNew(address: string) {
