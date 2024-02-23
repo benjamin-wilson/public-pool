@@ -202,7 +202,7 @@ describe('StratumV1Client', () => {
         expect(socket.on).toHaveBeenCalled();
         socketEmitter(Buffer.from(MockRecording1.MINING_SUGGEST_DIFFICULTY));
         await new Promise((r) => setTimeout(r, 1));
-        expect(socket.write).toHaveBeenCalledWith(`{"id":4,"method":"mining.set_difficulty","params":[512]}\n`, expect.any(Function));
+        expect(socket.write).toHaveBeenCalledWith(`{"id":null,"method":"mining.set_difficulty","params":[512]}\n`, expect.any(Function));
     });
 
     it('should set difficulty', async () => {
