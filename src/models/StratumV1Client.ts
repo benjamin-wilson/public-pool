@@ -217,6 +217,9 @@ export class StratumV1Client {
 
                 if (errors.length === 0) {
                     this.clientAuthorization = authorizationMessage;
+                    if (this.clientSuggestedDifficulty == null && this.clientAuthorization.startingDiff != null && this.clientAuthorization.startingDiff > this.sessionDifficulty) {
+                        this.sessionDifficulty = this.clientAuthorization.startingDiff;
+                    }
                     const success = await this.write(JSON.stringify(this.clientAuthorization.response()) + '\n');
                     if (!success) {
                         return;
