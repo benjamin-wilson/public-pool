@@ -109,7 +109,7 @@ export class StratumV1ClientStatistics {
 
         // miner hasn't submitted shares in one minute
         if (this.submissionCache.length < 5) {
-            if ((new Date().getTime() - this.submissionCacheStart.getTime()) / 1000 > 60) {
+            if ((new Date().getTime() - this.submissionCacheStart.getTime()) / 5000 > 60) {
                 return this.nearestPowerOfTwo(clientDifficulty / 6);
             } else {
                 return null;
