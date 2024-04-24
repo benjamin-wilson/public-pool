@@ -11,7 +11,6 @@ import { BitcoinRpcService } from './services/bitcoin-rpc.service';
 
 @Controller()
 export class AppController {
-
   private uptime = new Date();
 
   constructor(
@@ -21,19 +20,16 @@ export class AppController {
     private readonly blocksService: BlocksService,
     private readonly bitcoinRpcService: BitcoinRpcService,
     private readonly addressSettingsService: AddressSettingsService,
-  ) { }
+  ) {}
 
   @Get('info')
   public async info() {
-
-
     const CACHE_KEY = 'SITE_INFO';
     const cachedResult = await this.cacheManager.get(CACHE_KEY);
 
     if (cachedResult != null) {
       return cachedResult;
     }
-
 
     const blockData = await this.blocksService.getFoundBlocks();
     const userAgents = await this.clientService.getUserAgents();
@@ -43,19 +39,17 @@ export class AppController {
       blockData,
       userAgents,
       highScores,
-      uptime: this.uptime
+      uptime: this.uptime,
     };
 
     //1 min
     await this.cacheManager.set(CACHE_KEY, data, 1 * 60 * 1000);
 
     return data;
-
   }
 
   @Get('pool')
   public async pool() {
-
     const CACHE_KEY = 'POOL_INFO';
     const cachedResult = await this.cacheManager.get(CACHE_KEY);
 
@@ -63,11 +57,17 @@ export class AppController {
       return cachedResult;
     }
 
-
     const userAgents = await this.clientService.getUserAgents();
-    const totalHashRate = userAgents.reduce((acc, userAgent) => acc + parseFloat(userAgent.totalHashRate), 0);
-    const totalMiners = userAgents.reduce((acc, userAgent) => acc + parseInt(userAgent.count), 0);
-    const blockHeight = (await firstValueFrom(this.bitcoinRpcService.newBlock$)).blocks;
+    const totalHashRate = userAgents.reduce(
+      (acc, userAgent) => acc + parseFloat(userAgent.totalHashRate),
+      0,
+    );
+    const totalMiners = userAgents.reduce(
+      (acc, userAgent) => acc + parseInt(userAgent.count),
+      0,
+    );
+    const blockHeight = (await firstValueFrom(this.bitcoinRpcService.newBlock$))
+      .blocks;
     const blocksFound = await this.blocksService.getFoundBlocks();
 
     const data = {
@@ -75,8 +75,8 @@ export class AppController {
       blockHeight,
       totalMiners,
       blocksFound,
-      fee: 0
-    }
+      fee: 0,
+    };
 
     //5 min
     await this.cacheManager.set(CACHE_KEY, data, 5 * 60 * 1000);
@@ -92,8 +92,6 @@ export class AppController {
 
   @Get('info/chart')
   public async infoChart() {
-
-
     const CACHE_KEY = 'SITE_HASHRATE_GRAPH';
     const cachedResult = await this.cacheManager.get(CACHE_KEY);
 
@@ -107,8 +105,5 @@ export class AppController {
     await this.cacheManager.set(CACHE_KEY, chartData, 10 * 60 * 1000);
 
     return chartData;
-
-
   }
-
 }

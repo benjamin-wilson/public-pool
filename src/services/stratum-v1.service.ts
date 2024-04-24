@@ -11,10 +11,8 @@ import { BitcoinRpcService } from './bitcoin-rpc.service';
 import { NotificationService } from './notification.service';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
 
-
 @Injectable()
 export class StratumV1Service implements OnModuleInit {
-
   constructor(
     private readonly bitcoinRpcService: BitcoinRpcService,
     private readonly clientService: ClientService,
@@ -23,13 +21,10 @@ export class StratumV1Service implements OnModuleInit {
     private readonly blocksService: BlocksService,
     private readonly configService: ConfigService,
     private readonly stratumV1JobsService: StratumV1JobsService,
-    private readonly addressSettingsService: AddressSettingsService
-  ) {
-
-  }
+    private readonly addressSettingsService: AddressSettingsService,
+  ) {}
 
   async onModuleInit(): Promise<void> {
-
     if (process.env.ENABLE_SOLO == 'true') {
       //await this.clientStatisticsService.deleteAll();
       if (process.env.NODE_APP_INSTANCE == '0') {
@@ -37,14 +32,12 @@ export class StratumV1Service implements OnModuleInit {
       }
       setTimeout(() => {
         this.startSocketServer();
-      }, 1000 * 10)
-
+      }, 1000 * 10);
     }
   }
 
   private startSocketServer() {
     const server = new Server(async (socket: Socket) => {
-
       //5 min
       socket.setTimeout(1000 * 60 * 5);
 
@@ -57,15 +50,16 @@ export class StratumV1Service implements OnModuleInit {
         this.notificationService,
         this.blocksService,
         this.configService,
-        this.addressSettingsService
+        this.addressSettingsService,
       );
-
 
       socket.on('close', async (hadError: boolean) => {
         if (client.extraNonceAndSessionId != null) {
           // Handle socket disconnection
           await client.destroy();
-          console.log(`Client ${client.extraNonceAndSessionId} disconnected, hadError?:${hadError}`);
+          console.log(
+            `Client ${client.extraNonceAndSessionId} disconnected, hadError?:${hadError}`,
+          );
         }
       });
 
@@ -75,17 +69,15 @@ export class StratumV1Service implements OnModuleInit {
         socket.destroy();
       });
 
-      socket.on('error', async (error: Error) => { });
+      socket.on('error', async (error: Error) => {});
 
       //   //console.log(`Client disconnected, socket error,  ${client.extraNonceAndSessionId}`);
-
-
     });
 
     server.listen(process.env.STRATUM_PORT, () => {
-      console.log(`Stratum server is listening on port ${process.env.STRATUM_PORT}`);
+      console.log(
+        `Stratum server is listening on port ${process.env.STRATUM_PORT}`,
+      );
     });
-
   }
-
 }

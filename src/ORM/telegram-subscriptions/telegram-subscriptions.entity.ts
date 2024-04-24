@@ -4,16 +4,13 @@ import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
 @Entity()
 export class TelegramSubscriptionsEntity extends TrackedEntity {
+  @PrimaryGeneratedColumn()
+  id: number;
 
-    @PrimaryGeneratedColumn()
-    id: number;
+  @Index()
+  @Column({ length: 62, type: 'varchar' })
+  address: string;
 
-    @Index()
-    @Column({ length: 62, type: 'varchar' })
-    address: string;
-
-    @Column()
-    telegramChatId: number;
-
-
+  @Column()
+  telegramChatId: number;
 }

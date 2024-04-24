@@ -18,14 +18,13 @@ describe('ClientController', () => {
           synchronize: true,
           autoLoadEntities: true,
           cache: true,
-          logging: false
+          logging: false,
         }),
         AddressSettingsModule,
         ClientModule,
-        ClientStatisticsModule
+        ClientStatisticsModule,
       ],
       controllers: [ClientController],
-
     }).compile();
 
     controller = module.get<ClientController>(ClientController);

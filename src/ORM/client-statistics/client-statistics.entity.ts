@@ -4,32 +4,29 @@ import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
 @Entity()
 //Index for getHashRateForSession
-@Index(["address", "clientName", "sessionId"])
+@Index(['address', 'clientName', 'sessionId'])
 //Index for statistics save
-@Index(["address", "clientName", "sessionId", "time"])
+@Index(['address', 'clientName', 'sessionId', 'time'])
 export class ClientStatisticsEntity extends TrackedEntity {
+  @PrimaryGeneratedColumn()
+  id: number;
 
-    @PrimaryGeneratedColumn()
-    id: number;
+  @Column({ length: 62, type: 'varchar' })
+  address: string;
 
-    @Column({ length: 62, type: 'varchar' })
-    address: string;
+  @Column()
+  clientName: string;
 
-    @Column()
-    clientName: string;
+  @Column({ length: 8, type: 'varchar' })
+  sessionId: string;
 
-    @Column({ length: 8, type: 'varchar' })
-    sessionId: string;
+  @Index()
+  @Column({ type: 'integer' })
+  time: number;
 
-    @Index()
-    @Column({ type: 'integer' })
-    time: number;
+  @Column({ type: 'real' })
+  shares: number;
 
-    @Column({ type: 'real' })
-    shares: number;
-
-    @Column({ default: 0, type: 'integer' })
-    acceptedCount: number;
-
-
+  @Column({ default: 0, type: 'integer' })
+  acceptedCount: number;
 }

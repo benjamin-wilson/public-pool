@@ -26,55 +26,47 @@ import { StratumV1JobsService } from './services/stratum-v1-jobs.service';
 import { StratumV1Service } from './services/stratum-v1.service';
 import { TelegramService } from './services/telegram.service';
 
-
 const ORMModules = [
-    ClientStatisticsModule,
-    ClientModule,
-    AddressSettingsModule,
-    TelegramSubscriptionsModule,
-    BlocksModule,
-    RpcBlocksModule
-]
+  ClientStatisticsModule,
+  ClientModule,
+  AddressSettingsModule,
+  TelegramSubscriptionsModule,
+  BlocksModule,
+  RpcBlocksModule,
+];
 
 @Module({
-    imports: [
-        ConfigModule.forRoot(),
-        TypeOrmModule.forRoot({
-            type: 'sqlite',
-            database: './DB/public-pool.sqlite',
-            synchronize: true,
-            autoLoadEntities: true,
-            logging: false,
-            enableWAL: true,
-            busyTimeout: 30 * 1000,
-
-        }),
-        CacheModule.register(),
-        ScheduleModule.forRoot(),
-        HttpModule,
-        ...ORMModules
-    ],
-    controllers: [
-        AppController,
-        ClientController,
-        AddressController
-    ],
-    providers: [
-        DiscordService,
-        AppService,
-        StratumV1Service,
-        TelegramService,
-        BitcoinRpcService,
-        NotificationService,
-        BitcoinAddressValidator,
-        StratumV1JobsService,
-        ProxyService,
-        BTCPayService,
-        BraiinsService
-    ],
+  imports: [
+    ConfigModule.forRoot(),
+    TypeOrmModule.forRoot({
+      type: 'sqlite',
+      database: './DB/public-pool.sqlite',
+      synchronize: true,
+      autoLoadEntities: true,
+      logging: false,
+      enableWAL: true,
+      busyTimeout: 30 * 1000,
+    }),
+    CacheModule.register(),
+    ScheduleModule.forRoot(),
+    HttpModule,
+    ...ORMModules,
+  ],
+  controllers: [AppController, ClientController, AddressController],
+  providers: [
+    DiscordService,
+    AppService,
+    StratumV1Service,
+    TelegramService,
+    BitcoinRpcService,
+    NotificationService,
+    BitcoinAddressValidator,
+    StratumV1JobsService,
+    ProxyService,
+    BTCPayService,
+    BraiinsService,
+  ],
 })
 export class AppModule {
-    constructor() {
-
-    }
+  constructor() {}
 }
