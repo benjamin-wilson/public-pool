@@ -7,6 +7,7 @@ import * as crypto from 'crypto';
 import { Socket } from 'net';
 import { firstValueFrom, Subscription } from 'rxjs';
 import { clearInterval } from 'timers';
+import { createInterface } from 'readline';
 
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
@@ -64,19 +65,19 @@ export class StratumV1Client {
         private readonly addressSettingsService: AddressSettingsService
     ) {
 
-        this.socket.on('data', (data: Buffer) => {
-            data.toString()
-                .split('\n')
-                .filter(m => m.length > 0)
-                .forEach(async (m) => {
-                    try {
-                        await this.handleMessage(m);
-                    } catch (e) {
-                        await this.socket.end();
-                        console.error(e);
-                    }
-                })
-        });
+        const rl = createInterface({
+            input: this.socket
+        })
+
+        rl.on("line", async (line) => {
+            try {
+                await this.handleMessage(line);
+            } catch (e) {
+                await this.socket.end();
+                console.error(e);
+            }
+        })
+        rl.on('error', async (error: Error) => { });
 
 
     }
