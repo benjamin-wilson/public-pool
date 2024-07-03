@@ -22,7 +22,7 @@ export class AppService implements OnModuleInit {
     }
 
     async onModuleInit() {
-        if (process.env.ENABLE_SOLO == 'true' && (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0')) {
+        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
 
             setInterval(async () => {
                 await this.deleteOldStatistics();
