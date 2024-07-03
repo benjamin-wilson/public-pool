@@ -119,13 +119,15 @@ export class BitcoinRpcService implements OnModuleInit {
                     }
                 }
 
-                result = await this.client.getblocktemplate({
-                    template_request: {
-                        rules: ['segwit'],
-                        mode: 'template',
-                        capabilities: ['serverlist', 'proposal']
-                    }
-                });
+                while (result == null) {
+                    result = await this.client.getblocktemplate({
+                        template_request: {
+                            rules: ['segwit'],
+                            mode: 'template',
+                            capabilities: ['serverlist', 'proposal']
+                        }
+                    });
+                }
                 await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(result));
 
             } else {
