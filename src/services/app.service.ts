@@ -30,7 +30,7 @@ export class AppService implements OnModuleInit {
         // //6Gb
         // await this.dataSource.query(`PRAGMA mmap_size = 6000000000;`);
 
-        if (process.env.ENABLE_SOLO == 'true' && (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0')) {
+        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
 
             setInterval(async () => {
                 await this.deleteOldStatistics();
