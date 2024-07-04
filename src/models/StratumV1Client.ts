@@ -51,7 +51,8 @@ export class StratumV1Client {
     public noFee: boolean;
     public hashRate: number;
 
-
+    private buffer: string = '';
+    
     constructor(
         public readonly socket: Socket,
         private readonly stratumV1JobsService: StratumV1JobsService,
@@ -65,8 +66,11 @@ export class StratumV1Client {
     ) {
 
         this.socket.on('data', (data: Buffer) => {
-            data.toString()
-                .split('\n')
+            this.buffer += data.toString();
+            let lines = this.buffer.split('\n');
+            this.buffer = lines.pop() || ''; // Save the last part of the data (incomplete line) to the buffer
+
+            lines
                 .filter(m => m.length > 0)
                 .forEach(async (m) => {
                     try {
@@ -75,7 +79,7 @@ export class StratumV1Client {
                         await this.socket.end();
                         console.error(e);
                     }
-                })
+                });
         });
 
 
