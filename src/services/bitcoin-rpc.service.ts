@@ -93,10 +93,10 @@ export class BitcoinRpcService implements OnModuleInit {
 
             const block = await this.rpcBlockService.getBlock(blockHeight);
             if (block != null && block.data != null) {
-                console.log('promise loop resolved');
+                console.log(`promise loop resolved, block height ${blockHeight}`);
                 return Promise.resolve(JSON.parse(block.data));
             }
-            console.log('promise loop');
+            console.log(`promise loop, block height ${blockHeight}`);
         }
     }
 
@@ -128,7 +128,13 @@ export class BitcoinRpcService implements OnModuleInit {
                         }
                     });
                 }
-                await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(result));
+                
+                let saved = false;
+                while(!saved){
+                    let saveResult = await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(result));
+                    saved = saveResult.affected > 0;
+                }
+                
 
             } else {
                 //wait for block
