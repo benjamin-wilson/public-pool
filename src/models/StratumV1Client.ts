@@ -587,9 +587,9 @@ export class StratumV1Client {
 
             await this.socket.write(data);
 
-
-            // we need to clear the jobs so that the difficulty set takes effect. Otherwise the different miner implementations can cause issues
             const jobTemplate = await firstValueFrom(this.stratumV1JobsService.newMiningJob$);
+            // we need to clear the jobs so that the difficulty set takes effect. Otherwise the different miner implementations can cause issues
+            jobTemplate.blockData.clearJobs = true;
             await this.sendNewMiningJob(jobTemplate);
 
         }
