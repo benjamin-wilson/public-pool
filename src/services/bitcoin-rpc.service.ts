@@ -103,13 +103,16 @@ export class BitcoinRpcService implements OnModuleInit {
     public async getBlockTemplate(blockHeight: number): Promise<IBlockTemplate> {
         let result: IBlockTemplate;
         try {
-
             const block = await this.rpcBlockService.getBlock(blockHeight);
+            const completeBlock = block?.data != null;
 
-            if (block != null && block.data != null) {
+            // If the block has already been loaded, and the same instance is fetching the template again, we just need to refresh it.
+            if (completeBlock && block.lockedBy == process.env.NODE_APP_INSTANCE) {
+                result = await this.loadBlockTemplate(blockHeight);
+            }
+            else if (completeBlock) {
                 return Promise.resolve(JSON.parse(block.data));
-            } else if (block == null) {
-
+            } else if (!completeBlock) {
                 if (process.env.NODE_APP_INSTANCE != null) {
                     // There is a unique constraint on the block height so if another process tries to lock, it'll throw
                     try {
@@ -118,38 +121,38 @@ export class BitcoinRpcService implements OnModuleInit {
                         result = await this.waitForBlock(blockHeight);
                     }
                 }
-
-                while (result == null) {
-                    result = await this.client.getblocktemplate({
-                        template_request: {
-                            rules: ['segwit'],
-                            mode: 'template',
-                            capabilities: ['serverlist', 'proposal']
-                        }
-                    });
-                }
-                
-                let saved = false;
-                while(!saved){
-                    let saveResult = await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(result));
-                    saved = saveResult.affected > 0;
-                }
-                
-
+                result = await this.loadBlockTemplate(blockHeight);
             } else {
                 //wait for block
                 result = await this.waitForBlock(blockHeight);
-
             }
-
-
-
         } catch (e) {
             console.error('Error getblocktemplate:', e.message);
             throw new Error('Error getblocktemplate');
         }
         console.log(`getblocktemplate tx count: ${result.transactions.length}`);
         return result;
+    }
+
+    private async loadBlockTemplate(blockHeight: number) {
+
+        let blockTemplate: IBlockTemplate;
+        while (blockTemplate == null) {
+            blockTemplate = await this.client.getblocktemplate({
+                template_request: {
+                    rules: ['segwit'],
+                    mode: 'template',
+                    capabilities: ['serverlist', 'proposal']
+                }
+            });
+        }
+
+        let saved = false;
+        while (!saved) {
+            let saveResult = await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(blockTemplate));
+            saved = saveResult.affected > 0;
+        }
+        return blockTemplate;
     }
 
     public async getMiningInfo(): Promise<IMiningInfo> {
