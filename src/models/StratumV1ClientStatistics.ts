@@ -2,9 +2,10 @@ import { ClientStatisticsService } from '../ORM/client-statistics/client-statist
 import { ClientEntity } from '../ORM/client/client.entity';
 
 const CACHE_SIZE = 30;
-const TARGET_SUBMISSION_PER_SECOND = 30;
 const MIN_DIFF = 0.001;
 export class StratumV1ClientStatistics {
+
+    public targetSubmitShareEveryNSeconds: number = 60;
 
     private shares: number = 0;
     private acceptedCount: number = 0;
@@ -16,7 +17,7 @@ export class StratumV1ClientStatistics {
     private lastSave: number = null;
 
     constructor(
-        private readonly clientStatisticsService: ClientStatisticsService
+        private readonly clientStatisticsService: ClientStatisticsService,
     ) {
         this.submissionCacheStart = new Date();
     }
@@ -124,7 +125,7 @@ export class StratumV1ClientStatistics {
 
         const difficultyPerSecond = sum / diffSeconds;
 
-        const targetDifficulty = difficultyPerSecond * TARGET_SUBMISSION_PER_SECOND;
+        const targetDifficulty = difficultyPerSecond * this.targetSubmitShareEveryNSeconds;
 
         if ((clientDifficulty * 2) < targetDifficulty || (clientDifficulty / 2) > targetDifficulty) {
             return this.nearestPowerOfTwo(targetDifficulty)
