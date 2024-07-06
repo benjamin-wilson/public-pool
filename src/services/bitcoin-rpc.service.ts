@@ -147,11 +147,9 @@ export class BitcoinRpcService implements OnModuleInit {
             });
         }
 
-        let saved = false;
-        while (!saved) {
-            let saveResult = await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(blockTemplate));
-            saved = saveResult.affected > 0;
-        }
+
+        await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(blockTemplate));
+
         return blockTemplate;
     }
 
