@@ -229,13 +229,12 @@ export class StratumV1Client {
                         return;
                     }
                 } else {
-                    console.error('Authorization validation error');
                     const err = new StratumErrorMessage(
                         authorizationMessage.id,
                         eStratumErrorCode.OtherUnknown,
                         'Authorization validation error',
                         errors).response();
-                    console.error(err);
+                    console.log(err);
                     const success = await this.write(err);
                     if (!success) {
                         return;

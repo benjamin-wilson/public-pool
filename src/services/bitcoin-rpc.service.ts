@@ -49,7 +49,7 @@ export class BitcoinRpcService implements OnModuleInit {
                 console.log('ZMQ Connected');
             });
             sock.events.on('connect:retry', () => {
-                console.log('ZMQ Unable to connect, Retrying');
+                console.error('ZMQ Unable to connect, Retrying');
             });
 
             sock.connect(this.configService.get('BITCOIN_ZMQ_HOST'));
