@@ -543,7 +543,7 @@ export class StratumV1Client {
                     submission.id,
                     eStratumErrorCode.DuplicateShare,
                     'Duplicate share').response();
-                console.error(err);
+                console.log(err);
                 const success = await this.write(err);
                 if (!success) {
                     return false;
