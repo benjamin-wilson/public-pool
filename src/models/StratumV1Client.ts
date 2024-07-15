@@ -477,14 +477,29 @@ export class StratumV1Client {
 
         const job = this.stratumV1JobsService.getJobById(submission.jobId);
 
-        const jobTemplate = this.stratumV1JobsService.getJobTemplateById(job.jobTemplateId);
+
 
         // a miner may submit a job that doesn't exist anymore if it was removed by a new block notification
-        if (job == null || jobTemplate == null) {
+        if (job == null) {
             const err = new StratumErrorMessage(
                 submission.id,
                 eStratumErrorCode.JobNotFound,
                 'Job not found').response();
+            //console.log(err);
+            const success = await this.write(err);
+            if (!success) {
+                return false;
+            }
+            return false;
+        }
+
+        const jobTemplate = this.stratumV1JobsService.getJobTemplateById(job.jobTemplateId);
+
+        if (jobTemplate == null) {
+            const err = new StratumErrorMessage(
+                submission.id,
+                eStratumErrorCode.JobNotFound,
+                'Job Template not found').response();
             //console.log(err);
             const success = await this.write(err);
             if (!success) {
