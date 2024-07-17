@@ -49,7 +49,7 @@ export class StratumV1Client {
     public extraNonceAndSessionId: string;
     public sessionStart: Date;
     public noFee: boolean;
-    public hashRate: number;
+    public hashRate: number = 0;
 
     private buffer: string = '';
     
