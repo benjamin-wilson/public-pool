@@ -316,7 +316,7 @@ export class StratumV1Client {
 
 
                 } else {
-                    console.error('Mining Submit validation error');
+                    console.log('Mining Submit validation error');
                     const err = new StratumErrorMessage(
                         miningSubmitMessage.id,
                         eStratumErrorCode.OtherUnknown,
