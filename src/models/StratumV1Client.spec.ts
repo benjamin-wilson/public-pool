@@ -108,7 +108,7 @@ describe('StratumV1Client', () => {
 
         configService = moduleRef.get<ConfigService>(ConfigService);
 
-        bitcoinRpcService = new MockBitcoinRpcService(configService,null);
+        bitcoinRpcService = new MockBitcoinRpcService(configService, null);
         jest.spyOn(bitcoinRpcService, 'getBlockTemplate').mockReturnValue(Promise.resolve(MockRecording1.BLOCK_TEMPLATE));
         bitcoinRpcService.newBlock$ = newBlockEmitter.asObservable();
 

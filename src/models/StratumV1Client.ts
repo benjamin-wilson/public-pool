@@ -53,7 +53,7 @@ export class StratumV1Client {
     public hashRate: number = 0;
 
     private buffer: string = '';
-    
+
     constructor(
         public readonly socket: Socket,
         private readonly stratumV1JobsService: StratumV1JobsService,
@@ -418,6 +418,7 @@ export class StratumV1Client {
         }
 
         const job = new MiningJob(
+            this.configService,
             network,
             this.stratumV1JobsService.getNextId(),
             payoutInformation,
