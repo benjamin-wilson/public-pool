@@ -4,8 +4,10 @@ import * as bitcoinjs from 'bitcoinjs-lib';
 import { IJobTemplate } from '../services/stratum-v1-jobs.service';
 import { eResponseMethod } from './enums/eResponseMethod';
 import { IMiningNotify } from './stratum-messages/IMiningNotify';
+import { ConfigService } from '@nestjs/config';
 
-
+const MAX_BLOCK_WEIGHT = 4000000;
+const MAX_SCRIPT_SIZE = 100; //   https://github.com/bitcoin/bitcoin/blob/ffdc3d6060f6e65e69cf115a13b83e6eb4a0a0a8/src/consensus/tx_check.cpp#L49
 interface AddressObject {
     address: string;
     percent: number;
@@ -21,6 +23,7 @@ export class MiningJob {
 
 
     constructor(
+        configService: ConfigService,
         private network: bitcoinjs.networks.Network,
         public jobId: string,
         payoutInformation: AddressObject[],
@@ -39,7 +42,9 @@ export class MiningJob {
         //    32-byte - Commitment hash: Double-SHA256(witness root hash|witness reserved value)
 
         //    39th byte onwards: Optional data with no consensus meaning
-        const extra = Buffer.from('Public-Pool');
+        // Initial pool identifier
+        let poolIdentifier = configService.get('POOL_IDENTIFIER') || 'Public-Pool';
+        let extra = Buffer.from(poolIdentifier);
 
         // Encode the block height
         // https://github.com/bitcoin/bips/blob/master/bip-0034.mediawiki
@@ -48,13 +53,26 @@ export class MiningJob {
         // Get the length of the block height encoding
         const blockHeightLengthByte = Buffer.from([blockHeightEncoded.length]);
 
-        // generate padding and take length of encode blockHeight into account
+        // Generate padding and take length of encode blockHeight into account
         const padding = Buffer.alloc(8 + (3 - blockHeightEncoded.length), 0)
 
-        // build the script
-        this.coinbaseTransaction.ins[0].script = Buffer.concat([blockHeightLengthByte, blockHeightEncoded, extra, padding])
+        // Build the script
+        let script = Buffer.concat([blockHeightLengthByte, blockHeightEncoded, extra, padding]);
+        // Check if the pool identifier is too long
+        if (script.length > MAX_SCRIPT_SIZE) {
+            console.warn('Pool identifier is too long, removing the pool identifier');
+            script = Buffer.concat([blockHeightLengthByte, blockHeightEncoded, padding]);
+        }
 
+        this.coinbaseTransaction.ins[0].script = script;
         this.coinbaseTransaction.addOutput(bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, jobTemplate.block.witnessCommit])]), 0);
+
+        // Check if the pool identifier is too long
+        if ((this.coinbaseTransaction.weight() + jobTemplate.block.weight()) > MAX_BLOCK_WEIGHT) {
+            console.warn('Block weight exceeds the maximum allowed weight, removing the pool identifier');
+            let script = Buffer.concat([blockHeightLengthByte, blockHeightEncoded, padding]);
+            this.coinbaseTransaction.ins[0].script = script;
+        }
 
         // get the non-witness coinbase tx
         //@ts-ignore
