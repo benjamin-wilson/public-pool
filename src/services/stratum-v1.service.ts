@@ -33,12 +33,15 @@ export class StratumV1Service implements OnModuleInit {
       if (process.env.NODE_APP_INSTANCE == '0') {
         await this.clientService.deleteAll();
       }
-      this.startSocketServer();
-
+      setTimeout(() => {
+        process.env.STRATUM_PORTS.split(',').forEach(port =>{
+          this.startSocketServer(parseInt(port));
+        });
+      }, 1000 * 10)
 
   }
 
-  private startSocketServer() {
+  private startSocketServer(port: number) {
     const server = new Server(async (socket: Socket) => {
 
       //10 min
@@ -78,8 +81,8 @@ export class StratumV1Service implements OnModuleInit {
 
     });
 
-    server.listen(process.env.STRATUM_PORT, () => {
-      console.log(`Stratum server is listening on port ${process.env.STRATUM_PORT}`);
+    server.listen(port, () => {
+      console.log(`Stratum server is listening on port ${port}`);
     });
 
   }
