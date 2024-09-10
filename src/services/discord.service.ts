@@ -34,7 +34,7 @@ export class DiscordService implements OnModuleInit {
 
 
     constructor(private readonly configService: ConfigService) {
-        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+        if (process.env.MASTER == 'true') {
             this.token = this.configService.get('DISCORD_BOT_TOKEN');
             this.clientId = this.configService.get('DISCORD_BOT_CLIENTID');
             this.guildId = this.configService.get('DISCORD_BOT_GUILD_ID');
@@ -61,7 +61,7 @@ export class DiscordService implements OnModuleInit {
 
     async onModuleInit(): Promise<void> {
 
-        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+        if (process.env.MASTER == 'true') {
             if (this.bot == null) {
                 return;
             }
@@ -93,7 +93,7 @@ export class DiscordService implements OnModuleInit {
     }
 
     private async registerCommands() {
-        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+        if (process.env.MASTER == 'true') {
             const rest = new REST().setToken(this.token);
             try {
                 console.log(`Started refreshing ${commands.length} application (/) commands.`);
@@ -113,7 +113,7 @@ export class DiscordService implements OnModuleInit {
     }
 
     public async notifyRestarted() {
-        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+        if (process.env.MASTER == 'true') {
             if (this.bot == null) {
                 return;
             }
@@ -125,7 +125,7 @@ export class DiscordService implements OnModuleInit {
     }
 
     public async notifySubscribersBlockFound(height: number, block: Block, message: string) {
-        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+        if (process.env.MASTER == 'true') {
             if (this.bot == null) {
                 return;
             }

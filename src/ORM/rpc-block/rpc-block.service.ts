@@ -18,10 +18,6 @@ export class RpcBlockService {
         });
     }
 
-    public lockBlock(blockHeight: number, process: string) {
-        return this.rpcBlockRepository.save({ blockHeight, data: null, lockedBy: process });
-    }
-
     public saveBlock(blockHeight: number, data: string) {
         return this.rpcBlockRepository.update(blockHeight, { data })
     }
