@@ -14,6 +14,7 @@ module.exports = {
         name: 'workers',
         script: './dist/main.js',
         instances: 31,
+        exec_mode: "cluster",
         env: {
           MASTER: 'false',
         },
