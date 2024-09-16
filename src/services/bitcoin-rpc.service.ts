@@ -118,6 +118,8 @@ export class BitcoinRpcService implements OnModuleInit {
 
     private async loadBlockTemplate(blockHeight: number) {
 
+        console.log(`Master fetching block ${blockHeight}`);
+
         let blockTemplate: IBlockTemplate;
         while (blockTemplate == null) {
             blockTemplate = await this.client.getblocktemplate({
@@ -129,8 +131,13 @@ export class BitcoinRpcService implements OnModuleInit {
             });
         }
 
+        try{
+            console.log(`Saving block ${blockHeight}`);
+            await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(blockTemplate));
 
-        await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(blockTemplate));
+        }catch(e){
+            console.log('Error saving block', e.message);
+        }
 
         return blockTemplate;
     }
