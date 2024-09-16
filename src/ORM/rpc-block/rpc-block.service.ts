@@ -19,7 +19,7 @@ export class RpcBlockService {
     }
 
     public saveBlock(blockHeight: number, data: string) {
-        return this.rpcBlockRepository.update(blockHeight, { data });
+        return this.rpcBlockRepository.save( {blockHeight, data });
     }
 
     public async deleteOldBlocks() {
