@@ -98,14 +98,13 @@ export class BitcoinRpcService implements OnModuleInit {
             const block = await this.rpcBlockService.getBlock(blockHeight);
             const completeBlock = block?.data != null;
 
+            if(process.env.MASTER == 'true'){
+                result = await this.loadBlockTemplate(blockHeight);
+            }
 
             if (completeBlock) {
                 return Promise.resolve(JSON.parse(block.data));
-            }
-
-            if(process.env.MASTER == 'true'){
-                result = await this.loadBlockTemplate(blockHeight);
-            }else{
+            } else{
                 result = await this.waitForBlock(blockHeight);
             }
 
