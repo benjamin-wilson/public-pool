@@ -5,7 +5,7 @@ const CACHE_SIZE = 30;
 const MIN_DIFF = 0.001;
 export class StratumV1ClientStatistics {
 
-    public targetSubmitShareEveryNSeconds: number = 60;
+    public targetSubmitShareEveryNSeconds: number = 30;
 
     private shares: number = 0;
     private acceptedCount: number = 0;
