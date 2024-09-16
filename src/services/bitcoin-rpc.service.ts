@@ -98,9 +98,7 @@ export class BitcoinRpcService implements OnModuleInit {
             const block = await this.rpcBlockService.getBlock(blockHeight);
             const completeBlock = block?.data != null;
 
-            console.log('process.env.MASTER')
-            console.log(process.env.MASTER);
-            console.log(typeof process.env.MASTER);
+
             if(process.env.MASTER == 'true'){
                 result = await this.loadBlockTemplate(blockHeight);
             }
@@ -139,7 +137,7 @@ export class BitcoinRpcService implements OnModuleInit {
             await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(blockTemplate));
 
         }catch(e){
-            console.log('Error saving block', e.message);
+            console.error('Error saving block', e);
         }
 
         return blockTemplate;
