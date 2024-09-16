@@ -137,6 +137,7 @@ export class BitcoinRpcService implements OnModuleInit {
             const result = await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(blockTemplate));
             if(result.affected < 1){
                 console.error('Block was not saved');
+                console.error(result.raw);
             }else {
                 console.log('block saved');
             }
