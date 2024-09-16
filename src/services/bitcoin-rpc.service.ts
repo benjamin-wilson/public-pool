@@ -98,16 +98,17 @@ export class BitcoinRpcService implements OnModuleInit {
             const block = await this.rpcBlockService.getBlock(blockHeight);
             const completeBlock = block?.data != null;
 
-            // If the block has already been loaded, and the same instance is fetching the template again, we just need to refresh it.
-            if (completeBlock && process.env.MASTER == 'true') {
-                result = await this.loadBlockTemplate(blockHeight);
-            }
-            else if (completeBlock) {
+
+            if (completeBlock) {
                 return Promise.resolve(JSON.parse(block.data));
-            }else {
-                //wait for block
+            }
+
+            if(process.env.MASTER == 'true'){
+                result = await this.loadBlockTemplate(blockHeight);
+            }else{
                 result = await this.waitForBlock(blockHeight);
             }
+
         } catch (e) {
             console.error('Error getblocktemplate:', e.message);
             throw new Error('Error getblocktemplate');
