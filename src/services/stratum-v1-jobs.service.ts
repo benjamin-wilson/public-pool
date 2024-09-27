@@ -66,13 +66,14 @@ export class StratumV1JobsService {
 
                 this.lastIntervalCount = interval;
 
+                const currentTime = Math.floor(new Date().getTime() / 1000);
                 return {
                     version: blockTemplate.version,
                     bits: parseInt(blockTemplate.bits, 16),
                     prevHash: this.convertToLittleEndian(blockTemplate.previousblockhash),
                     transactions: blockTemplate.transactions.map(t => bitcoinjs.Transaction.fromHex(t.data)),
                     coinbasevalue: blockTemplate.coinbasevalue,
-                    timestamp: Math.floor(new Date().getTime() / 1000),
+                    timestamp: blockTemplate.mintime > currentTime ? blockTemplate.mintime : currentTime,
                     networkDifficulty: this.calculateNetworkDifficulty(parseInt(blockTemplate.bits, 16)),
                     clearJobs,
                     height: blockTemplate.height
