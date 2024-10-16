@@ -41,7 +41,7 @@ export class SubscriptionMessage extends StratumBaseMessage {
 
     public static refineUserAgent(userAgent: string): string {
         // return userAgent;
-        userAgent = userAgent.split(' ')[0].split('/')[0].split('V')[0];
+        userAgent = userAgent.split(' ')[0].split('/')[0].split('V')[0].split('-')[0];
 
         if (userAgent.includes('bosminer') || userAgent.includes('bOS')) {
             userAgent = 'Braiins OS';
