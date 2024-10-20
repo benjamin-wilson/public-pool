@@ -391,8 +391,6 @@ export class StratumV1Client {
                 { address: this.clientAuthorization.address, percent: this.calculateMinerFeeWithDevFee(devFee) }
             ];
         }
-        
-        console.log("payoutInformation: ", payoutInformation);
 
         const networkConfig = this.configService.get('NETWORK');
         let network;
