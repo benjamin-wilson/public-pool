@@ -374,13 +374,12 @@ export class StratumV1Client {
         const devFee = this.configService.get('DEV_FEE');
         const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
         
-        // 50Th/s
         if (this.entity) {
             this.hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientAuthorization.address, this.clientAuthorization.worker, this.extraNonceAndSessionId);
-            this.noFee = this.hashRate != 0 && this.hashRate < 50000000000000;
+            this.noFee = this.hashRate != 0 && this.hashRate < 50000000000000; // 50Th/s
         }
 
-        const applyDevFee = this.noFee && devFeeAddress && devFeeAddress.length > 0 && !isNaN(devFee) && devFee > 0;
+        const applyDevFee = !this.noFee && devFeeAddress && devFeeAddress.length > 0 && !isNaN(devFee) && devFee > 0;
         if (!applyDevFee) {
             payoutInformation = [
                 { address: this.clientAuthorization.address, percent: 100 }
