@@ -49,7 +49,7 @@ export class StratumV1Client {
 
     public extraNonceAndSessionId: string;
     public sessionStart: Date;
-    public noFee: boolean = false;
+    public shouldApplyFee: boolean = false;
     public hashRate: number = 0;
 
     private buffer: string = '';
@@ -376,18 +376,18 @@ export class StratumV1Client {
         
         if (this.entity) {
             this.hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientAuthorization.address, this.clientAuthorization.worker, this.extraNonceAndSessionId);
-            this.noFee = this.hashRate != 0 && this.hashRate < 50000000000000; // 50Th/s
+            this.shouldApplyFee = this.hashRate != 0 && this.hashRate > 50000000000000; // 50Th/s
         }
 
-        const applyDevFee = this.noFee && devFeeAddress && devFeeAddress.length > 0 && !isNaN(devFee) && devFee > 0;
-        if (!applyDevFee) {
-            payoutInformation = [
-                { address: this.clientAuthorization.address, percent: 100 }
-            ];
-        } else {
+        const applyDevFee = this.shouldApplyFee && devFeeAddress && devFeeAddress.length > 0 && !isNaN(devFee) && devFee > 0;
+        if (applyDevFee) {
             payoutInformation = [
                 { address: devFeeAddress, percent: devFee },
                 { address: this.clientAuthorization.address, percent: this.calculateMinerFeeWithDevFee(devFee) }
+            ];
+        } else {
+            payoutInformation = [
+                { address: this.clientAuthorization.address, percent: 100 }
             ];
         }
 
