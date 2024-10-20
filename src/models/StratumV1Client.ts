@@ -425,7 +425,12 @@ export class StratumV1Client {
     
     private calculateMinerFeeWithDevFee(devFee: number): number {
         const maxFee = 100;
-        return maxFee - devFee;
+        const defaultFee = 1.5;
+
+        // Ensure the devFee is below 100, otherwise default to 1.5
+        const feeToUse = devFee > maxFee ? defaultFee : devFee;
+
+        return maxFee - feeToUse;
     }
 
     private async handleMiningSubmission(submission: MiningSubmitMessage) {
