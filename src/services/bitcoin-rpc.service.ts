@@ -106,7 +106,7 @@ export class BitcoinRpcService implements OnModuleInit {
         }
     }
 
-    public async getBlockTemplate(blockHeight: number): Promise<IBlockTemplate> {
+    public async getBlockTemplate(blockHeight: number): Promise<IBlockTemplate | null> {
         let result: IBlockTemplate | null = null;
 
         try {
