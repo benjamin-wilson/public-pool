@@ -41,10 +41,13 @@ export class BitcoinRpcService implements OnModuleInit {
 
         this.client = new RPCClient({ url, port, timeout, user, pass });
 
-        this.client.getrpcinfo().then((res) => {
+        this.client.getrpcinfo().then(() => {
             console.log('Bitcoin RPC connected');
         }, () => {
             console.error('Could not reach RPC host');
+        })
+        .catch((err) => {
+            console.error('Error connecting to RPC host. Error: ', err);
         });
 
         if (this.configService.get('BITCOIN_ZMQ_HOST')) {
@@ -58,6 +61,9 @@ export class BitcoinRpcService implements OnModuleInit {
             });
             sock.events.on('connect:retry', () => {
                 console.log('ZMQ Unable to connect, Retrying');
+            });
+            sock.events.on('close:error', () => {
+                console.log('ZMQ Connection Closed with error');
             });
 
             sock.connect(this.configService.get('BITCOIN_ZMQ_HOST'));
@@ -101,7 +107,8 @@ export class BitcoinRpcService implements OnModuleInit {
     }
 
     public async getBlockTemplate(blockHeight: number): Promise<IBlockTemplate> {
-        let result: IBlockTemplate;
+        let result: IBlockTemplate | null = null;
+
         try {
             const block = await this.rpcBlockService.getBlock(blockHeight);
             const completeBlock = block?.data != null;
@@ -128,9 +135,8 @@ export class BitcoinRpcService implements OnModuleInit {
             }
         } catch (e) {
             console.error('Error getblocktemplate:', e.message);
-            throw new Error('Error getblocktemplate');
         }
-        console.log(`getblocktemplate tx count: ${result.transactions.length}`);
+        console.log(`getblocktemplate tx count: ${result?.transactions?.length ?? 0}`);
         return result;
     }
 
@@ -146,7 +152,6 @@ export class BitcoinRpcService implements OnModuleInit {
                 }
             });
         }
-
 
         await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(blockTemplate));
 
