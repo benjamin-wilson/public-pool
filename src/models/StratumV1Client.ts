@@ -41,7 +41,7 @@ export class StratumV1Client {
     private statistics: StratumV1ClientStatistics;
     private stratumInitialized = false;
     private usedSuggestedDifficulty = false;
-    private sessionDifficulty: number = 1000000;
+    private sessionDifficulty: number = 100000;
 
     private clientEntity: ClientEntity;
     private creatingEntity: Promise<void>;
