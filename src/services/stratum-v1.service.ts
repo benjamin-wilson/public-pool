@@ -69,7 +69,7 @@ export class StratumV1Service implements OnModuleInit {
       });
 
       socket.on('timeout', () => {
-        console.log(`socket timeout ${socket.remoteAddress}, ${socket.bytesRead}/${socket.bytesWritten}`);
+        console.log(`socket timeout ${socket.remoteAddress}, ${socket.bytesRead}/${socket.bytesWritten}, ${client.clientSubscription?.userAgent}`);
         socket.end();
         socket.destroy();
       });

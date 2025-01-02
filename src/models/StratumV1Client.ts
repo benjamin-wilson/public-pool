@@ -31,7 +31,7 @@ import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
 
 export class StratumV1Client {
 
-    private clientSubscription: SubscriptionMessage;
+    public clientSubscription: SubscriptionMessage;
     private clientConfiguration: ConfigurationMessage;
     private clientAuthorization: AuthorizationMessage;
     private clientSuggestedDifficulty: SuggestDifficulty;
