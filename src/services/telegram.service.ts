@@ -13,11 +13,11 @@ export class TelegramService implements OnModuleInit {
 
     private bot: TelegramBot;
     private diffNotificaitons: string;
+    private numberSuffix: NumberSuffix;
 
     constructor(
         private readonly configService: ConfigService,
-        private readonly telegramSubscriptionsService: TelegramSubscriptionsService,
-        private readonly numberSuffix: NumberSuffix
+        private readonly telegramSubscriptionsService: TelegramSubscriptionsService
     ) {
         const token: string | null = this.configService.get('TELEGRAM_BOT_TOKEN');
 
@@ -27,6 +27,8 @@ export class TelegramService implements OnModuleInit {
         this.bot = new TelegramBot(token, { polling: true });
 
         console.log('Telegram bot init');
+
+        this.numberSuffix = new NumberSuffix();
 
         this.diffNotificaitons = this.configService.get('TELEGRAM_DIFF_NOTIFICATIONS') || 'false';
     }
@@ -84,7 +86,7 @@ export class TelegramService implements OnModuleInit {
 
         const subscribers = await this.telegramSubscriptionsService.getSubscriptions(address);
         subscribers.forEach(subscriber => {
-            this.bot.sendMessage(subscriber.telegramChatId, `New Best Diff! Result: ${this.numberSuffix.Convert(submissionDifficulty)}`);
+            this.bot.sendMessage(subscriber.telegramChatId, `New Best Diff! Result: ${this.numberSuffix.to(submissionDifficulty)}`);
         });
     }
 

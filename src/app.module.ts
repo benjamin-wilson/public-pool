@@ -33,8 +33,7 @@ const ORMModules = [
     AddressSettingsModule,
     TelegramSubscriptionsModule,
     BlocksModule,
-    RpcBlocksModule,
-    NumberSuffix
+    RpcBlocksModule
 ]
 
 @Module({
