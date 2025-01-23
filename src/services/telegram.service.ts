@@ -44,7 +44,7 @@ export class TelegramService implements OnModuleInit {
             }
 
             const subscribers = await this.telegramSubscriptionsService.getSubscriptions(address);
-            if (subscribers.count == 0) {
+            if (subscribers.Count() == 0) {
                 await this.telegramSubscriptionsService.saveSubscription(msg.chat.id, address);
                 this.bot.sendMessage(msg.chat.id, "Subscribed!");
             }
