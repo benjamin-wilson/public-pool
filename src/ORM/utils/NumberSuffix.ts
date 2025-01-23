@@ -20,7 +20,7 @@ export class NumberSuffix implements ValueTransformer {
       return scaledValue.toFixed(2) + suffix;
     }
     from(value: any): number {
-      //never called
+      //never
       return 1;
     }
   }

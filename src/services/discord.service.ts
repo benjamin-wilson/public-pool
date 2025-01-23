@@ -2,7 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Block } from 'bitcoinjs-lib';
 import { Client, Collection, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder, TextChannel } from 'discord.js';
-import { NumberSuffix } from './NumberSuffix';
+import { NumberSuffix } from '../ORM/utils/NumberSuffix';
 
 interface IDiscordCommand {
     data: SlashCommandBuilder;
