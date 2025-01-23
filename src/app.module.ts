@@ -70,8 +70,7 @@ const ORMModules = [
         BitcoinAddressValidator,
         StratumV1JobsService,
         BTCPayService,
-        BraiinsService,
-        NumberSuffix
+        BraiinsService
     ],
 })
 export class AppModule {
