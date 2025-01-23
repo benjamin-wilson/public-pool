@@ -16,7 +16,8 @@ export class TelegramService implements OnModuleInit {
 
     constructor(
         private readonly configService: ConfigService,
-        private readonly telegramSubscriptionsService: TelegramSubscriptionsService
+        private readonly telegramSubscriptionsService: TelegramSubscriptionsService,
+        private readonly numberSuffix: NumberSuffix
     ) {
         const token: string | null = this.configService.get('TELEGRAM_BOT_TOKEN');
 
@@ -83,7 +84,7 @@ export class TelegramService implements OnModuleInit {
 
         const subscribers = await this.telegramSubscriptionsService.getSubscriptions(address);
         subscribers.forEach(subscriber => {
-            this.bot.sendMessage(subscriber.telegramChatId, `New Best Diff! Result: ${NumberSuffix.to(submissionDifficulty)}`);
+            this.bot.sendMessage(subscriber.telegramChatId, `New Best Diff! Result: ${this.numberSuffix.Convert(submissionDifficulty)}`);
         });
     }
 

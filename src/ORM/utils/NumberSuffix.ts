@@ -1,8 +1,10 @@
-import { ValueTransformer } from 'typeorm';
 
-export class NumberSuffix implements ValueTransformer {
+import { Injectable } from '@nestjs/common';
 
-    to(value: number): string {
+@Injectable()
+export class NumberSuffix {
+
+   public Convert(value: number): string {
   
       const suffixes = ['', 'k', 'M', 'G', 'T', 'P', 'E'];
   
@@ -18,9 +20,5 @@ export class NumberSuffix implements ValueTransformer {
       const suffix = suffixes[power];
   
       return scaledValue.toFixed(2) + suffix;
-    }
-    from(value: any): number {
-      //never
-      return 1;
     }
   }

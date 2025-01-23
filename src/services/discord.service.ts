@@ -35,7 +35,7 @@ export class DiscordService implements OnModuleInit {
     private commandCollection: Collection<string, IDiscordCommand>;
 
 
-    constructor(private readonly configService: ConfigService) {
+    constructor(private readonly configService: ConfigService, private readonly numberSuffix: NumberSuffix) {
         if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
             this.token = this.configService.get('DISCORD_BOT_TOKEN');
             this.clientId = this.configService.get('DISCORD_BOT_CLIENTID');
@@ -153,7 +153,7 @@ export class DiscordService implements OnModuleInit {
 
             const guild = await this.bot.guilds.fetch(this.guildId);
             const channel = await guild.channels.fetch(this.channelId) as TextChannel;
-            channel.send(`New Best Diff! Result: ${NumberSuffix.to(submissionDifficulty)}`);
+            channel.send(`New Best Diff! Result: ${this.numberSuffix.Convert(submissionDifficulty)}`);
         }
 
     }
