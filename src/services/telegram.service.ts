@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { validate } from 'bitcoin-address-validation';
 import { Block } from 'bitcoinjs-lib';
 import * as TelegramBot from 'node-telegram-bot-api';
+import { NumberSuffix } from './NumberSuffix';
 
 import { TelegramSubscriptionsService } from '../ORM/telegram-subscriptions/telegram-subscriptions.service';
 
@@ -11,19 +12,22 @@ import { TelegramSubscriptionsService } from '../ORM/telegram-subscriptions/tele
 export class TelegramService implements OnModuleInit {
 
     private bot: TelegramBot;
+    private diffNotificaitons: string;
 
     constructor(
         private readonly configService: ConfigService,
         private readonly telegramSubscriptionsService: TelegramSubscriptionsService
     ) {
         const token: string | null = this.configService.get('TELEGRAM_BOT_TOKEN');
+
         if (token == null || token.length < 1) {
             return;
         }
         this.bot = new TelegramBot(token, { polling: true });
+
         console.log('Telegram bot init');
 
-
+        this.diffNotificaitons = this.configService.get('TELEGRAM_DIFF_NOTIFICATIONS') || 'false';
     }
 
     async onModuleInit(): Promise<void> {
@@ -38,8 +42,15 @@ export class TelegramService implements OnModuleInit {
                 this.bot.sendMessage(msg.chat.id, "Invalid address.");
                 return;
             }
-            await this.telegramSubscriptionsService.saveSubscription(msg.chat.id, address);
-            this.bot.sendMessage(msg.chat.id, "Subscribed!");
+
+            const subscribers = await this.telegramSubscriptionsService.getSubscriptions(address);
+            if (subscribers.count == 0) {
+                await this.telegramSubscriptionsService.saveSubscription(msg.chat.id, address);
+                this.bot.sendMessage(msg.chat.id, "Subscribed!");
+            }
+            else {
+                this.bot.sendMessage(msg.chat.id, "Already Subscribed!");
+            }
         });
 
         this.bot.onText(/\/start/, (msg) => {
@@ -61,4 +72,19 @@ export class TelegramService implements OnModuleInit {
             this.bot.sendMessage(subscriber.telegramChatId, `Block Found! Result: ${message}, Height: ${height}`);
         });
     }
+
+    public async notifySubscribersBestDiff(address: string, submissionDifficulty: number) {
+        if (this.bot == null) {
+            return;
+        }
+        if (this.diffNotificaitons.toLowerCase() == 'false') {
+            return;
+        }
+
+        const subscribers = await this.telegramSubscriptionsService.getSubscriptions(address);
+        subscribers.forEach(subscriber => {
+            this.bot.sendMessage(subscriber.telegramChatId, `New Best Diff! Result: ${NumberSuffix.to(submissionDifficulty)}`);
+        });
+    }
+
 }

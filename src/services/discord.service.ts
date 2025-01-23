@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Block } from 'bitcoinjs-lib';
 import { Client, Collection, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder, TextChannel } from 'discord.js';
+import { NumberSuffix } from './NumberSuffix';
 
 interface IDiscordCommand {
     data: SlashCommandBuilder;
@@ -28,6 +29,7 @@ export class DiscordService implements OnModuleInit {
     private clientId: string;
     private guildId: string;
     private channelId: string;
+    private diffNotificaitons: string;
 
     private bot: Client;
     private commandCollection: Collection<string, IDiscordCommand>;
@@ -56,6 +58,8 @@ export class DiscordService implements OnModuleInit {
             });
             this.bot = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
             this.bot.login(this.token);
+
+            this.diffNotificaitons = this.configService.get('DISCORD_DIFF_NOTIFICATIONS') || 'false';
         }
     }
 
@@ -134,5 +138,23 @@ export class DiscordService implements OnModuleInit {
             const channel = await guild.channels.fetch(this.channelId) as TextChannel;
             channel.send(`Block Found! Result: ${message}, Height: ${height}`);
         }
+    }
+
+    public async notifySubscribersBestDiff(submissionDifficulty: number) {
+
+        if (process.env.NODE_APP_INSTANCE == null || process.env.NODE_APP_INSTANCE == '0') {
+            if (this.bot == null) {
+                return;
+            }
+
+            if (this.diffNotificaitons.toLowerCase() == 'false') {
+                return;
+            }
+
+            const guild = await this.bot.guilds.fetch(this.guildId);
+            const channel = await guild.channels.fetch(this.channelId) as TextChannel;
+            channel.send(`New Best Diff! Result: ${NumberSuffix.to(submissionDifficulty)}`);
+        }
+
     }
 }

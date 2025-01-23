@@ -541,6 +541,9 @@ export class StratumV1Client {
             }
 
             if (submissionDifficulty > this.entity.bestDifficulty) {
+
+                await this.notificationService.notifySubscribersBestDiff(this.clientAuthorization.address, submissionDifficulty);
+
                 await this.clientService.updateBestDifficulty(this.extraNonceAndSessionId, submissionDifficulty);
                 this.entity.bestDifficulty = submissionDifficulty;
                 if (submissionDifficulty > (await this.addressSettingsService.getSettings(this.clientAuthorization.address, true)).bestDifficulty) {
