@@ -24,6 +24,8 @@ import { NotificationService } from './services/notification.service';
 import { StratumV1JobsService } from './services/stratum-v1-jobs.service';
 import { StratumV1Service } from './services/stratum-v1.service';
 import { TelegramService } from './services/telegram.service';
+import { ShareSubmissionService } from './services/share-submission.service';
+import { ShareController } from './controllers/share/share.controller';
 
 
 const ORMModules = [
@@ -56,7 +58,8 @@ const ORMModules = [
     controllers: [
         AppController,
         ClientController,
-        AddressController
+        AddressController,
+        ShareController
     ],
     providers: [
         DiscordService,
@@ -68,7 +71,8 @@ const ORMModules = [
         BitcoinAddressValidator,
         StratumV1JobsService,
         BTCPayService,
-        BraiinsService
+        BraiinsService,
+        ShareSubmissionService,
     ],
 })
 export class AppModule {
