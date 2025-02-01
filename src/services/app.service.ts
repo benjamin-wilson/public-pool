@@ -68,21 +68,16 @@ export class AppService implements OnModuleInit {
         console.log('Updating Chart');
 
         const latestGraphUpdate = await this.homeGraphService.getLatestTime();
-        const latestGraphUpdateMilliseconds = latestGraphUpdate.getTime();
-
-        const now = new Date();
-        const diffInMilliseconds = now.getTime() - latestGraphUpdateMilliseconds;
-        const latestGraphUpdateSeconds = Math.floor(diffInMilliseconds / 1000); // Convert milliseconds to seconds
 
 
         const data = await this.dataSource.query(`
             SELECT
                 time AS label,
-                ROUND(((SUM(shares) * 4294967296) / ${latestGraphUpdateSeconds})) AS data
+                ROUND(((SUM(shares) * 4294967296) / 600)) AS data
             FROM
                 client_statistics_entity AS entry
             WHERE
-                entry.time > ${latestGraphUpdateMilliseconds}
+                entry.time > ${latestGraphUpdate.getTime()}
             GROUP BY
                 time
             ORDER BY
