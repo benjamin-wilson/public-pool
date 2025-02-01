@@ -44,18 +44,25 @@ export class ShareController {
       throw new UnauthorizedException('Share difficulty too low');
     }
 
+    const timestamp = headerBuffer.readUInt32LE(68);
+    const tenMinutesAgo = Math.floor(Date.now() / 1000) - (10 * 60);
+    
+    if (timestamp < tenMinutesAgo) {
+      throw new UnauthorizedException('Share timestamp too old - must be within last 10 minutes');
+    }
+
     // Store the share statistics
     await this.clientStatisticsService.insert({
       address: submission.address,
       clientName: submission.worker,
       sessionId: submission.sessionId,
       time: new Date().getTime(),
-      shares: submission.difficulty,
+      shares: difficulty,
       acceptedCount: 1
     });
 
     // Update address settings with shares
-    await this.addressSettingsService.addShares(submission.address, submission.difficulty);
+    await this.addressSettingsService.addShares(submission.address, difficulty);
 
     // Update best difficulty if this share is better
     if (difficulty > (await this.addressSettingsService.getSettings(submission.address, true)).bestDifficulty) {
