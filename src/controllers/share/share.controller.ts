@@ -1,15 +1,14 @@
 import { Body, Controller, Post, UnauthorizedException, Headers } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as bitcoinjs from 'bitcoinjs-lib';
-import Big from 'big.js';
 import { ShareSubmission } from '../../models/ShareSubmission';
 import { ClientStatisticsService } from '../../ORM/client-statistics/client-statistics.service';
 import { AddressSettingsService } from '../../ORM/address-settings/address-settings.service';
+import { DifficultyUtils } from '../../utils/difficulty.utils';
 
 @Controller('share')
 export class ShareController {
   private readonly apiKey: string;
-  private readonly minimumDifficulty: number = this.configService.get('MINIMUM_DIFFICULTY') || 1000000000000; // 1T
+  private readonly minimumDifficulty: number;
 
   constructor(
     private readonly configService: ConfigService,
@@ -17,6 +16,7 @@ export class ShareController {
     private readonly addressSettingsService: AddressSettingsService,
   ) {
     this.apiKey = this.configService.get('SHARE_SUBMISSION_API_KEY');
+    this.minimumDifficulty = this.configService.get('MINIMUM_DIFFICULTY') || 1000000000000; // 1T
   }
 
   @Post()
@@ -29,15 +29,9 @@ export class ShareController {
       throw new UnauthorizedException('Invalid API key');
     }
 
-    // Validate header format
-    if (!submission.header || !/^[0-9a-fA-F]+$/.test(submission.header)) {
-      throw new UnauthorizedException('Invalid header format - must be a valid hex string');
-    }
-
     // Validate the header hash matches claimed difficulty
     const headerBuffer = Buffer.from(submission.header, 'hex');
-    const hashResult = bitcoinjs.crypto.hash256(headerBuffer);
-    const difficulty = this.calculateDifficulty(hashResult);
+    const { submissionDifficulty: difficulty } = DifficultyUtils.calculateDifficulty(headerBuffer);
 
     // Verify the calculated difficulty matches or exceeds claimed difficulty
     if (difficulty < this.minimumDifficulty) {
@@ -77,19 +71,5 @@ export class ShareController {
       success: true,
       calculatedDifficulty: difficulty,
     };
-  }
-
-  private calculateDifficulty(hashResult: Buffer): number {
-    const s64 = this.le256todouble(hashResult);
-    const truediffone = Big('26959535291011309493156476344723991336010898738574164086137773096960');
-    const difficulty = truediffone.div(s64.toString());
-    return difficulty.toNumber();
-  }
-
-  private le256todouble(target: Buffer): bigint {
-    const number = target.reduceRight((acc, byte) => {
-      return (acc << BigInt(8)) | BigInt(byte);
-    }, BigInt(0));
-    return number;
   }
 }
