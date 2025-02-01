@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UnauthorizedException, Headers } from '@nestjs/common';
+import { Body, Controller, Post, Get, UnauthorizedException, Headers } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ShareSubmission } from '../../models/ShareSubmission';
 import { ClientStatisticsService } from '../../ORM/client-statistics/client-statistics.service';
@@ -17,6 +17,12 @@ export class ShareController {
   ) {
     this.apiKey = this.configService.get('SHARE_SUBMISSION_API_KEY');
     this.minimumDifficulty = this.configService.get('MINIMUM_DIFFICULTY') || 1000000000000; // 1T
+  }
+
+  @Get('top-difficulties')
+  async getTopDifficulties() {
+    const topDifficulties = await this.shareSubmissionsService.getTopDifficulties();
+    return topDifficulties;
   }
 
   @Post()
