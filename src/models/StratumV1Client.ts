@@ -190,7 +190,7 @@ export class StratumV1Client {
                     }
 
                 } else {
-                    console.error('Configuration validation error');
+                    console.log('Configuration validation error');
                     const err = new StratumErrorMessage(
                         configurationMessage.id,
                         eStratumErrorCode.OtherUnknown,
