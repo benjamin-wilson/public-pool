@@ -7,9 +7,6 @@ export class ShareSubmission {
   @IsString()
   address: string;
 
-  @IsNumber()
-  difficulty: number;
-
   @IsString()
   sessionId: string;
 
@@ -18,10 +15,6 @@ export class ShareSubmission {
 
   @IsDate()
   timestamp: Date;
-
-  @IsString()
-  @IsOptional()
-  blockHex?: string;
 
   @IsString()
   header: string; // The block header in hex format for validation
