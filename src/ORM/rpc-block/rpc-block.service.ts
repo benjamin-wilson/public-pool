@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InsertResult, Repository } from 'typeorm';
 
 import { RpcBlockEntity } from './rpc-block.entity';
 
@@ -18,8 +18,8 @@ export class RpcBlockService {
         });
     }
 
-    public saveBlock(blockHeight: number, data: string) {
-        return this.rpcBlockRepository.save( {blockHeight, data });
+    public saveBlock(blockHeight: number, data: string): Promise<InsertResult> {
+        return this.rpcBlockRepository.upsert({ blockHeight, data }, ['blockHeight']);
     }
 
     public async deleteOldBlocks() {
