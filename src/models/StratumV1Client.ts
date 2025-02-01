@@ -554,7 +554,7 @@ export class StratumV1Client {
             const minimumDifficulty = this.configService.get('MINIMUM_DIFFICULTY') || 1000000000000; // 1T
             if (externalShareSubmissionEnabled && submissionDifficulty >= minimumDifficulty) {
                 // Submit share to API if enabled
-                void this.shareSubmissionService.submitShare({
+                this.shareSubmissionService.submitShare({
                     worker: this.clientAuthorization.worker,
                     address: this.clientAuthorization.address,
                     sessionId: this.extraNonceAndSessionId,
