@@ -28,6 +28,7 @@ import { StratumErrorMessage } from './stratum-messages/StratumErrorMessage';
 import { SubscriptionMessage } from './stratum-messages/SubscriptionMessage';
 import { SuggestDifficulty } from './stratum-messages/SuggestDifficultyMessage';
 import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
+import { ShareSubmissionService } from '../services/share-submission.service';
 
 
 export class StratumV1Client {
@@ -63,7 +64,8 @@ export class StratumV1Client {
         private readonly notificationService: NotificationService,
         private readonly blocksService: BlocksService,
         private readonly configService: ConfigService,
-        private readonly addressSettingsService: AddressSettingsService
+        private readonly addressSettingsService: AddressSettingsService,
+        private readonly shareSubmissionService: ShareSubmissionService
     ) {
 
         this.socket.on('data', (data: Buffer) => {
@@ -549,6 +551,20 @@ export class StratumV1Client {
             }
 
 
+            const externalShareSubmissionEnabled = this.configService.get('EXTERNAL_SHARE_SUBMISSION_ENABLED');
+            if (externalShareSubmissionEnabled) {
+                // Submit share to API if enabled
+                await this.shareSubmissionService.submitShare({
+                    worker: this.clientAuthorization.worker,
+                    address: this.clientAuthorization.address,
+                    difficulty: submissionDifficulty,
+                    sessionId: this.extraNonceAndSessionId,
+                    userAgent: this.clientSubscription.userAgent,
+                    timestamp: new Date(),
+                    blockHex: submissionDifficulty >= jobTemplate.blockData.networkDifficulty ? updatedJobBlock.toHex(false) : undefined,
+                    header: header.toString('hex')
+                });
+            }
 
         } else {
             const err = new StratumErrorMessage(
