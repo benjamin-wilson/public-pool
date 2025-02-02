@@ -25,7 +25,7 @@ import { StratumV1JobsService } from './services/stratum-v1-jobs.service';
 import { StratumV1Service } from './services/stratum-v1.service';
 import { TelegramService } from './services/telegram.service';
 import { ExternalSharesService } from './services/external-shares.service';
-import { ExternalShareController } from './controllers/external/share.controller';
+import { ExternalShareController } from './controllers/external-share/external-share.controller';
 
 
 const ORMModules = [

@@ -25,8 +25,8 @@ export class ExternalShareController {
   }
 
   @Post()
-  async submitShare(
-    @Body() submission: ExternalPoolShare,
+  async submitExternalShare(
+    @Body() externalShare: ExternalPoolShare,
     @Headers('x-api-key') apiKey: string,
   ) {
     // Only validate API key if one is configured
@@ -35,7 +35,7 @@ export class ExternalShareController {
     }
 
     // Validate the header hash matches claimed difficulty
-    const headerBuffer = Buffer.from(submission.header, 'hex');
+    const headerBuffer = Buffer.from(externalShare.header, 'hex');
     const { submissionDifficulty: difficulty } = DifficultyUtils.calculateDifficulty(headerBuffer);
 
     // Verify the calculated difficulty matches or exceeds minimum difficulty
@@ -53,11 +53,11 @@ export class ExternalShareController {
 
     // Store share submission
     await this.externalSharesService.insert({
-      address: submission.address,
-      clientName: submission.worker,
+      address: externalShare.address,
+      clientName: externalShare.worker,
       time: new Date().getTime(),
       difficulty: difficulty,
-      userAgent: submission.userAgent
+      userAgent: externalShare.userAgent
     });
 
     return {

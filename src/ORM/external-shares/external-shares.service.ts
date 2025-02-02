@@ -10,8 +10,8 @@ export class ExternalSharesService {
         private externalSharesRepository: Repository<ExternalSharesEntity>
     ) {}
 
-    public async insert(shareSubmission: Partial<ExternalSharesEntity>) {
-        return await this.externalSharesRepository.insert(shareSubmission);
+    public async insert(externalShare: Partial<ExternalSharesEntity>) {
+        return await this.externalSharesRepository.insert(externalShare);
     }
 
     public async getTopDifficulties(): Promise<Array<{address: string, difficulty: number}>> {
