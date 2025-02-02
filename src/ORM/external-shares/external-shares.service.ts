@@ -7,15 +7,15 @@ import { ExternalSharesEntity } from './external-shares.entity';
 export class ExternalSharesService {
     constructor(
         @InjectRepository(ExternalSharesEntity)
-        private shareSubmissionsRepository: Repository<ExternalSharesEntity>
+        private externalSharesRepository: Repository<ExternalSharesEntity>
     ) {}
 
     public async insert(shareSubmission: Partial<ExternalSharesEntity>) {
-        return await this.shareSubmissionsRepository.insert(shareSubmission);
+        return await this.externalSharesRepository.insert(shareSubmission);
     }
 
     public async getTopDifficulties(): Promise<Array<{address: string, difficulty: number}>> {
-        return await this.shareSubmissionsRepository
+        return await this.externalSharesRepository
             .createQueryBuilder('share')
             .select('share.address', 'address')
             .addSelect('MAX(share.difficulty)', 'difficulty')
@@ -26,7 +26,7 @@ export class ExternalSharesService {
     }
 
     public async getAddressBestDifficulty(address: string): Promise<number> {
-        const result = await this.shareSubmissionsRepository
+        const result = await this.externalSharesRepository
             .createQueryBuilder()
             .select('MAX(difficulty)', 'maxDifficulty')
             .where('address = :address', { address })
@@ -34,9 +34,9 @@ export class ExternalSharesService {
         return result?.maxDifficulty || 0;
     }
 
-    public async deleteOldSubmissions() {
+    public async deleteOldShares() {
         const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        return await this.shareSubmissionsRepository
+        return await this.externalSharesRepository
             .createQueryBuilder()
             .delete()
             .from(ExternalSharesEntity)
@@ -45,6 +45,6 @@ export class ExternalSharesService {
     }
 
     public async deleteAll() {
-        return await this.shareSubmissionsRepository.delete({});
+        return await this.externalSharesRepository.delete({});
     }
 }
