@@ -557,9 +557,7 @@ export class StratumV1Client {
                 this.shareSubmissionService.submitShare({
                     worker: this.clientAuthorization.worker,
                     address: this.clientAuthorization.address,
-                    sessionId: this.extraNonceAndSessionId,
                     userAgent: this.clientSubscription.userAgent,
-                    timestamp: new Date(),
                     header: header.toString('hex')
                 });
             }

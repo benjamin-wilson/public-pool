@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ShareSubmission } from '../../models/ShareSubmission';
 import { ShareSubmissionsService } from '../../ORM/share-submissions/share-submissions.service';
 import { DifficultyUtils } from '../../utils/difficulty.utils';
+import * as bitcoinjs from 'bitcoinjs-lib';
 
 @Controller('share')
 export class ShareController {
@@ -42,10 +43,11 @@ export class ShareController {
       throw new UnauthorizedException('Share difficulty too low');
     }
 
-    const timestamp = headerBuffer.readUInt32LE(68);
-    const tenMinutesAgo = Math.floor(Date.now() / 1000) - (10 * 60);
+    const block = bitcoinjs.Block.fromBuffer(headerBuffer);
     
-    if (timestamp < tenMinutesAgo) {
+    const tenMinutesAgo = Math.floor(Date.now() / 1000) - (10 * 60);
+
+    if (block.timestamp < tenMinutesAgo) {
       throw new UnauthorizedException('Share timestamp too old - must be within last 10 minutes');
     }
 
@@ -53,7 +55,6 @@ export class ShareController {
     await this.shareSubmissionsService.insert({
       address: submission.address,
       clientName: submission.worker,
-      sessionId: submission.sessionId,
       time: new Date().getTime(),
       difficulty: difficulty,
       userAgent: submission.userAgent

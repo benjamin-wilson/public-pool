@@ -18,15 +18,8 @@ export class ShareSubmission {
   address: string;
 
   @IsString()
-  @MaxLength(8)
-  sessionId: string;
-
-  @IsString()
   @MaxLength(128)
   userAgent: string;
-
-  @IsDate()
-  timestamp: Date;
 
   @IsString()
   @Matches(/^[0-9a-fA-F]+$/, { 
