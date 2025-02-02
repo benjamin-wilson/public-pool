@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { validate } from 'bitcoin-address-validation';
 import { Block } from 'bitcoinjs-lib';
 import * as TelegramBot from 'node-telegram-bot-api';
-import { NumberSuffix } from '../ORM/utils/NumberSuffix';
+import { NumberSuffix } from '../utils/NumberSuffix';
 
 import { TelegramSubscriptionsService } from '../ORM/telegram-subscriptions/telegram-subscriptions.service';
 
@@ -12,7 +12,7 @@ import { TelegramSubscriptionsService } from '../ORM/telegram-subscriptions/tele
 export class TelegramService implements OnModuleInit {
 
     private bot: TelegramBot;
-    private diffNotificaitons: string;
+    private diffNotifications: boolean;
     private numberSuffix: NumberSuffix;
 
     constructor(
@@ -30,7 +30,7 @@ export class TelegramService implements OnModuleInit {
 
         this.numberSuffix = new NumberSuffix();
 
-        this.diffNotificaitons = this.configService.get('TELEGRAM_DIFF_NOTIFICATIONS') || 'false';
+        this.diffNotifications = (this.configService.get('TELEGRAM_DIFF_NOTIFICATIONS').toLowerCase() == 'true') || false;
     }
 
     async onModuleInit(): Promise<void> {
@@ -71,23 +71,25 @@ export class TelegramService implements OnModuleInit {
         }
 
         const subscribers = await this.telegramSubscriptionsService.getSubscriptions(address);
-        subscribers.forEach(subscriber => {
-            this.bot.sendMessage(subscriber.telegramChatId, `Block Found! Result: ${message}, Height: ${height}`);
+
+        const subscriberMessages = subscribers.map(subscriber =>{
+            return this.bot.sendMessage(subscriber.telegramChatId, `Block Found! Result: ${message}, Height: ${height}`);
         });
+
+        Promise.all(subscriberMessages).then();
     }
 
     public async notifySubscribersBestDiff(address: string, submissionDifficulty: number) {
-        if (this.bot == null) {
-            return;
-        }
-        if (this.diffNotificaitons.toLowerCase() == 'false') {
+        if (this.bot == null || this.diffNotifications == false) {
             return;
         }
 
         const subscribers = await this.telegramSubscriptionsService.getSubscriptions(address);
-        subscribers.forEach(subscriber => {
-            this.bot.sendMessage(subscriber.telegramChatId, `New Best Diff! Result: ${this.numberSuffix.to(submissionDifficulty)}`);
+        const subscriberMessages = subscribers.map(subscriber => {
+            return this.bot.sendMessage(subscriber.telegramChatId, `New Best Diff! Result: ${this.numberSuffix.to(submissionDifficulty)}`);
         });
+
+        Promise.all(subscriberMessages).then();
     }
 
 }

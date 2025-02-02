@@ -24,7 +24,6 @@ import { NotificationService } from './services/notification.service';
 import { StratumV1JobsService } from './services/stratum-v1-jobs.service';
 import { StratumV1Service } from './services/stratum-v1.service';
 import { TelegramService } from './services/telegram.service';
-import { NumberSuffix } from './ORM/utils/NumberSuffix';
 
 
 const ORMModules = [
