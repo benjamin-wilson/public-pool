@@ -1,5 +1,4 @@
 import { ConfigService } from '@nestjs/config';
-import Big from 'big.js';
 import * as bitcoinjs from 'bitcoinjs-lib';
 import { plainToInstance } from 'class-transformer';
 import { validate, ValidatorOptions } from 'class-validator';
@@ -7,7 +6,6 @@ import * as crypto from 'crypto';
 import { Socket } from 'net';
 import { firstValueFrom, Subscription } from 'rxjs';
 import { clearInterval } from 'timers';
-import { createInterface } from 'readline';
 
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
@@ -28,6 +26,8 @@ import { StratumErrorMessage } from './stratum-messages/StratumErrorMessage';
 import { SubscriptionMessage } from './stratum-messages/SubscriptionMessage';
 import { SuggestDifficulty } from './stratum-messages/SuggestDifficultyMessage';
 import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
+import { ExternalSharesService } from '../services/external-shares.service';
+import { DifficultyUtils } from '../utils/difficulty.utils';
 
 
 export class StratumV1Client {
@@ -63,7 +63,8 @@ export class StratumV1Client {
         private readonly notificationService: NotificationService,
         private readonly blocksService: BlocksService,
         private readonly configService: ConfigService,
-        private readonly addressSettingsService: AddressSettingsService
+        private readonly addressSettingsService: AddressSettingsService,
+        private readonly externalSharesService: ExternalSharesService
     ) {
 
         this.socket.on('data', (data: Buffer) => {
@@ -492,7 +493,7 @@ export class StratumV1Client {
             parseInt(submission.ntime, 16)
         );
         const header = updatedJobBlock.toBuffer(true);
-        const { submissionDifficulty } = this.calculateDifficulty(header);
+        const { submissionDifficulty } = DifficultyUtils.calculateDifficulty(header);
 
         //console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonceAndSessionId}`);
 
@@ -549,6 +550,17 @@ export class StratumV1Client {
             }
 
 
+            const externalShareSubmissionEnabled = this.configService.get('EXTERNAL_SHARE_SUBMISSION_ENABLED');
+            const minimumDifficulty = this.configService.get('MINIMUM_DIFFICULTY') || 1000000000000; // 1T
+            if (externalShareSubmissionEnabled && submissionDifficulty >= minimumDifficulty) {
+                // Submit share to API if enabled
+                this.externalSharesService.submitShare({
+                    worker: this.clientAuthorization.worker,
+                    address: this.clientAuthorization.address,
+                    userAgent: this.clientSubscription.userAgent,
+                    header: header.toString('hex')
+                });
+            }
 
         } else {
             const err = new StratumErrorMessage(
@@ -594,28 +606,6 @@ export class StratumV1Client {
             await this.sendNewMiningJob(jobTemplate);
 
         }
-    }
-
-    private calculateDifficulty(header: Buffer): { submissionDifficulty: number, submissionHash: string } {
-
-        const hashResult = bitcoinjs.crypto.hash256(header);
-
-        let s64 = this.le256todouble(hashResult);
-
-        const truediffone = Big('26959535291011309493156476344723991336010898738574164086137773096960');
-        const difficulty = truediffone.div(s64.toString());
-        return { submissionDifficulty: difficulty.toNumber(), submissionHash: hashResult.toString('hex') };
-    }
-
-
-    private le256todouble(target: Buffer): bigint {
-
-        const number = target.reduceRight((acc, byte) => {
-            // Shift the number 8 bits to the left and OR with the current byte
-            return (acc << BigInt(8)) | BigInt(byte);
-        }, BigInt(0));
-
-        return number;
     }
 
     private async write(message: string): Promise<boolean> {
