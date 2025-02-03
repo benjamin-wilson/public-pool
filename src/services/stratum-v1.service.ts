@@ -43,48 +43,61 @@ export class StratumV1Service implements OnModuleInit {
 
   private startSocketServer(port: number) {
     const server = new Server(async (socket: Socket) => {
+        // Set 5-minute timeout
+        socket.setTimeout(1000 * 60 * 5);
 
-      //5 min
-      socket.setTimeout(1000 * 60 * 5);
+        const client = new StratumV1Client(
+            socket,
+            this.stratumV1JobsService,
+            this.bitcoinRpcService,
+            this.clientService,
+            this.clientStatisticsService,
+            this.notificationService,
+            this.blocksService,
+            this.configService,
+            this.addressSettingsService
+        );
 
-      const client = new StratumV1Client(
-        socket,
-        this.stratumV1JobsService,
-        this.bitcoinRpcService,
-        this.clientService,
-        this.clientStatisticsService,
-        this.notificationService,
-        this.blocksService,
-        this.configService,
-        this.addressSettingsService
-      );
+        // Unified cleanup function
+        const cleanup = async (reason: string) => {
+            if (client.extraNonceAndSessionId != null) {
+                await client.destroy();
+                console.log(`Client ${client.extraNonceAndSessionId} disconnected, Reason: ${reason}`);
+            }
+            if (!socket.destroyed) {
+                socket.end();
+                socket.destroy();
+            }
+        };
 
+        // Handle client disconnection
+        socket.on('close', async (hadError: boolean) => {
+            await cleanup(hadError ? "Error" : "Normal Closure");
+        });
 
-      socket.on('close', async (hadError: boolean) => {
-        if (client.extraNonceAndSessionId != null) {
-          // Handle socket disconnection
-          await client.destroy();
-          //console.log(`Client ${client.extraNonceAndSessionId} disconnected, hadError?:${hadError}`);
-        }
-      });
+        // Handle socket timeouts
+        socket.on('timeout', async () => {
+            console.log(`Socket timeout ${socket.remoteAddress}, ${socket.bytesRead}/${socket.bytesWritten}, ${client.clientSubscription?.userAgent}`);
+            await cleanup("Timeout");
+        });
 
-      socket.on('timeout', () => {
-        console.log(`socket timeout ${socket.remoteAddress}, ${socket.bytesRead}/${socket.bytesWritten}, ${client.clientSubscription?.userAgent}`);
-        socket.end();
-        socket.destroy();
-      });
+        // Handle errors properly
+        socket.on('error', async (error: Error) => {
+            console.log(`Socket error: ${error.message}`);
+            await cleanup("Error");
+        });
 
-      socket.on('error', async (error: Error) => { });
+    });
 
-      //   //console.log(`Client disconnected, socket error,  ${client.extraNonceAndSessionId}`);
-
-
+    // Ensure server itself handles errors
+    server.on('error', (err) => {
+        console.error(`Server error: ${err.message}`);
     });
 
     server.listen(port, () => {
-      console.log(`Stratum server is listening on port ${port}`);
+        console.log(`Stratum server is listening on port ${port}`);
     });
+}
 
-  }
 
 }
