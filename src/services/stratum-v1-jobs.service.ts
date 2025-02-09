@@ -23,48 +23,31 @@ export interface IJobTemplate {
 @Injectable()
 export class StratumV1JobsService {
 
-    private lastIntervalCount: number;
-    private skipNext: boolean = false;
     public newMiningJob$: Observable<IJobTemplate>;
-
     public latestJobId: number = 1;
     public latestJobTemplateId: number = 1;
-
     public jobs: { [jobId: string]: MiningJob } = {};
-
     public blocks: { [id: number]: IJobTemplate } = {};
 
-    // offset the interval so that all the cluster processes don't try and refresh at the same time.
-    private delay = process.env.NODE_APP_INSTANCE == null ? 0 : parseInt(process.env.NODE_APP_INSTANCE) * 5000;
+    private lastBlockHeight = 0;
 
     constructor(
         private readonly bitcoinRpcService: BitcoinRpcService
     ) {
 
-        this.newMiningJob$ = combineLatest([this.bitcoinRpcService.newBlock$, interval(60000).pipe(delay(this.delay), startWith(-1))]).pipe(
-            switchMap(([miningInfo, interval]) => {
-                return from(this.bitcoinRpcService.getBlockTemplate(miningInfo.blocks)).pipe(map((blockTemplate) => {
-                    return {
-                        blockTemplate,
-                        interval
-                    }
-                }))
-            }),
-            map(({ blockTemplate, interval }) => {
+        this.newMiningJob$ = this.bitcoinRpcService.newBlockTemplate$.pipe(
+            map((blockTemplate) => {
+
+                console.log('Updating block template');
 
                 let clearJobs = false;
-                if (this.lastIntervalCount === interval) {
+                const currentBlockHeight = this.bitcoinRpcService.miningInfo.blocks;
+
+                if(this.lastBlockHeight == 0 || this.lastBlockHeight != currentBlockHeight){
+                    console.log('New template is new block, clearing jobs');
                     clearJobs = true;
-                    this.skipNext = true;
-                    console.log('new block')
+                    this.lastBlockHeight = currentBlockHeight;
                 }
-
-                if (this.skipNext == true && clearJobs == false) {
-                    this.skipNext = false;
-                    return null;
-                }
-
-                this.lastIntervalCount = interval;
 
                 const currentTime = Math.floor(new Date().getTime() / 1000);
                 return {
@@ -130,6 +113,8 @@ export class StratumV1JobsService {
             }),
             shareReplay({ refCount: true, bufferSize: 1 })
         )
+
+        this.newMiningJob$.subscribe();
     }
 
     private calculateNetworkDifficulty(nBits: number) {

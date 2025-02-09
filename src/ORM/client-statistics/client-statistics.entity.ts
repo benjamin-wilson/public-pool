@@ -8,7 +8,7 @@ import { TrackedEntity } from '../utils/TrackedEntity.entity';
 @Index(["clientId", "time"])
 export class ClientStatisticsEntity extends TrackedEntity {
 
-    @PrimaryGeneratedColumn()
+    @PrimaryGeneratedColumn({type: 'bigint'})
     id: number;
 
     @Column({ length: 62, type: 'varchar' })

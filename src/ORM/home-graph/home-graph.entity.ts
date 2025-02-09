@@ -3,7 +3,7 @@ import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 @Entity()
 export class HomeGraphEntity {
 
-    @PrimaryGeneratedColumn()
+    @PrimaryGeneratedColumn({type: 'bigint'})
     id: number;
 
     @Column({ type: 'bigint' })

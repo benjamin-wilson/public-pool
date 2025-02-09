@@ -1,30 +1,38 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RPCClient } from 'rpc-bitcoin';
-import { BehaviorSubject, filter, shareReplay } from 'rxjs';
+import { asyncScheduler, BehaviorSubject, delay, filter, from, interval, scheduled, shareReplay, startWith, Subject, switchMap } from 'rxjs';
 import { RpcBlockService } from 'src/ORM/rpc-block/rpc-block.service';
 import * as zmq from 'zeromq';
 
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { IMiningInfo } from '../models/bitcoin-rpc/IMiningInfo';
+import * as PGPubsub from 'pg-pubsub';
 
 @Injectable()
 export class BitcoinRpcService implements OnModuleInit {
 
-    private blockHeight = 0;
+    
     private client: RPCClient;
-    private _newBlock$: BehaviorSubject<IMiningInfo> = new BehaviorSubject(undefined);
-    public newBlock$ = this._newBlock$.pipe(filter(block => block != null), shareReplay({ refCount: true, bufferSize: 1 }));
+    private _newBlockTemplate$: BehaviorSubject<IBlockTemplate> = new BehaviorSubject(undefined);
+    private pubsubInstance: PGPubsub;
+    private resetTemplateInterval$ = new Subject<void>();
+
+    public miningInfo: IMiningInfo;
+    public newBlockTemplate$ = this._newBlockTemplate$.pipe(filter(block => block != null), shareReplay({ refCount: true, bufferSize: 1 }));
 
     constructor(
         private readonly configService: ConfigService,
         private rpcBlockService: RpcBlockService
     ) {
 
-
     }
 
     async onModuleInit() {
+
+        this.pubsubInstance = new PGPubsub('postgres://' + this.configService.get('DB_USERNAME') + ':' + this.configService.get('DB_PASSWORD') + '@' + this.configService.get('DB_HOST') + ':' + this.configService.get('DB_PORT') + '/' + this.configService.get('DB_DATABASE'))
+
+
         const url = this.configService.get('BITCOIN_RPC_URL');
         const user = this.configService.get('BITCOIN_RPC_USER');
         const pass = this.configService.get('BITCOIN_RPC_PASSWORD');
@@ -38,11 +46,20 @@ export class BitcoinRpcService implements OnModuleInit {
         }, () => {
             console.error('Could not reach RPC host');
         });
+        
+        this.miningInfo = await this.getMiningInfo();
 
-        if (this.configService.get('BITCOIN_ZMQ_HOST')) {
+        console.log(`MASTER? ${process.env.MASTER}`)
+        if (process.env.MASTER != 'true') {
+            this.pubsubInstance.addChannel('miningInfo', async (miningInfo: IMiningInfo) => {
+                console.log('PG Sub. new template');
+                this.miningInfo = miningInfo;
+                const savedBlockTemplate = await this.rpcBlockService.getSavedBlockTemplate(miningInfo.blocks);
+                this._newBlockTemplate$.next(JSON.parse(savedBlockTemplate.data));
+            });
+        } else {
             console.log('Using ZMQ');
             const sock = new zmq.Subscriber;
-
 
             sock.connectTimeout = 1000;
             sock.events.on('connect', () => {
@@ -56,70 +73,39 @@ export class BitcoinRpcService implements OnModuleInit {
             sock.subscribe('rawblock');
             // Don't await this, otherwise it will block the rest of the program
             this.listenForNewBlocks(sock);
-            await this.pollMiningInfo();
 
-        } else {
-            setInterval(this.pollMiningInfo.bind(this), 500);
+            // Between new blocks we want refresh jobs with the latest transactions
+            this.resetTemplateInterval$.pipe(
+                startWith(null),
+                switchMap(() =>interval(60000))
+            ).subscribe(async () =>{
+                await this.getAndBroadcastLatestTemplate();
+            });
+
         }
+
     }
 
     private async listenForNewBlocks(sock: zmq.Subscriber) {
         for await (const [topic, msg] of sock) {
             console.log("New Block");
-            await this.pollMiningInfo();
+            this.miningInfo = await this.getMiningInfo();
+            await this.getAndBroadcastLatestTemplate();
+
+            //Reset the block update interval
+            this.resetTemplateInterval$.next();
         }
     }
 
-    public async pollMiningInfo() {
-        const miningInfo = await this.getMiningInfo();
-        if (miningInfo != null && miningInfo.blocks > this.blockHeight) {
-            console.log("block height change");
-            this._newBlock$.next(miningInfo);
-            this.blockHeight = miningInfo.blocks;
-        }
-    }
-
-    private async waitForBlock(blockHeight: number): Promise<IBlockTemplate> {
-        while (true) {
-            await new Promise(r => setTimeout(r, 100));
-
-            const block = await this.rpcBlockService.getBlock(blockHeight);
-            if (block != null && block.data != null) {
-                console.log(`promise loop resolved, block height ${blockHeight}`);
-                return Promise.resolve(JSON.parse(block.data));
-            }
-            console.log(`promise loop, block height ${blockHeight}`);
-        }
-    }
-
-    public async getBlockTemplate(blockHeight: number): Promise<IBlockTemplate> {
-        let result: IBlockTemplate;
-        try {
-            const block = await this.rpcBlockService.getBlock(blockHeight);
-            const completeBlock = block?.data != null;
-
-
-            if(process.env.MASTER == 'true'){
-                result = await this.loadBlockTemplate(blockHeight);
-            }
-
-            if (completeBlock) {
-                return Promise.resolve(JSON.parse(block.data));
-            } else{
-                result = await this.waitForBlock(blockHeight);
-            }
-
-        } catch (e) {
-            console.error('Error getblocktemplate:', e.message);
-            throw new Error('Error getblocktemplate');
-        }
-        console.log(`getblocktemplate tx count: ${result.transactions.length}`);
-        return result;
+    public async getAndBroadcastLatestTemplate() {
+        const blockTemplate = await this.loadBlockTemplate(this.miningInfo.blocks);
+        this._newBlockTemplate$.next(blockTemplate);
+        await this.pubsubInstance.publish('miningInfo', this.miningInfo);
     }
 
     private async loadBlockTemplate(blockHeight: number) {
 
-        console.log(`Master fetching block ${blockHeight}`);
+        console.log(`Master fetching block template ${blockHeight}`);
 
         let blockTemplate: IBlockTemplate;
         while (blockTemplate == null) {
@@ -132,11 +118,11 @@ export class BitcoinRpcService implements OnModuleInit {
             });
         }
 
-        try{
+        try {
             console.log(`Saving block ${blockHeight}`);
             await this.rpcBlockService.saveBlock(blockHeight, JSON.stringify(blockTemplate));
             console.log('block saved');
-        }catch(e){
+        } catch (e) {
             console.error('Error saving block', e);
         }
 

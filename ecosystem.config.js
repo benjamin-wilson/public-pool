@@ -8,16 +8,18 @@ module.exports = {
         env: {
           MASTER: 'true',
         },
+        time: true
       },
       // Worker instances
       {
         name: 'workers',
         script: './dist/main.js',
-        instances: 31,
+        instances: 2,
         exec_mode: "cluster",
         env: {
           MASTER: 'false',
         },
+        time: true
       },
     ],
   };

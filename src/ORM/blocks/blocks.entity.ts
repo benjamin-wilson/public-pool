@@ -5,7 +5,7 @@ import { TrackedEntity } from '../utils/TrackedEntity.entity';
 @Entity()
 export class BlocksEntity extends TrackedEntity {
 
-    @PrimaryGeneratedColumn()
+    @PrimaryGeneratedColumn({type: 'bigint'})
     id: number;
 
     @Column()

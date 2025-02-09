@@ -71,7 +71,7 @@ export class AppController {
     const userAgents = await this.userAgentReportService.getReport();
     const totalHashRate = userAgents.reduce((acc, userAgent) => acc + parseFloat(userAgent.totalHashRate), 0);
     const totalMiners = userAgents.reduce((acc, userAgent) => acc + parseFloat(userAgent.count), 0);
-    const blockHeight = (await firstValueFrom(this.bitcoinRpcService.newBlock$)).blocks;
+    const blockHeight = this.bitcoinRpcService.miningInfo.blocks;
     const blocksFound = await this.blocksService.getFoundBlocks();
 
     const data = {
@@ -90,8 +90,7 @@ export class AppController {
 
   @Get('network')
   public async network() {
-    const miningInfo = await firstValueFrom(this.bitcoinRpcService.newBlock$);
-    return miningInfo;
+    return this.bitcoinRpcService.miningInfo;
   }
 
   @Get('info/chart')

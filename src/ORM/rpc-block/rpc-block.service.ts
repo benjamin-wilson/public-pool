@@ -12,7 +12,7 @@ export class RpcBlockService {
     ) {
 
     }
-    public getBlock(blockHeight: number) {
+    public getSavedBlockTemplate(blockHeight: number) {
         return this.rpcBlockRepository.findOne({
             where: { blockHeight }
         });
