@@ -111,19 +111,24 @@ export class StratumV1JobsService {
                     this.blocks = {};
                     this.jobs = {};
                 }else{
+                    let templatesDeleted = 0;
+                    let jobsDeleted = 0;
                     const now = new Date().getTime();
                     // Delete old templates (5 minutes)
                     for(const templateId in this.blocks){
                         if(now - this.blocks[templateId].blockData.creation  > (1000 * 60 * 5)){
                             delete this.blocks[templateId];
+                            templatesDeleted++;
                         }
                     }
                     // Delete old jobs (5 minutes)
                     for (const jobId in this.jobs) {
                         if(now - this.jobs[jobId].creation > (1000 * 60 * 5)){
                             delete this.jobs[jobId];
+                            jobsDeleted++;
                         }
                     }
+                    console.log(`Deleted ${templatesDeleted} templates and ${jobsDeleted} jobs.`)
                 }
                 this.blocks[data.blockData.id] = data;
             }),
