@@ -477,9 +477,7 @@ export class StratumV1Client {
 
         const job = this.stratumV1JobsService.getJobById(submission.jobId);
 
-
-
-        // a miner may submit a job that doesn't exist anymore if it was removed by a new block notification
+        // a miner may submit a job that doesn't exist anymore if it was removed by a new block notification (or expired, 5 min)
         if (job == null) {
             const err = new StratumErrorMessage(
                 submission.id,
