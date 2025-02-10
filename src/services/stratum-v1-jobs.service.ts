@@ -13,6 +13,7 @@ export interface IJobTemplate {
     merkle_branch: string[];
     blockData: {
         id: string,
+        creation: number,
         coinbasevalue: number;
         networkDifficulty: number;
         height: number;
@@ -114,6 +115,7 @@ export class StratumV1JobsService {
                     merkle_branch,
                     blockData: {
                         id,
+                        creation: new Date().getTime(),
                         coinbasevalue,
                         networkDifficulty,
                         height,
@@ -125,6 +127,20 @@ export class StratumV1JobsService {
                 if (data.blockData.clearJobs) {
                     this.blocks = {};
                     this.jobs = {};
+                }else{
+                    const now = new Date().getTime();
+                    // Delete old templates (5 minutes)
+                    for(const templateId in this.blocks){
+                        if(now - this.blocks[templateId].blockData.creation  > (1000 * 60 * 5)){
+                            delete this.blocks[templateId];
+                        }
+                    }
+                    // Delete old jobs (5 minutes)
+                    for (const jobId in this.jobs) {
+                        if(now - this.jobs[jobId].creation > (1000 * 60 * 5)){
+                            delete this.jobs[jobId];
+                        }
+                    }
                 }
                 this.blocks[data.blockData.id] = data;
             }),
@@ -138,7 +154,8 @@ export class StratumV1JobsService {
 
         const target: number = mantissa * Math.pow(256, (exponent - 3));   // Calculate the target value
 
-        const difficulty: number = (Math.pow(2, 208) * 65535) / target;    // Calculate the difficulty
+        const maxTarget = Math.pow(2, 208) * 65535; // Easiest target (max_target)
+        const difficulty: number = maxTarget / target;    // Calculate the difficulty
 
         return difficulty;
     }

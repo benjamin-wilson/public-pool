@@ -20,7 +20,7 @@ export class MiningJob {
 
     public jobTemplateId: string;
     public networkDifficulty: number;
-
+    public creation: number;
 
     constructor(
         configService: ConfigService,
@@ -30,6 +30,7 @@ export class MiningJob {
         jobTemplate: IJobTemplate
     ) {
 
+        this.creation = new Date().getTime();
         this.jobTemplateId = jobTemplate.blockData.id;
 
         this.coinbaseTransaction = this.createCoinbaseTransaction(payoutInformation, jobTemplate.blockData.coinbasevalue);
