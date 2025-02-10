@@ -10,6 +10,7 @@ import { ClientStatisticsService } from './ORM/client-statistics/client-statisti
 import { ClientService } from './ORM/client/client.service';
 import { HomeGraphService } from './ORM/home-graph/home-graph.service';
 import { BitcoinRpcService } from './services/bitcoin-rpc.service';
+import { UserAgentReportView } from './ORM/_views/user-agent-report/user-agent-report.view';
 
 @Controller()
 export class AppController {
@@ -67,8 +68,29 @@ export class AppController {
       return cachedResult;
     }
 
+    const other: {
+      count: number,
+      bestDifficulty: number,
+      totalHashRate: number;
+    } = {
+      count: 0,
+      bestDifficulty: 0,
+      totalHashRate: 0
+    };
+    const userAgents: UserAgentReportView[] = (await this.userAgentReportService.getReport()).reduce((pre, cur, idx, arr) => {
+      if (parseInt(cur.totalHashRate) < 100000000000 && parseInt(cur.count) < 12) {
+        other.totalHashRate += parseFloat(cur.totalHashRate);
+        other.count += parseInt(cur.count);
+        if (other.bestDifficulty < cur.bestDifficulty) {
+          other.bestDifficulty = cur.bestDifficulty;
+        }
+      } else {
+        arr.push(cur);
+      }
+      return arr;
+    }, []);
+    userAgents.push({ userAgent: 'Other', count: other.count.toString(), bestDifficulty: other.bestDifficulty, totalHashRate: other.totalHashRate.toString() })
 
-    const userAgents = await this.userAgentReportService.getReport();
     const totalHashRate = userAgents.reduce((acc, userAgent) => acc + parseFloat(userAgent.totalHashRate), 0);
     const totalMiners = userAgents.reduce((acc, userAgent) => acc + parseFloat(userAgent.count), 0);
     const blockHeight = this.bitcoinRpcService.miningInfo.blocks;
