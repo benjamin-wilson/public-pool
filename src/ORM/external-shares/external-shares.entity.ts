@@ -13,9 +13,6 @@ export class ExternalSharesEntity extends TrackedEntity {
     @Column()
     clientName: string;
 
-    @Column({ length: 8, type: 'varchar' })
-    sessionId: string;
-
     @Column({ type: 'integer' })
     time: number;
 
