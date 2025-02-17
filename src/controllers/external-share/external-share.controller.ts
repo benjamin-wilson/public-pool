@@ -57,7 +57,8 @@ export class ExternalShareController {
       clientName: externalShare.worker,
       time: new Date().getTime(),
       difficulty: difficulty,
-      userAgent: externalShare.userAgent
+      userAgent: externalShare.userAgent,
+      externalPoolName: externalShare.externalPoolName
     });
 
     return {
