@@ -5,15 +5,9 @@ import { IsBitcoinAddress } from './validators/bitcoin-address.validator';
 export class ExternalPoolShare {
   @IsString()
   @MaxLength(64)
-  @Transform(({ value, key, obj, type }) => {
-    return obj.params[0].split('.')[1] == null ? 'worker' : obj.params[0].split('.')[1];
-  })
   worker: string;
 
   @IsString()
-  @Transform(({ value, key, obj, type }) => {
-    return obj.params[0].split('.')[0];
-  })
   @IsBitcoinAddress()
   address: string;
 
