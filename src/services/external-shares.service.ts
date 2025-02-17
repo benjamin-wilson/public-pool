@@ -17,7 +17,7 @@ export class ExternalSharesService {
   }
 
   public submitShare(share: ExternalPoolShare): void {
-    this.httpService.post(`${this.shareApiUrl}/api/submitShare`, share, {
+    this.httpService.post(`${this.shareApiUrl}/api/share`, share, {
       headers: {
         'x-api-key': this.shareApiKey
       }
