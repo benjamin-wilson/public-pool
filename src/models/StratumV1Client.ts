@@ -558,7 +558,8 @@ export class StratumV1Client {
                     worker: this.clientAuthorization.worker,
                     address: this.clientAuthorization.address,
                     userAgent: this.clientSubscription.userAgent,
-                    header: header.toString('hex')
+                    header: header.toString('hex'),
+                    externalPoolName: this.configService.get('POOL_IDENTIFIER') || 'Public-Pool'
                 });
             }
 
