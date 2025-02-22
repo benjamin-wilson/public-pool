@@ -24,7 +24,7 @@ export class ClientService {
             .createQueryBuilder()
             .update(ClientEntity)
             .set({ deletedAt: () => "NOW()" })
-            .where("deletedAt IS NULL AND updatedAt < NOW() + interval '5 minutes' ")
+            .where("deletedAt IS NULL AND updatedAt < NOW() - interval '5 minutes' ")
             .execute();
     }
 
