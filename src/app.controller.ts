@@ -41,8 +41,32 @@ export class AppController {
 
 
     const blockData = await this.blocksService.getFoundBlocks();
-    const userAgents = await this.userAgentReportService.getReport();
     const highScores = await this.addressSettingsService.getHighScores();
+
+    const other: {
+      count: number,
+      bestDifficulty: number,
+      totalHashRate: number;
+    } = {
+      count: 0,
+      bestDifficulty: 0,
+      totalHashRate: 0
+    };
+    const userAgents: UserAgentReportView[] = (await this.userAgentReportService.getReport()).reduce((pre, cur, idx, arr) => {
+      // If less than 1Th/s and less than 100 devices, add to 'other'
+      if (parseInt(cur.totalHashRate) < 1000000000000 && parseInt(cur.count) < 200) {
+        other.totalHashRate += parseFloat(cur.totalHashRate);
+        other.count += parseInt(cur.count);
+        if (other.bestDifficulty < cur.bestDifficulty) {
+          other.bestDifficulty = cur.bestDifficulty;
+        }
+      } else {
+        pre.push(cur);
+      }
+      return pre;
+    }, []);
+    
+    userAgents.push({ userAgent: 'Other', count: other.count.toString(), bestDifficulty: other.bestDifficulty, totalHashRate: other.totalHashRate.toString() })
 
     const data = {
       blockData,
@@ -68,28 +92,7 @@ export class AppController {
       return cachedResult;
     }
 
-    const other: {
-      count: number,
-      bestDifficulty: number,
-      totalHashRate: number;
-    } = {
-      count: 0,
-      bestDifficulty: 0,
-      totalHashRate: 0
-    };
-    const userAgents: UserAgentReportView[] = (await this.userAgentReportService.getReport()).reduce((pre, cur, idx, arr) => {
-      if (parseInt(cur.totalHashRate) < 100000000000 && parseInt(cur.count) < 12) {
-        other.totalHashRate += parseFloat(cur.totalHashRate);
-        other.count += parseInt(cur.count);
-        if (other.bestDifficulty < cur.bestDifficulty) {
-          other.bestDifficulty = cur.bestDifficulty;
-        }
-      } else {
-        arr.push(cur);
-      }
-      return arr;
-    }, []);
-    userAgents.push({ userAgent: 'Other', count: other.count.toString(), bestDifficulty: other.bestDifficulty, totalHashRate: other.totalHashRate.toString() })
+    const userAgents = await this.userAgentReportService.getReport();
 
     const totalHashRate = userAgents.reduce((acc, userAgent) => acc + parseFloat(userAgent.totalHashRate), 0);
     const totalMiners = userAgents.reduce((acc, userAgent) => acc + parseFloat(userAgent.count), 0);
