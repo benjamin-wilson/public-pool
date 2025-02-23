@@ -58,7 +58,8 @@ export class ExternalShareController {
       time: new Date().getTime(),
       difficulty: difficulty,
       userAgent: externalShare.userAgent,
-      externalPoolName: externalShare.externalPoolName
+      externalPoolName: externalShare.externalPoolName,
+      header: externalShare.header
     });
 
     console.log(`Accepted external share. ${difficulty}`);

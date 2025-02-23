@@ -24,4 +24,7 @@ export class ExternalSharesEntity extends TrackedEntity {
 
     @Column({ length: 128, type: 'varchar', nullable: true })
     externalPoolName: string;
+
+    @Column()
+    header: string;
 }
