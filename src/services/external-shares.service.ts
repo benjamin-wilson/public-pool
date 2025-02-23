@@ -22,6 +22,9 @@ export class ExternalSharesService {
         'x-api-key': this.shareApiKey
       }
     }).subscribe({
+      next: () =>{
+        console.log('External share accepted');
+      },
       error: (error) => console.error('Failed to submit share to API:', error.message)
     });
   }
