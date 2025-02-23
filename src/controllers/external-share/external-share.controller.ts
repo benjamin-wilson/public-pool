@@ -61,6 +61,8 @@ export class ExternalShareController {
       externalPoolName: externalShare.externalPoolName
     });
 
+    console.log(`Accepted external share. ${difficulty}`);
+
     return {
       success: true,
       calculatedDifficulty: difficulty,
