@@ -234,7 +234,7 @@ export class StratumV1Client {
                         eStratumErrorCode.OtherUnknown,
                         'Authorization validation error',
                         errors).response();
-                    console.log(err);
+                    //console.log(err);
                     const success = await this.write(err);
                     if (!success) {
                         return;

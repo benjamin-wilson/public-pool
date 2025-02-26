@@ -15,6 +15,11 @@ import { StratumV1JobsService } from './stratum-v1-jobs.service';
 @Injectable()
 export class StratumV1Service implements OnModuleInit {
 
+    private socketTimeout = 0;
+    private emptySocket = 0;
+    private normalClosure = 0;
+    private errorClosure = 0;
+
   constructor(
     private readonly bitcoinRpcService: BitcoinRpcService,
     private readonly clientService: ClientService,
@@ -61,7 +66,11 @@ export class StratumV1Service implements OnModuleInit {
         const cleanup = async (reason: string) => {
             if (client.extraNonceAndSessionId != null) {
                 await client.destroy();
-                console.log(`Client ${client.extraNonceAndSessionId} disconnected, Reason: ${reason}`);
+                if(reason == 'Error'){
+                    this.errorClosure++;
+                }else{
+                    this.normalClosure++;
+                }
             }
             if (!socket.destroyed) {
                 socket.end();
@@ -76,15 +85,21 @@ export class StratumV1Service implements OnModuleInit {
 
         // Handle socket timeouts
         socket.on('timeout', async () => {
-            console.log(`Socket timeout ${socket.remoteAddress}, ${socket.bytesRead}/${socket.bytesWritten}, ${client.clientSubscription?.userAgent}`);
+            if(socket.bytesRead == 0 || socket.bytesWritten == 0){
+                this.emptySocket++;
+            }else{
+                this.socketTimeout++;
+            }
             await cleanup("Timeout");
         });
 
         // Handle errors properly
         socket.on('error', async (error: Error) => {
-            console.log(`Socket error: ${error.message}`);
             await cleanup("Error");
         });
+
+        //
+
 
     });
 
@@ -96,6 +111,14 @@ export class StratumV1Service implements OnModuleInit {
     server.listen(port, () => {
         console.log(`Stratum server is listening on port ${port}`);
     });
+
+    setInterval(() => {
+        console.log(`Socket stats: ${this.emptySocket} empty, ${this.socketTimeout} timeouts, ${this.normalClosure} normal closure, ${this.errorClosure} error closure`);
+        this.emptySocket = 0;
+        this.socketTimeout = 0;
+        this.normalClosure = 0;
+        this.errorClosure = 0;
+    }, 1000 * 60);
 }
 
 
