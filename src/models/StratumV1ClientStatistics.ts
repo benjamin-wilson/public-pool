@@ -62,7 +62,7 @@ export class StratumV1ClientStatistics {
         } else if (this.currentTimeSlot != timeSlot) {
             // Transitioning to a new time slot,
             // First update the old time slot with the latest data
-            this.bulkUpdateIndex = await this.clientStatisticsService.updateBulkAsync({
+            this.bulkUpdateIndex = this.clientStatisticsService.updateBulkAsync({
                 time: this.currentTimeSlot,
                 clientId: client.id,
                 shares: this.shares,
@@ -87,7 +87,7 @@ export class StratumV1ClientStatistics {
             // saving to memory for storing later
             this.shares += targetDifficulty;
             this.acceptedCount++;
-            this.bulkUpdateIndex = await this.clientStatisticsService.updateBulkAsync({
+            this.bulkUpdateIndex = this.clientStatisticsService.updateBulkAsync({
                 time: this.currentTimeSlot,
                 clientId: client.id,
                 shares: this.shares,

@@ -30,7 +30,7 @@ export class ClientStatisticsService {
     //     });
     // }
 
-    public async updateBulkAsync(clientStatistic: Partial<ClientStatisticsEntity>, lastSeenIndex: number) {
+    public updateBulkAsync(clientStatistic: Partial<ClientStatisticsEntity>, lastSeenIndex: number) {
 
         if(this.bulkAsyncUpdates.length > lastSeenIndex && this.bulkAsyncUpdates[lastSeenIndex].clientId == clientStatistic.clientId  && this.bulkAsyncUpdates[lastSeenIndex].time == clientStatistic.time){
             this.bulkAsyncUpdates[lastSeenIndex].shares = clientStatistic.shares;
