@@ -287,7 +287,7 @@ export class StratumV1Client {
             case eRequestMethod.SUBMIT: {
 
                 if (this.stratumInitialized == false) {
-                    console.log('Submit before initalized');
+                    //console.log('Submit before initalized');
                     await this.socket.end();
                     return;
                 }
