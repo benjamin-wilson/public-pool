@@ -9,7 +9,7 @@ import { ClientEntity } from './client.entity';
 @Injectable()
 export class ClientService {
 
-
+    private heartbeatBulkUpdate: { [id: string]:{id: string, hashRate: number, updatedAt: Date}} = {};
 
     constructor(
         @InjectRepository(ClientEntity)
@@ -28,13 +28,61 @@ export class ClientService {
             .execute();
     }
 
-    public async heartbeat(id, hashRate: number, updatedAt: Date) {
-        return await this.clientRepository.update({ id }, { hashRate, deletedAt: null, updatedAt });
+    //public async heartbeat(id, hashRate: number, updatedAt: Date) {
+    //     return await this.clientRepository.update({ id }, { hashRate, deletedAt: null, updatedAt });
+    // }
+
+    public heartbeatBulkAsync(id, hashRate: number, updatedAt: Date){
+        if(this.heartbeatBulkUpdate[id] != null){
+            this.heartbeatBulkUpdate[id].hashRate = hashRate;
+            this.heartbeatBulkUpdate[id].updatedAt = updatedAt;
+            return;
+        }
+        this.heartbeatBulkUpdate[id] = {id, hashRate, updatedAt};
     }
 
-    // public async save(client: Partial<ClientEntity>) {
-    //     return await this.clientRepository.save(client);
-    // }
+    public async doBulkHeartbeatUpdate(){
+        if(Object.keys(this.heartbeatBulkUpdate).length < 1){
+            console.log('No heartbeats to update.')
+            return;
+        }
+
+        const values = Object.entries(this.heartbeatBulkUpdate).map(([key, value]) => {
+            return  `('${value.id}', ${value.hashRate}, '${value.updatedAt.toISOString()}')`
+        }).join(',');
+
+        const query = `
+            DO $$
+            BEGIN
+                CREATE TEMP TABLE temp_heartbeats (
+                    id UUID,
+                    "hashRate" DECIMAL,
+                    "updatedAt" TIMESTAMP
+                ) ON COMMIT DROP;
+
+                INSERT INTO temp_heartbeats (id, "hashRate", "updatedAt")
+                VALUES ${values};
+
+                UPDATE "client_entity" ce
+                SET "hashRate" = th."hashRate",
+                    "deletedAt" = NULL,
+                    "updatedAt" = th."updatedAt"
+                FROM temp_heartbeats th
+                WHERE ce.id = th.id;
+            END;
+            $$;
+        `;
+
+        try {
+            await this.clientRepository.query(query);
+            console.log(`Bulk updated ${this.heartbeatBulkUpdate.length} client heartbeats`);
+        } catch (error) {
+            console.error('Bulk heartbeat failed:', error.message, 'Query:', query);
+            throw error;
+        }
+
+        this.heartbeatBulkUpdate = {};
+    }
 
 
     public async insert(partialClient: Partial<ClientEntity>): Promise<ClientEntity> {

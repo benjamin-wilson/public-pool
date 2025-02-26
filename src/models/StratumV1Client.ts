@@ -545,10 +545,10 @@ export class StratumV1Client {
                 await this.statistics.addShares(this.clientEntity, this.sessionDifficulty);
                 const now = new Date();
                 // only update every minute
-                if (this.clientEntity.updatedAt == null || now.getTime() - this.clientEntity.updatedAt.getTime() > 1000 * 60) {
-                    await this.clientService.heartbeat(this.clientEntity.id, this.hashRate, now);
-                    this.clientEntity.updatedAt = now;
-                }
+                //if (this.clientEntity.updatedAt == null || now.getTime() - this.clientEntity.updatedAt.getTime() > 1000 * 60) {
+                await this.clientService.heartbeatBulkAsync(this.clientEntity.id, this.hashRate, now);
+                this.clientEntity.updatedAt = now;
+                //}
 
             } catch (e) {
                 console.log(e);
