@@ -75,7 +75,7 @@ export class ClientService {
 
         try {
             await this.clientRepository.query(query);
-            console.log(`Bulk updated ${this.heartbeatBulkUpdate.length} client heartbeats`);
+            console.log(`Bulk updated ${Object.keys(this.heartbeatBulkUpdate).length} client heartbeats`);
         } catch (error) {
             console.error('Bulk heartbeat failed:', error.message, 'Query:', query);
             throw error;
