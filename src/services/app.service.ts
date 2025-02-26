@@ -42,6 +42,11 @@ export class AppService implements OnModuleInit {
                 await this.updateChart();
             }, 1000 * 60 * 10);
 
+            setInterval(async () => {
+                console.log('Bulk update client stats');
+                await this.clientStatisticsService.doBulkAsyncUpdate();
+            }, 1000 * 60 * 1);
+
 
             setInterval(async () => {
                 console.log('Refreshing user agent report view')

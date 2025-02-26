@@ -16,6 +16,8 @@ export class StratumV1ClientStatistics {
     private currentTimeSlot: number = null;
     private lastSave: number = null;
 
+    private bulkUpdateIndex = 0;
+
     constructor(
         private readonly clientStatisticsService: ClientStatisticsService,
     ) {
@@ -60,15 +62,12 @@ export class StratumV1ClientStatistics {
         } else if (this.currentTimeSlot != timeSlot) {
             // Transitioning to a new time slot,
             // First update the old time slot with the latest data
-            await this.clientStatisticsService.update({
+            this.bulkUpdateIndex = await this.clientStatisticsService.updateBulkAsync({
                 time: this.currentTimeSlot,
                 clientId: client.id,
                 shares: this.shares,
                 acceptedCount: this.acceptedCount,
-                address: client.address,
-                clientName: client.clientName,
-                sessionId: client.sessionId
-            });
+            }, this.bulkUpdateIndex);
             // Set the new time slot and add incoming shares then insert it
             this.currentTimeSlot = timeSlot;
             this.shares = targetDifficulty;
@@ -83,27 +82,18 @@ export class StratumV1ClientStatistics {
                 sessionId: client.sessionId
             });
             this.lastSave = new Date().getTime();
-        } else if ((date.getTime() - 60 * 1000) > this.lastSave) {
-            // If we haven't saved for a minute, update the table
-            this.shares += targetDifficulty;
-            this.acceptedCount++;
-            await this.clientStatisticsService.update({
-                time: this.currentTimeSlot,
-                clientId: client.id,
-                shares: this.shares,
-                acceptedCount: this.acceptedCount,
-                address: client.address,
-                clientName: client.clientName,
-                sessionId: client.sessionId
-            });
-            this.lastSave = new Date().getTime();
         } else {
             // Accept the shares if none of the prior conditions are met,
             // saving to memory for storing later
             this.shares += targetDifficulty;
             this.acceptedCount++;
+            this.bulkUpdateIndex = await this.clientStatisticsService.updateBulkAsync({
+                time: this.currentTimeSlot,
+                clientId: client.id,
+                shares: this.shares,
+                acceptedCount: this.acceptedCount,
+            }, this.bulkUpdateIndex);
         }
-
     }
 
     public getSuggestedDifficulty(clientDifficulty: number) {

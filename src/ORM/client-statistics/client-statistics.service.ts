@@ -8,6 +8,8 @@ import { ClientStatisticsEntity } from './client-statistics.entity';
 @Injectable()
 export class ClientStatisticsService {
 
+    private bulkAsyncUpdates: Partial<ClientStatisticsEntity>[] = [];
+
     constructor(
 
         @InjectDataSource()
@@ -18,16 +20,57 @@ export class ClientStatisticsService {
 
     }
 
-    public async update(clientStatistic: Partial<ClientStatisticsEntity>) {
+    // public async update(clientStatistic: Partial<ClientStatisticsEntity>) {
 
-        await this.clientStatisticsRepository.update({ clientId: clientStatistic.clientId, time: clientStatistic.time },
-            {
-                shares: clientStatistic.shares,
-                acceptedCount: clientStatistic.acceptedCount,
-                updatedAt: new Date()
-            });
+    //     await this.clientStatisticsRepository.update({ clientId: clientStatistic.clientId, time: clientStatistic.time },
+    //     {
+    //         shares: clientStatistic.shares,
+    //         acceptedCount: clientStatistic.acceptedCount,
+    //         updatedAt: new Date()
+    //     });
+    // }
 
+    public async updateBulkAsync(clientStatistic: Partial<ClientStatisticsEntity>, lastSeenIndex: number) {
+
+        if(this.bulkAsyncUpdates.length > lastSeenIndex && this.bulkAsyncUpdates[lastSeenIndex].clientId == clientStatistic.clientId  && this.bulkAsyncUpdates[lastSeenIndex].time == clientStatistic.time){
+            this.bulkAsyncUpdates[lastSeenIndex].shares = clientStatistic.shares;
+            this.bulkAsyncUpdates[lastSeenIndex].acceptedCount = clientStatistic.acceptedCount;
+            return lastSeenIndex;
+        }
+        
+        return this.bulkAsyncUpdates.push(clientStatistic) - 1;
     }
+
+    public async doBulkAsyncUpdate(){
+        // Step 1: Prepare data for bulk update
+        const values = this.bulkAsyncUpdates.map(stat => 
+            `('${stat.clientId}', ${stat.time}, ${stat.shares || 0}, ${stat.acceptedCount || 0}, NOW())`
+        ).join(',');
+
+        // Step 2: Use a temp table and single UPDATE
+        await this.clientStatisticsRepository.query(`
+            CREATE TEMP TABLE temp_stats (
+                clientId UUID,
+                time BIGINT,
+                shares INT,
+                acceptedCount INT,
+                updatedAt TIMESTAMP
+            ) ON COMMIT DROP;
+
+            INSERT INTO temp_stats (clientId, time, shares, acceptedCount, updatedAt)
+            VALUES ${values};
+
+            UPDATE "client_statistics_entity" cse
+            SET shares = ts.shares,
+                acceptedCount = ts.acceptedCount,
+                updatedAt = ts.updatedAt
+            FROM temp_stats ts
+            WHERE cse.clientId = ts.clientId AND cse.time = ts.time;
+        `);
+
+        this.bulkAsyncUpdates = [];
+    }
+
     public async insert(clientStatistic: Partial<ClientStatisticsEntity>) {
         await this.clientStatisticsRepository.insert(clientStatistic);
     }
