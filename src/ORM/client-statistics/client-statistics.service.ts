@@ -8,7 +8,9 @@ import { ClientStatisticsEntity } from './client-statistics.entity';
 @Injectable()
 export class ClientStatisticsService {
 
-    private bulkAsyncUpdates: Partial<ClientStatisticsEntity>[] = [];
+    private bulkAsyncUpdates: {
+        [key: string]: Partial<ClientStatisticsEntity>
+    } = {};
 
     constructor(
 
@@ -30,26 +32,21 @@ export class ClientStatisticsService {
     //     });
     // }
 
-    public updateBulkAsync(clientStatistic: Partial<ClientStatisticsEntity>, lastSeenIndex: number) {
-
-        if(this.bulkAsyncUpdates.length > lastSeenIndex && this.bulkAsyncUpdates[lastSeenIndex].clientId == clientStatistic.clientId  && this.bulkAsyncUpdates[lastSeenIndex].time == clientStatistic.time){
-            this.bulkAsyncUpdates[lastSeenIndex].shares = clientStatistic.shares;
-            this.bulkAsyncUpdates[lastSeenIndex].acceptedCount = clientStatistic.acceptedCount;
-            return lastSeenIndex;
-        }
-        
-        return this.bulkAsyncUpdates.push(clientStatistic) - 1;
+    public updateBulkAsync(clientStatistic: Partial<ClientStatisticsEntity>) {
+        this.bulkAsyncUpdates[clientStatistic.client + clientStatistic.time.toString()] = clientStatistic;
     }
 
     public async doBulkAsyncUpdate(){
-        if(this.bulkAsyncUpdates.length < 1){
+        if(Object.keys(this.bulkAsyncUpdates).length < 1){
             console.log('No client stats to update.')
             return;
         }
+
         // Step 1: Prepare data for bulk update
-        const values = this.bulkAsyncUpdates.map(stat => 
-            `('${stat.clientId}', ${stat.time}, ${stat.shares ?? 0}, ${stat.acceptedCount ?? 0}, NOW())`
-        ).join(',');
+        const values = Object.entries(this.bulkAsyncUpdates).map(([key, value]) => {
+            return  `('${value.clientId}', ${value.time}, ${value.shares}, ${value.acceptedCount}, NOW())`
+        }).join(',');
+        
     
         const query = `
             DO $$
@@ -83,7 +80,7 @@ export class ClientStatisticsService {
             throw error;
         }
 
-        this.bulkAsyncUpdates = [];
+        this.bulkAsyncUpdates = {};
     }
 
     public async insert(clientStatistic: Partial<ClientStatisticsEntity>) {

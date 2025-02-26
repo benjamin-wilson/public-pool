@@ -14,9 +14,6 @@ export class StratumV1ClientStatistics {
     private submissionCache: { time: Date, difficulty: number }[] = [];
 
     private currentTimeSlot: number = null;
-    private lastSave: number = null;
-
-    private bulkUpdateIndex = 0;
 
     constructor(
         private readonly clientStatisticsService: ClientStatisticsService,
@@ -43,7 +40,6 @@ export class StratumV1ClientStatistics {
             difficulty: targetDifficulty,
         });
 
-
         if (this.currentTimeSlot == null) {
             // First record, insert it
             this.currentTimeSlot = timeSlot;
@@ -58,16 +54,15 @@ export class StratumV1ClientStatistics {
                 clientName: client.clientName,
                 sessionId: client.sessionId
             });
-            this.lastSave = new Date().getTime();
         } else if (this.currentTimeSlot != timeSlot) {
             // Transitioning to a new time slot,
             // First update the old time slot with the latest data
-            this.bulkUpdateIndex = this.clientStatisticsService.updateBulkAsync({
+            this.clientStatisticsService.updateBulkAsync({
                 time: this.currentTimeSlot,
                 clientId: client.id,
                 shares: this.shares,
                 acceptedCount: this.acceptedCount,
-            }, this.bulkUpdateIndex);
+            });
             // Set the new time slot and add incoming shares then insert it
             this.currentTimeSlot = timeSlot;
             this.shares = targetDifficulty;
@@ -81,18 +76,17 @@ export class StratumV1ClientStatistics {
                 clientName: client.clientName,
                 sessionId: client.sessionId
             });
-            this.lastSave = new Date().getTime();
         } else {
             // Accept the shares if none of the prior conditions are met,
             // saving to memory for storing later
             this.shares += targetDifficulty;
             this.acceptedCount++;
-            this.bulkUpdateIndex = this.clientStatisticsService.updateBulkAsync({
+            this.clientStatisticsService.updateBulkAsync({
                 time: this.currentTimeSlot,
                 clientId: client.id,
                 shares: this.shares,
                 acceptedCount: this.acceptedCount,
-            }, this.bulkUpdateIndex);
+            });
         }
     }
 
