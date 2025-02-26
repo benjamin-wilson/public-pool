@@ -44,29 +44,39 @@ export class ClientStatisticsService {
     public async doBulkAsyncUpdate(){
         // Step 1: Prepare data for bulk update
         const values = this.bulkAsyncUpdates.map(stat => 
-            `('${stat.clientId}', ${stat.time}, ${stat.shares || 0}, ${stat.acceptedCount || 0}, NOW())`
+            `('${stat.clientId}', ${stat.time}, ${stat.shares ?? 0}, ${stat.acceptedCount ?? 0}, NOW())`
         ).join(',');
-
-        // Step 2: Use a temp table and single UPDATE
-        await this.clientStatisticsRepository.query(`
-            CREATE TEMP TABLE temp_stats (
-                "clientId" UUID,
-                time BIGINT,
-                shares INT,
-                "acceptedCount" INT,
-                "updatedAt" TIMESTAMP
-            ) ON COMMIT DROP;
-
-            INSERT INTO temp_stats ("clientId", time, shares, "acceptedCount", "updatedAt")
-            VALUES ${values};
-
-            UPDATE "client_statistics_entity" cse
-            SET shares = ts.shares,
-                "acceptedCount" = ts."acceptedCount",
-                "updatedAt" = ts."updatedAt"
-            FROM temp_stats ts
-            WHERE cse."clientId" = ts."clientId" AND cse.time = ts.time;
-        `);
+    
+        const query = `
+            DO $$
+            BEGIN
+                CREATE TEMP TABLE temp_stats (
+                    "clientId" UUID,
+                    time BIGINT,
+                    shares INT,
+                    "acceptedCount" INT,
+                    "updatedAt" TIMESTAMP
+                ) ON COMMIT DROP;
+    
+                INSERT INTO temp_stats ("clientId", time, shares, "acceptedCount", "updatedAt")
+                VALUES ${values};
+    
+                UPDATE "client_statistics_entity" cse
+                SET shares = ts.shares,
+                    "acceptedCount" = ts."acceptedCount",
+                    "updatedAt" = ts."updatedAt"
+                FROM temp_stats ts
+                WHERE cse."clientId" = ts."clientId" AND cse.time = ts.time;
+            END;
+            $$;
+        `;
+    
+        try {
+            await this.clientStatisticsRepository.query(query);
+        } catch (error) {
+            console.error('Bulk update failed:', error.message, query);
+            throw error;
+        }
 
         this.bulkAsyncUpdates = [];
     }
