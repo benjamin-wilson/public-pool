@@ -50,22 +50,22 @@ export class ClientStatisticsService {
         // Step 2: Use a temp table and single UPDATE
         await this.clientStatisticsRepository.query(`
             CREATE TEMP TABLE temp_stats (
-                clientId UUID,
+                "clientId" UUID,
                 time BIGINT,
                 shares INT,
-                acceptedCount INT,
-                updatedAt TIMESTAMP
+                "acceptedCount" INT,
+                "updatedAt" TIMESTAMP
             ) ON COMMIT DROP;
 
-            INSERT INTO temp_stats (clientId, time, shares, acceptedCount, updatedAt)
+            INSERT INTO temp_stats ("clientId", time, shares, "acceptedCount", "updatedAt")
             VALUES ${values};
 
             UPDATE "client_statistics_entity" cse
             SET shares = ts.shares,
-                acceptedCount = ts.acceptedCount,
-                updatedAt = ts.updatedAt
+                "acceptedCount" = ts."acceptedCount",
+                "updatedAt" = ts."updatedAt"
             FROM temp_stats ts
-            WHERE cse.clientId = ts.clientId AND cse.time = ts.time;
+            WHERE cse."clientId" = ts."clientId" AND cse.time = ts.time;
         `);
 
         this.bulkAsyncUpdates = [];
