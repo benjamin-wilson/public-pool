@@ -57,7 +57,7 @@ export class ClientStatisticsService {
                 CREATE TEMP TABLE temp_stats (
                     "clientId" UUID,
                     time BIGINT,
-                    shares INT,
+                    shares NUMERIC,
                     "acceptedCount" INT,
                     "updatedAt" TIMESTAMP
                 ) ON COMMIT DROP;
