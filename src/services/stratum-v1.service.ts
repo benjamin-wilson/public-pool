@@ -46,6 +46,13 @@ export class StratumV1Service implements OnModuleInit {
         });
     }, (10000));
 
+    setInterval(() => {
+        console.log(`Socket stats: ${this.emptySocket} empty, ${this.socketTimeout} timeouts, ${this.normalClosure} normal closure, ${this.errorClosure} error closure`);
+        this.emptySocket = 0;
+        this.socketTimeout = 0;
+        this.normalClosure = 0;
+        this.errorClosure = 0;
+    }, 1000 * 60);
 
   }
 
@@ -116,13 +123,7 @@ export class StratumV1Service implements OnModuleInit {
         console.log(`Stratum server is listening on port ${port}`);
     });
 
-    setInterval(() => {
-        console.log(`Socket stats: ${this.emptySocket} empty, ${this.socketTimeout} timeouts, ${this.normalClosure} normal closure, ${this.errorClosure} error closure`);
-        this.emptySocket = 0;
-        this.socketTimeout = 0;
-        this.normalClosure = 0;
-        this.errorClosure = 0;
-    }, 1000 * 60);
+
 }
 
 
