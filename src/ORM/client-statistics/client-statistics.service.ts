@@ -77,7 +77,7 @@ export class ClientStatisticsService {
     
         try {
             await this.clientStatisticsRepository.query(query);
-            console.log(`Bulk updated ${this.bulkAsyncUpdates.length} statistics`)
+            //console.log(`Bulk updated ${this.bulkAsyncUpdates.length} statistics`)
         } catch (error) {
             console.error('Bulk update failed:', error.message, query);
             throw error;

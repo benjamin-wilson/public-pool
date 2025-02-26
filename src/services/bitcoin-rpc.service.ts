@@ -52,7 +52,7 @@ export class BitcoinRpcService implements OnModuleInit {
         console.log(`MASTER? ${process.env.MASTER}`)
         if (process.env.MASTER != 'true') {
             this.pubsubInstance.addChannel('miningInfo', async (miningInfo: IMiningInfo) => {
-                console.log('PG Sub. new template');
+                //console.log('PG Sub. new template');
                 this.miningInfo = miningInfo;
                 const savedBlockTemplate = await this.rpcBlockService.getSavedBlockTemplate(miningInfo.blocks);
                 this._newBlockTemplate$.next(JSON.parse(savedBlockTemplate.data));

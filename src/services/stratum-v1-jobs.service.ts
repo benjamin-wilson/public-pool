@@ -39,7 +39,9 @@ export class StratumV1JobsService {
         this.newMiningJob$ = this.bitcoinRpcService.newBlockTemplate$.pipe(
             map((blockTemplate) => {
 
-                console.log('Updating block template');
+                if (process.env.MASTER == 'true') {
+                    console.log('Updating block template');
+                }
 
                 let clearJobs = false;
                 const currentBlockHeight = this.bitcoinRpcService.miningInfo.blocks;
@@ -128,7 +130,7 @@ export class StratumV1JobsService {
                             jobsDeleted++;
                         }
                     }
-                    console.log(`Deleted ${templatesDeleted} templates and ${jobsDeleted} jobs.`)
+                    //console.log(`Deleted ${templatesDeleted} templates and ${jobsDeleted} jobs.`)
                 }
                 this.blocks[data.blockData.id] = data;
             }),
