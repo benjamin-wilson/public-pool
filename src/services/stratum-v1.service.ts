@@ -39,9 +39,13 @@ export class StratumV1Service implements OnModuleInit {
         await this.clientService.deleteAll();
     }
 
-    process.env.STRATUM_PORTS.split(',').forEach(port =>{
-        this.startSocketServer(parseInt(port));
-    });
+    // wait for all the other processes to init for an even connection distribution 
+    setTimeout(() => {
+        process.env.STRATUM_PORTS.split(',').forEach(port =>{
+            this.startSocketServer(parseInt(port));
+        });
+    }, (10000));
+
 
   }
 
