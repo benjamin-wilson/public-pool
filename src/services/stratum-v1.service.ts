@@ -30,14 +30,13 @@ export class StratumV1Service implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
 
-      if (process.env.MASTER == 'true') {
+    if (process.env.MASTER == 'true') {
         await this.clientService.deleteAll();
-      }
-      setTimeout(() => {
-        process.env.STRATUM_PORTS.split(',').forEach(port =>{
-          this.startSocketServer(parseInt(port));
-        });
-      }, 1000 * 10)
+    }
+
+    process.env.STRATUM_PORTS.split(',').forEach(port =>{
+        this.startSocketServer(parseInt(port));
+    });
 
   }
 
