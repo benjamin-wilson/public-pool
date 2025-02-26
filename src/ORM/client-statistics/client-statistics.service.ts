@@ -42,6 +42,10 @@ export class ClientStatisticsService {
     }
 
     public async doBulkAsyncUpdate(){
+        if(this.bulkAsyncUpdates.length < 1){
+            console.log('No client stats to update.')
+            return;
+        }
         // Step 1: Prepare data for bulk update
         const values = this.bulkAsyncUpdates.map(stat => 
             `('${stat.clientId}', ${stat.time}, ${stat.shares ?? 0}, ${stat.acceptedCount ?? 0}, NOW())`
@@ -73,6 +77,7 @@ export class ClientStatisticsService {
     
         try {
             await this.clientStatisticsRepository.query(query);
+            console.log(`Bulk updated ${this.bulkAsyncUpdates.length} statistics`)
         } catch (error) {
             console.error('Bulk update failed:', error.message, query);
             throw error;
