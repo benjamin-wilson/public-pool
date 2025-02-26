@@ -33,7 +33,14 @@ export class ClientStatisticsService {
     // }
 
     public updateBulkAsync(clientStatistic: Partial<ClientStatisticsEntity>) {
-        this.bulkAsyncUpdates[clientStatistic.client + clientStatistic.time.toString()] = clientStatistic;
+        const key = clientStatistic.clientId + clientStatistic.time.toString();
+        if(this.bulkAsyncUpdates[key] != null){
+            this.bulkAsyncUpdates[key].shares = clientStatistic.shares;
+            this.bulkAsyncUpdates[key].acceptedCount = clientStatistic.acceptedCount;
+            return;
+        }
+
+        this.bulkAsyncUpdates[clientStatistic.clientId + clientStatistic.time.toString()] = clientStatistic;
     }
 
     public async doBulkAsyncUpdate(){

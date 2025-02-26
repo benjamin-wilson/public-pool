@@ -51,7 +51,7 @@ export class AppService implements OnModuleInit {
         }
 
         setInterval(async () => {
-            console.log('Bulk update client stats');
+            //console.log('Bulk update client stats');
             await this.clientStatisticsService.doBulkAsyncUpdate();
         }, 1000 * 60 * 1);
 
