@@ -35,15 +35,15 @@ export class AddressSettingsService {
         return await this.addressSettingsRepository.save({ address });
     }
 
-    public async addShares(address: string, shares: number) {
-        return await this.addressSettingsRepository.createQueryBuilder()
-            .update(AddressSettingsEntity)
-            .set({
-                shares: () => `"shares" + ${shares}` // Use the actual value of shares here
-            })
-            .where('address = :address', { address })
-            .execute();
-    }
+    // public async addShares(address: string, shares: number) {
+    //     return await this.addressSettingsRepository.createQueryBuilder()
+    //         .update(AddressSettingsEntity)
+    //         .set({
+    //             shares: () => `"shares" + ${shares}` // Use the actual value of shares here
+    //         })
+    //         .where('address = :address', { address })
+    //         .execute();
+    // }
 
     public async resetBestDifficultyAndShares() {
         return await this.addressSettingsRepository.update({}, {
