@@ -48,7 +48,7 @@ export class ClientService {
         }
 
         const values = Object.entries(this.heartbeatBulkUpdate).map(([key, value]) => {
-            return  `('${value.id}', ${value.hashRate}, '${value.updatedAt.toUTCString()}')`
+            return  `('${value.id}', ${value.hashRate}, NOW())`
         }).join(',');
 
         const query = `
