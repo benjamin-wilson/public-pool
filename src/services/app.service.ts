@@ -53,12 +53,12 @@ export class AppService implements OnModuleInit {
         setInterval(async () => {
             //console.log('Bulk update client stats');
             await this.clientStatisticsService.doBulkAsyncUpdate();
-        }, 1000 * 60 * 1);
+        }, 1000 * 30);
 
         setInterval(async () => {
             //console.log('Bulk update client stats');
             await this.clientService.doBulkHeartbeatUpdate();
-        }, 1000 * 60 * 1);
+        }, 1000 * 30);
 
 
     }
