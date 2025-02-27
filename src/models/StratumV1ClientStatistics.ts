@@ -8,15 +8,12 @@ export class StratumV1ClientStatistics {
     public targetSubmitShareEveryNSeconds: number = 30;
     public hashRate = 0;
 
-    private previousTimeSlotTime: Date;
-    private currentTimeSlotTime: Date;
-
-    private previousShares: number = 0;
     private shares: number = 0;
     private acceptedCount: number = 0;
 
     private submissionCacheStart: Date;
     private submissionCache: { time: Date, difficulty: number }[] = [];
+    private submissionCacheDifficultySum = 0;
 
     private currentTimeSlot: number = null;
 
@@ -38,17 +35,17 @@ export class StratumV1ClientStatistics {
         var timeSlot = new Date(Math.floor(date.getTime() / coeff) * coeff).getTime();
 
         if (this.submissionCache.length > CACHE_SIZE) {
+            this.submissionCacheDifficultySum -= this.submissionCache[0].difficulty;
             this.submissionCache.shift();
         }
         this.submissionCache.push({
             time: date,
             difficulty: targetDifficulty,
         });
+        this.submissionCacheDifficultySum += targetDifficulty;
 
         if (this.currentTimeSlot == null) {
             // First record, insert it
-            this.previousTimeSlotTime = new Date();
-            this.currentTimeSlotTime = new Date();
             this.currentTimeSlot = timeSlot;
             this.shares += targetDifficulty;
             this.acceptedCount++;
@@ -70,9 +67,6 @@ export class StratumV1ClientStatistics {
                 shares: this.shares,
                 acceptedCount: this.acceptedCount,
             });
-            this.previousShares = this.shares;
-            this.previousTimeSlotTime = this.currentTimeSlotTime;
-            this.currentTimeSlotTime = new Date();
             // Set the new time slot and add incoming shares then insert it
             this.currentTimeSlot = timeSlot;
             this.shares = targetDifficulty;
@@ -99,9 +93,9 @@ export class StratumV1ClientStatistics {
             });
         }
 
-        const time = new Date().getTime() - this.previousTimeSlotTime.getTime();
-        if(this.shares > 0 && time > 60000) { 
-            this.hashRate = ((this.previousShares + this.shares) * 4294967296) / (time / 1000);
+        const time = new Date().getTime() - this.submissionCache[0].time.getTime();
+        if(time > 60000 && this.submissionCache.length > 2) { 
+            this.hashRate = (this.submissionCacheDifficultySum * 4294967296) / (time / 1000);
         }
     }
 
