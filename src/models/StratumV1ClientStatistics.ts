@@ -99,8 +99,8 @@ export class StratumV1ClientStatistics {
             });
         }
 
-        if(this.shares > 0) {
-            const time = new Date().getTime() - this.previousTimeSlotTime.getTime();
+        const time = new Date().getTime() - this.previousTimeSlotTime.getTime();
+        if(this.shares > 0 && time > 60000) { 
             this.hashRate = ((this.previousShares + this.shares) * 4294967296) / (time / 1000);
         }
     }
