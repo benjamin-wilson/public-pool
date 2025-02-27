@@ -6,7 +6,12 @@ const MIN_DIFF = 0.001;
 export class StratumV1ClientStatistics {
 
     public targetSubmitShareEveryNSeconds: number = 30;
+    public hashRate = 0;
 
+    private previousTimeSlotTime: Date;
+    private currentTimeSlotTime: Date;
+
+    private previousShares: number = 0;
     private shares: number = 0;
     private acceptedCount: number = 0;
 
@@ -42,6 +47,8 @@ export class StratumV1ClientStatistics {
 
         if (this.currentTimeSlot == null) {
             // First record, insert it
+            this.previousTimeSlotTime = new Date();
+            this.currentTimeSlotTime = new Date();
             this.currentTimeSlot = timeSlot;
             this.shares += targetDifficulty;
             this.acceptedCount++;
@@ -63,6 +70,9 @@ export class StratumV1ClientStatistics {
                 shares: this.shares,
                 acceptedCount: this.acceptedCount,
             });
+            this.previousShares = this.shares;
+            this.previousTimeSlotTime = this.currentTimeSlotTime;
+            this.currentTimeSlotTime = new Date();
             // Set the new time slot and add incoming shares then insert it
             this.currentTimeSlot = timeSlot;
             this.shares = targetDifficulty;
@@ -88,7 +98,13 @@ export class StratumV1ClientStatistics {
                 acceptedCount: this.acceptedCount,
             });
         }
+
+        if(this.shares > 0) {
+            const time = new Date().getTime() - this.previousTimeSlotTime.getTime();
+            this.hashRate = ((this.previousShares + this.shares) * 4294967296) / (time / 1000);
+        }
     }
+
 
     public getSuggestedDifficulty(clientDifficulty: number) {
 

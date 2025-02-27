@@ -48,8 +48,8 @@ export class StratumV1Client {
 
     public extraNonceAndSessionId: string;
     public sessionStart: Date;
-    public noFee: boolean;
-    public hashRate: number = 0;
+    //public noFee: boolean;
+    //public hashRate: number = 0;
 
     private buffer: string = '';
     
@@ -390,29 +390,31 @@ export class StratumV1Client {
 
     private async sendNewMiningJob(jobTemplate: IJobTemplate) {
 
-        let payoutInformation;
-        const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
-        //50Th/s
-        this.noFee = false;
-        if (this.clientEntity) {
-            this.hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientEntity.id);
-            // 250Gh/s
-            if(this.hashRate < 250000000000){
-                this.statistics.targetSubmitShareEveryNSeconds = 10;
-            }
-            this.noFee = this.hashRate != 0 && this.hashRate < 50000000000000;
-        }
-        if (this.noFee || devFeeAddress == null || devFeeAddress.length < 1) {
-            payoutInformation = [
-                { address: this.clientAuthorization.address, percent: 100 }
-            ];
+        let payoutInformation= [
+            { address: this.clientAuthorization.address, percent: 100 }
+        ];
+        // const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
+        // //50Th/s
+        // this.noFee = false;
+        // if (this.clientEntity) {
+        //     this.hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientEntity.id);
+        //     // 250Gh/s
+        //     if(this.hashRate < 250000000000){
+        //         this.statistics.targetSubmitShareEveryNSeconds = 10;
+        //     }
+        //     this.noFee = this.hashRate != 0 && this.hashRate < 50000000000000;
+        // }
+        // if (this.noFee || devFeeAddress == null || devFeeAddress.length < 1) {
+        //     payoutInformation = [
+        //         { address: this.clientAuthorization.address, percent: 100 }
+        //     ];
 
-        } else {
-            payoutInformation = [
-                { address: devFeeAddress, percent: 1.5 },
-                { address: this.clientAuthorization.address, percent: 98.5 }
-            ];
-        }
+        // } else {
+        //     payoutInformation = [
+        //         { address: devFeeAddress, percent: 1.5 },
+        //         { address: this.clientAuthorization.address, percent: 98.5 }
+        //     ];
+        // }
 
         const networkConfig = this.configService.get('NETWORK');
         let network;
@@ -546,7 +548,7 @@ export class StratumV1Client {
                 const now = new Date();
                 // only update every minute
                 //if (this.clientEntity.updatedAt == null || now.getTime() - this.clientEntity.updatedAt.getTime() > 1000 * 60) {
-                await this.clientService.heartbeatBulkAsync(this.clientEntity.id, this.hashRate, now);
+                await this.clientService.heartbeatBulkAsync(this.clientEntity.id, this.statistics.hashRate, now);
                 this.clientEntity.updatedAt = now;
                 //}
 

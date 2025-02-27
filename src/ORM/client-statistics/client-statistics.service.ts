@@ -189,47 +189,47 @@ export class ClientStatisticsService {
     }
 
 
-    public async getHashRateForSession(clientId: string) {
+    // public async getHashRateForSession(clientId: string) {
 
-        const query = `
-            SELECT
-                "createdAt",
-                "updatedAt",
-                shares
-            FROM
-                client_statistics_entity AS entry
-            WHERE
-                entry."clientId" = $1
-            ORDER BY time DESC
-            LIMIT 2;
-        `;
+    //     const query = `
+    //         SELECT
+    //             "createdAt",
+    //             "updatedAt",
+    //             shares
+    //         FROM
+    //             client_statistics_entity AS entry
+    //         WHERE
+    //             entry."clientId" = $1
+    //         ORDER BY time DESC
+    //         LIMIT 2;
+    //     `;
 
-        const result = await this.clientStatisticsRepository.query(query, [clientId]);
+    //     const result = await this.clientStatisticsRepository.query(query, [clientId]);
 
-        if (result.length < 1) {
-            return 0;
-        }
+    //     if (result.length < 1) {
+    //         return 0;
+    //     }
 
-        const latestStat = result[0];
+    //     const latestStat = result[0];
 
-        if (result.length < 2) {
-            const time = new Date(latestStat.updatedAt).getTime() - new Date(latestStat.createdAt).getTime();
-            // 1min
-            if (time < 1000 * 60) {
-                return 0;
-            }
-            return (parseFloat(latestStat.shares) * 4294967296) / (time / 1000);
-        } else {
-            const secondLatestStat = result[1];
-            const time = new Date(latestStat.updatedAt).getTime() - new Date(secondLatestStat.createdAt).getTime();
-            // 1min
-            if (time < 1000 * 60) {
-                return 0;
-            }
-            return ((parseFloat(latestStat.shares) + parseFloat(secondLatestStat.shares)) * 4294967296) / (time / 1000);
-        }
+    //     if (result.length < 2) {
+    //         const time = new Date(latestStat.updatedAt).getTime() - new Date(latestStat.createdAt).getTime();
+    //         // 1min
+    //         if (time < 1000 * 60) {
+    //             return 0;
+    //         }
+    //         return (parseFloat(latestStat.shares) * 4294967296) / (time / 1000);
+    //     } else {
+    //         const secondLatestStat = result[1];
+    //         const time = new Date(latestStat.updatedAt).getTime() - new Date(secondLatestStat.createdAt).getTime();
+    //         // 1min
+    //         if (time < 1000 * 60) {
+    //             return 0;
+    //         }
+    //         return ((parseFloat(latestStat.shares) + parseFloat(secondLatestStat.shares)) * 4294967296) / (time / 1000);
+    //     }
 
-    }
+    // }
 
     public async getChartDataForSession(clientId: string) {
         var yesterday = new Date(new Date().getTime() - (24 * 60 * 60 * 1000));
