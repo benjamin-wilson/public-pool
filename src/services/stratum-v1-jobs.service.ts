@@ -52,6 +52,9 @@ export class StratumV1JobsService {
                 }))
             }),
             map(({ blockTemplate, interval }) => {
+                if (blockTemplate == null) {
+                    return null;
+                }
 
                 let clearJobs = false;
                 if (this.lastIntervalCount === interval) {
