@@ -49,7 +49,7 @@ export class StratumV1Client {
 
     public extraNonceAndSessionId: string;
     public sessionStart: Date;
-    public noFee: boolean;
+    public shouldApplyFee: boolean = false;
     public hashRate: number = 0;
 
     private buffer: string = '';
@@ -83,8 +83,6 @@ export class StratumV1Client {
                     }
                 });
         });
-
-
     }
 
     public async destroy() {
@@ -122,9 +120,7 @@ export class StratumV1Client {
             await this.socket.end();
             return;
         }
-
-
-
+        
         switch (parsedMessage.method) {
             case eRequestMethod.SUBSCRIBE: {
                 const subscriptionMessage = plainToInstance(
@@ -140,7 +136,6 @@ export class StratumV1Client {
                 const errors = await validate(subscriptionMessage, validatorOptions);
 
                 if (errors.length === 0) {
-
                     if (this.sessionStart == null) {
                         this.sessionStart = new Date();
                         this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService);
@@ -169,8 +164,8 @@ export class StratumV1Client {
 
                 break;
             }
+            
             case eRequestMethod.CONFIGURE: {
-
                 const configurationMessage = plainToInstance(
                     ConfigurationMessage,
                     parsedMessage,
@@ -207,8 +202,8 @@ export class StratumV1Client {
 
                 break;
             }
+            
             case eRequestMethod.AUTHORIZE: {
-
                 const authorizationMessage = plainToInstance(
                     AuthorizationMessage,
                     parsedMessage,
@@ -220,7 +215,6 @@ export class StratumV1Client {
                 };
 
                 const errors = await validate(authorizationMessage, validatorOptions);
-
                 if (errors.length === 0) {
                     this.clientAuthorization = authorizationMessage;
                     const success = await this.write(JSON.stringify(this.clientAuthorization.response()) + '\n');
@@ -243,6 +237,7 @@ export class StratumV1Client {
 
                 break;
             }
+            
             case eRequestMethod.SUGGEST_DIFFICULTY: {
                 if (this.usedSuggestedDifficulty == true) {
                     return;
@@ -259,7 +254,6 @@ export class StratumV1Client {
                 };
 
                 const errors = await validate(suggestDifficultyMessage, validatorOptions);
-
                 if (errors.length === 0) {
 
                     this.clientSuggestedDifficulty = suggestDifficultyMessage;
@@ -285,7 +279,6 @@ export class StratumV1Client {
                 break;
             }
             case eRequestMethod.SUBMIT: {
-
                 if (this.stratumInitialized == false) {
                     console.log('Submit before initalized');
                     await this.socket.end();
@@ -304,7 +297,6 @@ export class StratumV1Client {
                 };
 
                 const errors = await validate(miningSubmitMessage, validatorOptions);
-
                 if (errors.length === 0 && this.stratumInitialized == true) {
                     const result = await this.handleMiningSubmission(miningSubmitMessage);
                     if (result == true) {
@@ -313,8 +305,6 @@ export class StratumV1Client {
                             return;
                         }
                     }
-
-
                 } else {
                     console.log('Mining Submit validation error');
                     const err = new StratumErrorMessage(
@@ -337,14 +327,11 @@ export class StratumV1Client {
             //     return;
             // }
         }
-
-
+        
         if (this.clientSubscription != null
             && this.clientAuthorization != null
             && this.stratumInitialized == false) {
-
             await this.initStratum();
-
         }
     }
 
@@ -382,26 +369,26 @@ export class StratumV1Client {
         );
 
     }
-
+    
     private async sendNewMiningJob(jobTemplate: IJobTemplate) {
-
         let payoutInformation;
+        const devFee = this.configService.get('DEV_FEE');
         const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
-        //50Th/s
-        this.noFee = false;
+        
         if (this.entity) {
             this.hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientAuthorization.address, this.clientAuthorization.worker, this.extraNonceAndSessionId);
-            this.noFee = this.hashRate != 0 && this.hashRate < 50000000000000;
+            this.shouldApplyFee = this.hashRate != 0 && this.hashRate > 50000000000000; // 50Th/s
         }
-        if (this.noFee || devFeeAddress == null || devFeeAddress.length < 1) {
-            payoutInformation = [
-                { address: this.clientAuthorization.address, percent: 100 }
-            ];
 
+        const applyDevFee = this.shouldApplyFee && devFeeAddress && devFeeAddress.length > 0 && !isNaN(devFee) && devFee > 0;
+        if (applyDevFee) {
+            payoutInformation = [
+                { address: devFeeAddress, percent: devFee },
+                { address: this.clientAuthorization.address, percent: this.calculateMinerFeeWithDevFee(devFee) }
+            ];
         } else {
             payoutInformation = [
-                { address: devFeeAddress, percent: 1.5 },
-                { address: this.clientAuthorization.address, percent: 98.5 }
+                { address: this.clientAuthorization.address, percent: 100 }
             ];
         }
 
@@ -427,18 +414,24 @@ export class StratumV1Client {
         );
 
         this.stratumV1JobsService.addJob(job);
-
-
+        
         const success = await this.write(job.response(jobTemplate));
         if (!success) {
             return;
         }
-
-
+        
         //console.log(`Sent new job to ${this.clientAuthorization.worker}.${this.extraNonceAndSessionId}. (clearJobs: ${jobTemplate.blockData.clearJobs}, fee?: ${!this.noFee})`)
-
     }
+    
+    private calculateMinerFeeWithDevFee(devFee: number): number {
+        const maxFee = 100;
+        const defaultFee = 1.5;
 
+        // Ensure the devFee is below 100, otherwise default to 1.5
+        const feeToUse = devFee > maxFee ? defaultFee : devFee;
+
+        return maxFee - feeToUse;
+    }
 
     private async handleMiningSubmission(submission: MiningSubmitMessage) {
 
