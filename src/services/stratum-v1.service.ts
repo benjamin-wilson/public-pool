@@ -58,8 +58,8 @@ export class StratumV1Service implements OnModuleInit {
 
   private startSocketServer(port: number) {
     const server = new Server(async (socket: Socket) => {
-        // Set 5-minute timeout
-        socket.setTimeout(1000 * 60 * 5);
+        // Set 15-minute timeout
+        socket.setTimeout(1000 * 60 * 15);
 
         const client = new StratumV1Client(
             socket,
