@@ -390,7 +390,7 @@ export class StratumV1Client {
         //50Th/s
         this.noFee = false;
         if (this.entity) {
-            this.hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientAuthorization.address, this.clientAuthorization.worker, this.extraNonceAndSessionId);
+            this.hashRate = this.statistics.hashRate;
             this.noFee = this.hashRate != 0 && this.hashRate < 50000000000000;
         }
         if (this.noFee || devFeeAddress == null || devFeeAddress.length < 1) {
