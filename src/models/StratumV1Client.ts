@@ -132,7 +132,7 @@ export class StratumV1Client {
 
                 const validatorOptions: ValidatorOptions = {
                     whitelist: true,
-                    forbidNonWhitelisted: true,
+                    //forbidNonWhitelisted: true,
                 };
 
                 const errors = await validate(subscriptionMessage, validatorOptions);
@@ -176,7 +176,7 @@ export class StratumV1Client {
 
                 const validatorOptions: ValidatorOptions = {
                     whitelist: true,
-                    forbidNonWhitelisted: true,
+                    //forbidNonWhitelisted: true,
                 };
 
                 const errors = await validate(configurationMessage, validatorOptions);
@@ -214,7 +214,7 @@ export class StratumV1Client {
 
                 const validatorOptions: ValidatorOptions = {
                     whitelist: true,
-                    forbidNonWhitelisted: true,
+                    //forbidNonWhitelisted: true,
                 };
 
                 const errors = await validate(authorizationMessage, validatorOptions);
@@ -255,7 +255,7 @@ export class StratumV1Client {
 
                 const validatorOptions: ValidatorOptions = {
                     whitelist: true,
-                    forbidNonWhitelisted: true,
+                    //forbidNonWhitelisted: true,
                 };
 
                 const errors = await validate(suggestDifficultyMessage, validatorOptions);
@@ -300,7 +300,7 @@ export class StratumV1Client {
 
                 const validatorOptions: ValidatorOptions = {
                     whitelist: true,
-                    forbidNonWhitelisted: true,
+                    //forbidNonWhitelisted: true,
                 };
 
                 const errors = await validate(miningSubmitMessage, validatorOptions);
