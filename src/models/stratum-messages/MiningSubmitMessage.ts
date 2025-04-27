@@ -3,6 +3,8 @@ import { ArrayMaxSize, ArrayMinSize, IsArray, IsString } from 'class-validator';
 
 import { eRequestMethod } from '../enums/eRequestMethod';
 import { StratumBaseMessage } from './StratumBaseMessage';
+import * as bitcoinjs from 'bitcoinjs-lib';
+
 
 export class MiningSubmitMessage extends StratumBaseMessage {
 
@@ -61,6 +63,11 @@ export class MiningSubmitMessage extends StratumBaseMessage {
             error: null,
             result: true
         };
+    }
+
+    public hash(): string{
+        const buffer = Buffer.from(this.versionMask + this.nonce + this.extraNonce2 + this.ntime + this.jobId);
+        return bitcoinjs.crypto.hash256(buffer).toString('base64');
     }
 
 

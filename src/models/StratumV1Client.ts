@@ -52,7 +52,9 @@ export class StratumV1Client {
     //public hashRate: number = 0;
 
     private buffer: string = '';
-    
+
+    private miningSubmissionHashes = new Set<string>()
+
     constructor(
         public readonly socket: Socket,
         private readonly stratumV1JobsService: StratumV1JobsService,
@@ -368,6 +370,9 @@ export class StratumV1Client {
 
         this.stratumSubscription = this.stratumV1JobsService.newMiningJob$.subscribe(async (jobTemplate) => {
             try {
+                if(jobTemplate.blockData.clearJobs){
+                    this.miningSubmissionHashes.clear();
+                }
                 await this.sendNewMiningJob(jobTemplate);
             } catch (e) {
                 await this.socket.end();
@@ -476,6 +481,21 @@ export class StratumV1Client {
             }
         }
 
+        const submissionHash = submission.hash();
+        if(this.miningSubmissionHashes.has(submissionHash)){
+            const err = new StratumErrorMessage(
+                submission.id,
+                eStratumErrorCode.DuplicateShare,
+                'Duplicate share').response();
+            console.error(err);
+            const success = await this.write(err);
+            if (!success) {
+                return false;
+            }
+            return false;
+        }else{
+            this.miningSubmissionHashes.add(submissionHash);
+        }
 
         const job = this.stratumV1JobsService.getJobById(submission.jobId);
 
@@ -554,16 +574,6 @@ export class StratumV1Client {
 
             } catch (e) {
                 console.log(e);
-                const err = new StratumErrorMessage(
-                    submission.id,
-                    eStratumErrorCode.DuplicateShare,
-                    'Duplicate share').response();
-                console.log(err);
-                const success = await this.write(err);
-                if (!success) {
-                    return false;
-                }
-                return false;
             }
 
             if (submissionDifficulty > this.clientEntity.bestDifficulty) {
