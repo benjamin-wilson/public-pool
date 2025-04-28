@@ -42,7 +42,8 @@ export class StratumV1Client {
     private statistics: StratumV1ClientStatistics;
     private stratumInitialized = false;
     private usedSuggestedDifficulty = false;
-    private sessionDifficulty: number = 16384;
+    private sessionDifficulty: number =
+      parseInt(process.env.SESSION_DIFFICULTY) || 16384;
 
     private entity: ClientEntity;
     private creatingEntity: Promise<void>;
