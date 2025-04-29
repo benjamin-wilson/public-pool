@@ -53,8 +53,8 @@ export class AppController {
       totalHashRate: 0
     };
     const userAgents: UserAgentReportView[] = (await this.userAgentReportService.getReport()).reduce((pre, cur, idx, arr) => {
-      // If less than 1Th/s and less than 100 devices, add to 'other'
-      if (parseInt(cur.totalHashRate) < 1000000000000 && parseInt(cur.count) < 200) {
+      // If less than 10Th/s and less than 100 devices, add to 'other'
+      if (parseInt(cur.totalHashRate) < 10000000000000 && parseInt(cur.count) < 200) {
         other.totalHashRate += parseFloat(cur.totalHashRate);
         other.count += parseInt(cur.count);
         if (other.bestDifficulty < cur.bestDifficulty) {
@@ -65,7 +65,7 @@ export class AppController {
       }
       return pre;
     }, []);
-    
+
     userAgents.push({ userAgent: 'Other', count: other.count.toString(), bestDifficulty: other.bestDifficulty, totalHashRate: other.totalHashRate.toString() })
 
     const data = {
