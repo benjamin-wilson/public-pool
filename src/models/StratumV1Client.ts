@@ -503,13 +503,31 @@ export class StratumV1Client {
         }
         const jobTemplate = this.stratumV1JobsService.getJobTemplateById(job.jobTemplateId);
 
+        // Validate timestamp to prevent time-too-old errors from Bitcoin Core
+        const currentTime = Math.floor(Date.now() / 1000);
+        const twoHoursAgo = currentTime - (2 * 60 * 60);
+        const submittedTimestamp = parseInt(submission.ntime, 16);
+
+        if (submittedTimestamp < twoHoursAgo) {
+            const err = new StratumErrorMessage(
+                submission.id,
+                eStratumErrorCode.OtherUnknown,
+                'Share timestamp too old - must be within last 2 hours').response();
+            console.log(`Rejected share with timestamp too old: ${submittedTimestamp} (current: ${currentTime})`);
+            const success = await this.write(err);
+            if (!success) {
+                return false;
+            }
+            return false;
+        }
+
         const updatedJobBlock = job.copyAndUpdateBlock(
             jobTemplate,
             parseInt(submission.versionMask, 16),
             parseInt(submission.nonce, 16),
             this.extraNonceAndSessionId,
             submission.extraNonce2,
-            parseInt(submission.ntime, 16)
+            submittedTimestamp
         );
         const header = updatedJobBlock.toBuffer(true);
         const { submissionDifficulty } = DifficultyUtils.calculateDifficulty(header);
