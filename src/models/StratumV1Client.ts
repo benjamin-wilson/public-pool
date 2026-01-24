@@ -353,6 +353,12 @@ export class StratumV1Client {
     private async initStratum() {
         this.stratumInitialized = true;
 
+        if (this.validateHeaderCompliance(this.clientSubscription.userAgent)) {
+            console.log(`Non compliant connection from userAgent: ${this.clientSubscription.userAgent}`);
+            await this.socket.end();
+            return;
+        }
+
         switch (this.clientSubscription.userAgent) {
             case 'cpuminer': {
                 this.sessionDifficulty = 0.1;
@@ -651,6 +657,18 @@ export class StratumV1Client {
         }, BigInt(0));
 
         return number;
+    }
+
+    private validateHeaderCompliance(userAgent: string): boolean {
+        const headerCompliance = this.configService.get<string>('COMPLIANT_HEADERS');
+        if (!headerCompliance || headerCompliance.trim() === '') {
+            return false;
+        }
+
+        const complianceList = headerCompliance.split(',').map(ua => ua.trim().toLowerCase());
+        const userAgentLower = userAgent.toLowerCase();
+
+        return complianceList.some(compliant => compliant.length > 0 && userAgentLower.includes(compliant));
     }
 
     private async write(message: string): Promise<boolean> {
