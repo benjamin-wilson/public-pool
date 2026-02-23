@@ -30,7 +30,7 @@ export class ClientEntity extends TrackedEntity {
     userAgent: string;
 
 
-    @Column({ type: 'timestamp' })
+    @Column({ type: 'timestamptz' })
     startTime: Date;
 
     @Column({ type: 'decimal', default: 0 })
