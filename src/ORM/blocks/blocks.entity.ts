@@ -1,11 +1,12 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity } from 'typeorm';
 
+import { PrimaryGeneratedBigIntColumn } from '../utils/PrimaryGeneratedBigIntColumn';
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
 @Entity()
 export class BlocksEntity extends TrackedEntity {
 
-    @PrimaryGeneratedColumn({type: 'bigint'})
+    @PrimaryGeneratedBigIntColumn()
     id: number;
 
     @Column()

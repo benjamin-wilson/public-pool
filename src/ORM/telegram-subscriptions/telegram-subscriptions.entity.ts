@@ -1,11 +1,12 @@
-import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, Index } from 'typeorm';
 
+import { PrimaryGeneratedBigIntColumn } from '../utils/PrimaryGeneratedBigIntColumn';
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
 @Entity()
 export class TelegramSubscriptionsEntity extends TrackedEntity {
 
-    @PrimaryGeneratedColumn({type: 'bigint'})
+    @PrimaryGeneratedBigIntColumn()
     id: number;
 
     @Index()

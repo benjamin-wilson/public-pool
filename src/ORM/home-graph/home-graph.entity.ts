@@ -1,9 +1,11 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity } from 'typeorm';
+
+import { PrimaryGeneratedBigIntColumn } from '../utils/PrimaryGeneratedBigIntColumn';
 
 @Entity()
 export class HomeGraphEntity {
 
-    @PrimaryGeneratedColumn({type: 'bigint'})
+    @PrimaryGeneratedBigIntColumn()
     id: number;
 
     @Column({ type: 'bigint' })

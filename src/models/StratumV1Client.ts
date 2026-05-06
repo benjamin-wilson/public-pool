@@ -25,6 +25,7 @@ import { ConfigurationMessage } from './stratum-messages/ConfigurationMessage';
 import { MiningSubmitMessage } from './stratum-messages/MiningSubmitMessage';
 import { StratumErrorMessage } from './stratum-messages/StratumErrorMessage';
 import { SubscriptionMessage } from './stratum-messages/SubscriptionMessage';
+import { EXTRANONCE1_SIZE_BYTES } from './stratum.constants';
 import { SuggestDifficulty } from './stratum-messages/SuggestDifficultyMessage';
 import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
 
@@ -103,10 +104,8 @@ export class StratumV1Client {
     }
 
     private getRandomHexString() {
-        const randomBytes = crypto.randomBytes(4); // 4 bytes = 32 bits
-        const randomNumber = randomBytes.readUInt32BE(0); // Convert bytes to a 32-bit unsigned integer
-        const hexString = randomNumber.toString(16).padStart(8, '0'); // Convert to hex and pad with zeros
-        return hexString;
+        const randomBytes = crypto.randomBytes(EXTRANONCE1_SIZE_BYTES);
+        return randomBytes.toString('hex');
     }
 
 

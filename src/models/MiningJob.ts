@@ -4,6 +4,7 @@ import * as bitcoinjs from 'bitcoinjs-lib';
 import { IJobTemplate } from '../services/stratum-v1-jobs.service';
 import { eResponseMethod } from './enums/eResponseMethod';
 import { IMiningNotify } from './stratum-messages/IMiningNotify';
+import { TOTAL_EXTRANONCE_SIZE_BYTES } from './stratum.constants';
 
 
 interface AddressObject {
@@ -50,7 +51,7 @@ export class MiningJob {
         const blockHeightLengthByte = Buffer.from([blockHeightEncoded.length]);
 
         // generate padding and take length of encode blockHeight into account
-        const padding = Buffer.alloc(8 + (3 - blockHeightEncoded.length), 0)
+        const padding = Buffer.alloc(TOTAL_EXTRANONCE_SIZE_BYTES + (3 - blockHeightEncoded.length), 0)
 
         // build the script
         this.coinbaseTransaction.ins[0].script = Buffer.concat([blockHeightLengthByte, blockHeightEncoded, extra, padding])
@@ -65,7 +66,7 @@ export class MiningJob {
 
         const partOneIndex = serializedCoinbaseTx.indexOf(inputScript) + inputScript.length;
 
-        this.coinbasePart1 = serializedCoinbaseTx.slice(0, partOneIndex - 16);
+        this.coinbasePart1 = serializedCoinbaseTx.slice(0, partOneIndex - (TOTAL_EXTRANONCE_SIZE_BYTES * 2));
         this.coinbasePart2 = serializedCoinbaseTx.slice(partOneIndex);
 
 
@@ -90,7 +91,7 @@ export class MiningJob {
         // set the nonces
         const nonceScript = testBlock.transactions[0].ins[0].script.toString('hex');
 
-        testBlock.transactions[0].ins[0].script = Buffer.from(`${nonceScript.substring(0, nonceScript.length - 16)}${extraNonce}${extraNonce2}`, 'hex');
+        testBlock.transactions[0].ins[0].script = Buffer.from(`${nonceScript.substring(0, nonceScript.length - (TOTAL_EXTRANONCE_SIZE_BYTES * 2))}${extraNonce}${extraNonce2}`, 'hex');
 
         //recompute the root since we updated the coinbase script with the nonces
         testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].getHash(false), jobTemplate.merkle_branch);

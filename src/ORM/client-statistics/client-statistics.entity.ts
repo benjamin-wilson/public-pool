@@ -1,6 +1,7 @@
-import { Column, Entity, Index, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, Index, ManyToOne } from 'typeorm';
 
 import { ClientEntity } from '../client/client.entity';
+import { PrimaryGeneratedBigIntColumn } from '../utils/PrimaryGeneratedBigIntColumn';
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
 @Entity()
@@ -8,7 +9,7 @@ import { TrackedEntity } from '../utils/TrackedEntity.entity';
 @Index(["clientId", "time"])
 export class ClientStatisticsEntity extends TrackedEntity {
 
-    @PrimaryGeneratedColumn({type: 'bigint'})
+    @PrimaryGeneratedBigIntColumn()
     id: number;
 
     @Column({ length: 62, type: 'varchar' })

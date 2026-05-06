@@ -1,12 +1,12 @@
 import { CreateDateColumn, DeleteDateColumn, UpdateDateColumn } from 'typeorm';
 
 export abstract class TrackedEntity {
-    @DeleteDateColumn({ nullable: true, type: 'timestamp' })
+    @DeleteDateColumn({ nullable: true })
     public deletedAt?: Date;
 
-    @CreateDateColumn({ type: 'timestamp' })
+    @CreateDateColumn()
     public createdAt?: Date
 
-    @UpdateDateColumn({ type: 'timestamp' })
+    @UpdateDateColumn()
     public updatedAt?: Date
 }

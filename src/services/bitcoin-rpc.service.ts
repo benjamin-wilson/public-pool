@@ -2,7 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RPCClient } from 'rpc-bitcoin';
 import { asyncScheduler, BehaviorSubject, delay, filter, from, interval, scheduled, shareReplay, startWith, Subject, switchMap } from 'rxjs';
-import { RpcBlockService } from 'src/ORM/rpc-block/rpc-block.service';
+import { RpcBlockService } from '../ORM/rpc-block/rpc-block.service';
 import * as zmq from 'zeromq';
 
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
@@ -159,4 +159,3 @@ export class BitcoinRpcService implements OnModuleInit {
 
     }
 }
-
