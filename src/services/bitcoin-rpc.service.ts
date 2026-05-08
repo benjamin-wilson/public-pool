@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { RPCClient } from 'rpc-bitcoin';
+import axios, { AxiosInstance } from 'axios';
 import { asyncScheduler, BehaviorSubject, delay, filter, from, interval, scheduled, shareReplay, startWith, Subject, switchMap } from 'rxjs';
 import { RpcBlockService } from '../ORM/rpc-block/rpc-block.service';
 import * as zmq from 'zeromq';
@@ -13,10 +13,11 @@ import * as PGPubsub from 'pg-pubsub';
 export class BitcoinRpcService implements OnModuleInit {
 
     
-    private client: RPCClient;
+    private client: AxiosInstance;
     private _newBlockTemplate$: BehaviorSubject<IBlockTemplate> = new BehaviorSubject(undefined);
     private pubsubInstance: PGPubsub;
     private resetTemplateInterval$ = new Subject<void>();
+    private rpcRequestId = 0;
 
     public miningInfo: IMiningInfo;
     public newBlockTemplate$ = this._newBlockTemplate$.pipe(filter(block => block != null), shareReplay({ refCount: true, bufferSize: 1 }));
@@ -39,9 +40,17 @@ export class BitcoinRpcService implements OnModuleInit {
         const port = parseInt(this.configService.get('BITCOIN_RPC_PORT'));
         const timeout = parseInt(this.configService.get('BITCOIN_RPC_TIMEOUT'));
 
-        this.client = new RPCClient({ url, port, timeout, user, pass });
+        const baseURL = this.buildRpcUrl(url, port);
+        this.client = axios.create({
+            baseURL,
+            timeout,
+            auth: {
+                username: user,
+                password: pass
+            }
+        });
 
-        this.client.getrpcinfo().then((res) => {
+        this.callRpc('getrpcinfo').then((res) => {
             console.log('Bitcoin RPC connected');
         }, () => {
             console.error('Could not reach RPC host');
@@ -109,13 +118,13 @@ export class BitcoinRpcService implements OnModuleInit {
 
         let blockTemplate: IBlockTemplate;
         while (blockTemplate == null) {
-            blockTemplate = await this.client.getblocktemplate({
-                template_request: {
+            blockTemplate = await this.callRpc<IBlockTemplate>('getblocktemplate', [
+                {
                     rules: ['segwit'],
                     mode: 'template',
                     capabilities: ['serverlist', 'proposal']
                 }
-            });
+            ]);
         }
 
         try {
@@ -131,7 +140,7 @@ export class BitcoinRpcService implements OnModuleInit {
 
     public async getMiningInfo(): Promise<IMiningInfo> {
         try {
-            return await this.client.getmininginfo();
+            return await this.callRpc<IMiningInfo>('getmininginfo');
         } catch (e) {
             console.error('Error getmininginfo', e.message);
             return null;
@@ -142,9 +151,7 @@ export class BitcoinRpcService implements OnModuleInit {
     public async SUBMIT_BLOCK(hexdata: string): Promise<string> {
         let response: string = 'unknown';
         try {
-            response = await this.client.submitblock({
-                hexdata
-            });
+            response = await this.callRpc<string>('submitblock', [hexdata]);
             if (response == null) {
                 response = 'SUCCESS!';
             }
@@ -157,5 +164,29 @@ export class BitcoinRpcService implements OnModuleInit {
         }
         return response;
 
+    }
+
+    private async callRpc<T>(method: string, params: unknown[] = []): Promise<T> {
+        const response = await this.client.post('', {
+            jsonrpc: '1.0',
+            id: ++this.rpcRequestId,
+            method,
+            params
+        });
+
+        if (response.data.error != null) {
+            throw response.data.error;
+        }
+
+        return response.data.result;
+    }
+
+    private buildRpcUrl(url: string, port: number): string {
+        const normalizedUrl = /^https?:\/\//i.test(url) ? url : `http://${url}`;
+        const rpcUrl = new URL(normalizedUrl);
+        if (Number.isFinite(port) && port > 0) {
+            rpcUrl.port = port.toString();
+        }
+        return rpcUrl.toString();
     }
 }

@@ -42,6 +42,8 @@ export class StratumV1Service implements OnModuleInit {
 
         if (process.env.MASTER == 'true') {
             await this.clientService.deleteAll();
+            console.log('Master process skipping Stratum socket listeners');
+            return;
         }
 
         // wait for all the other processes to init for an even connection distribution 

@@ -140,6 +140,17 @@ export class ClientService {
     public async updateBestDifficulty(id: string, bestDifficulty: number) {
         return await this.clientRepository.update({ id }, { bestDifficulty });
     }
+
+    public async updateBestDifficultyIfHigher(id: string, bestDifficulty: number) {
+        return await this.clientRepository
+            .createQueryBuilder()
+            .update(ClientEntity)
+            .set({ bestDifficulty })
+            .where('id = :id', { id })
+            .andWhere('"bestDifficulty" < :bestDifficulty', { bestDifficulty })
+            .execute();
+    }
+
     public async connectedClientCount(): Promise<number> {
         return await this.clientRepository.count();
     }
@@ -173,7 +184,10 @@ export class ClientService {
     }
 
     public async deleteAll() {
-        return await this.clientRepository.softDelete({})
+        return await this.clientRepository
+            .createQueryBuilder()
+            .softDelete()
+            .execute();
     }
 
     // public async getUserAgents() {

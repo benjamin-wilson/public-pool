@@ -1,8 +1,7 @@
 import { ConfigService } from '@nestjs/config';
-import Big from 'big.js';
 import * as bitcoinjs from 'bitcoinjs-lib';
 import { plainToInstance } from 'class-transformer';
-import { validate, ValidatorOptions } from 'class-validator';
+import { validate, ValidationError, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
 import { Socket } from 'net';
 import { firstValueFrom, Subscription } from 'rxjs';
@@ -29,15 +28,20 @@ import { EXTRANONCE1_SIZE_BYTES } from './stratum.constants';
 import { SuggestDifficulty } from './stratum-messages/SuggestDifficultyMessage';
 import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
 
+const TRUE_DIFF_ONE = 2.695953529101131e67;
+const BLOCKED_USER_AGENT_LOG_INTERVAL_MS = 60 * 1000;
+const VALIDATION_ERROR_LOG_INTERVAL_MS = 60 * 1000;
 
 export class StratumV1Client {
+    private static blockedUserAgentLogState = new Map<string, { nextLogAt: number, suppressed: number }>();
+    private static validationErrorLogState = new Map<string, { nextLogAt: number, suppressed: number, sample: string }>();
 
     public clientSubscription: SubscriptionMessage;
     private clientConfiguration: ConfigurationMessage;
     private clientAuthorization: AuthorizationMessage;
     private clientSuggestedDifficulty: SuggestDifficulty;
     private stratumSubscription: Subscription;
-    private backgroundWork: NodeJS.Timer[] = [];
+    private backgroundWork: NodeJS.Timeout[] = [];
 
     private statistics: StratumV1ClientStatistics;
     private stratumInitialized = false;
@@ -53,6 +57,7 @@ export class StratumV1Client {
     //public hashRate: number = 0;
 
     private buffer: string = '';
+    private connectionClosed = false;
 
     private miningSubmissionHashes = new Set<string>()
 
@@ -73,16 +78,19 @@ export class StratumV1Client {
             let lines = this.buffer.split('\n');
             this.buffer = lines.pop() || ''; // Save the last part of the data (incomplete line) to the buffer
 
-            lines
-                .filter(m => m.length > 0)
-                .forEach(async (m) => {
+            (async () => {
+                for (const m of lines.filter(l => l.length > 0)) {
+                    if (this.connectionClosed || this.socket.destroyed || this.socket.writableEnded) {
+                        break;
+                    }
                     try {
                         await this.handleMessage(m);
                     } catch (e) {
                         await this.socket.end();
                         console.error(e);
                     }
-                });
+                }
+            })();
         });
 
 
@@ -139,6 +147,11 @@ export class StratumV1Client {
                 const errors = await validate(subscriptionMessage, validatorOptions);
 
                 if (errors.length === 0) {
+                    if (this.isBlockedUserAgent(subscriptionMessage.userAgent)) {
+                        this.logBlockedUserAgent(subscriptionMessage.userAgent);
+                        this.closeSocket();
+                        return;
+                    }
 
                     if (this.sessionStart == null) {
                         this.sessionStart = new Date();
@@ -317,17 +330,18 @@ export class StratumV1Client {
 
 
                 } else {
-                    console.log('Mining Submit validation error');
+                    this.logValidationError('Mining Submit validation error', errors);
                     const err = new StratumErrorMessage(
                         miningSubmitMessage.id,
                         eStratumErrorCode.OtherUnknown,
                         'Mining Submit validation error',
                         errors).response();
-                    console.error(err);
                     const success = await this.write(err);
                     if (!success) {
                         return;
                     }
+                    this.closeSocket();
+                    return;
                 }
                 break;
             }
@@ -352,9 +366,9 @@ export class StratumV1Client {
     private async initStratum() {
         this.stratumInitialized = true;
 
-        if (this.validateHeaderCompliance(this.clientSubscription.userAgent)) {
-            console.log(`Non compliant connection from userAgent: ${this.clientSubscription.userAgent}`);
-            await this.socket.end();
+        if (this.isBlockedUserAgent(this.clientSubscription.userAgent)) {
+            this.logBlockedUserAgent(this.clientSubscription.userAgent);
+            this.closeSocket();
             return;
         }
 
@@ -460,46 +474,28 @@ export class StratumV1Client {
     }
 
 
-    private async handleMiningSubmission(submission: MiningSubmitMessage) {
+    private async ensureClientEntity() {
+        if (this.clientEntity != null) {
+            return;
+        }
 
-        if (this.clientEntity == null) {
-            if (this.creatingEntity == null) {
-                this.creatingEntity = new Promise(async (resolve, reject) => {
-                    try {
-                        this.clientEntity = await this.clientService.insert({
-                            sessionId: this.extraNonceAndSessionId,
-                            address: this.clientAuthorization.address,
-                            clientName: this.clientAuthorization.worker,
-                            userAgent: this.clientSubscription.userAgent,
-                            startTime: new Date(),
-                            bestDifficulty: 0
-                        });
-                    } catch (e) {
-                        reject(e);
-                    }
-                    resolve();
+        if (this.creatingEntity == null) {
+            this.creatingEntity = (async () => {
+                this.clientEntity = await this.clientService.insert({
+                    sessionId: this.extraNonceAndSessionId,
+                    address: this.clientAuthorization.address,
+                    clientName: this.clientAuthorization.worker,
+                    userAgent: this.clientSubscription.userAgent,
+                    startTime: new Date(),
+                    bestDifficulty: 0
                 });
-                await this.creatingEntity;
-
-            } else {
-                await this.creatingEntity;
-            }
+            })();
         }
 
-        const submissionHash = submission.hash();
-        if(this.miningSubmissionHashes.has(submissionHash)){
-            const err = new StratumErrorMessage(
-                submission.id,
-                eStratumErrorCode.DuplicateShare,
-                'Duplicate share').response();
-            const success = await this.write(err);
-            if (!success) {
-                return false;
-            }
-            return false;
-        }else{
-            this.miningSubmissionHashes.add(submissionHash);
-        }
+        await this.creatingEntity;
+    }
+
+    private async handleMiningSubmission(submission: MiningSubmitMessage) {
 
         const job = this.stratumV1JobsService.getJobById(submission.jobId);
 
@@ -531,26 +527,61 @@ export class StratumV1Client {
             }
             return false;
         }
-        
 
-        const updatedJobBlock = job.copyAndUpdateBlock(
+        const submissionHash = [
+            submission.jobId,
+            submission.extraNonce2,
+            submission.ntime,
+            submission.nonce,
+            submission.versionMask ?? ''
+        ].join(':');
+        if (this.miningSubmissionHashes.has(submissionHash)) {
+            const err = new StratumErrorMessage(
+                submission.id,
+                eStratumErrorCode.DuplicateShare,
+                'Duplicate share').response();
+            const success = await this.write(err);
+            if (!success) {
+                return false;
+            }
+            return false;
+        } else {
+            this.miningSubmissionHashes.add(submissionHash);
+        }
+
+        const versionMask = parseInt(submission.versionMask, 16);
+        const nonce = parseInt(submission.nonce, 16);
+        const timestamp = parseInt(submission.ntime, 16);
+
+        const header = job.buildHeaderBuffer(
             jobTemplate,
-            parseInt(submission.versionMask, 16),
-            parseInt(submission.nonce, 16),
+            versionMask,
+            nonce,
             this.extraNonceAndSessionId,
             submission.extraNonce2,
-            parseInt(submission.ntime, 16)
+            timestamp
         );
-        const header = updatedJobBlock.toBuffer(true);
         const { submissionDifficulty } = this.calculateDifficulty(header);
 
         //console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonceAndSessionId}`);
 
 
         if (submissionDifficulty >= this.sessionDifficulty) {
+            const success = await this.write(JSON.stringify(submission.response()) + '\n');
+            if (!success) {
+                return false;
+            }
 
             if (submissionDifficulty >= jobTemplate.blockData.networkDifficulty) {
                 console.log('!!! BLOCK FOUND !!!');
+                const updatedJobBlock = job.copyAndUpdateBlock(
+                    jobTemplate,
+                    versionMask,
+                    nonce,
+                    this.extraNonceAndSessionId,
+                    submission.extraNonce2,
+                    timestamp
+                );
                 const blockHex = updatedJobBlock.toHex(false);
                 const result = await this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
                 await this.blocksService.save({
@@ -567,12 +598,13 @@ export class StratumV1Client {
                     await this.addressSettingsService.resetBestDifficultyAndShares();
                 }
             }
+            await this.ensureClientEntity();
             try {
                 await this.statistics.addShares(this.clientEntity, this.sessionDifficulty);
                 const now = new Date();
                 // only update every minute
                 //if (this.clientEntity.updatedAt == null || now.getTime() - this.clientEntity.updatedAt.getTime() > 1000 * 60) {
-                await this.clientService.heartbeatBulkAsync(this.clientEntity.id, this.statistics.hashRate, now);
+                this.clientService.heartbeatBulkAsync(this.clientEntity.id, this.statistics.hashRate, now);
                 this.clientEntity.updatedAt = now;
                 //}
 
@@ -581,11 +613,9 @@ export class StratumV1Client {
             }
 
             if (submissionDifficulty > this.clientEntity.bestDifficulty) {
-                await this.clientService.updateBestDifficulty(this.clientEntity.id, submissionDifficulty);
+                await this.clientService.updateBestDifficultyIfHigher(this.clientEntity.id, submissionDifficulty);
                 this.clientEntity.bestDifficulty = submissionDifficulty;
-                if (submissionDifficulty > (await this.addressSettingsService.getSettings(this.clientAuthorization.address, true)).bestDifficulty) {
-                    await this.addressSettingsService.updateBestDifficulty(this.clientAuthorization.address, submissionDifficulty, this.clientEntity.userAgent);
-                }
+                await this.addressSettingsService.updateBestDifficultyIfHigher(this.clientAuthorization.address, submissionDifficulty, this.clientEntity.userAgent);
             }
 
 
@@ -605,7 +635,7 @@ export class StratumV1Client {
         }
 
         //await this.checkDifficulty();
-        return true;
+        return false;
 
     }
 
@@ -640,34 +670,105 @@ export class StratumV1Client {
 
         const hashResult = bitcoinjs.crypto.hash256(header);
 
-        let s64 = this.le256todouble(hashResult);
-
-        const truediffone = Big('26959535291011309493156476344723991336010898738574164086137773096960');
-        const difficulty = truediffone.div(s64.toString());
-        return { submissionDifficulty: difficulty.toNumber(), submissionHash: hashResult.toString('hex') };
+        const target = this.le256todouble(hashResult);
+        const submissionDifficulty = target === 0 ? Number.POSITIVE_INFINITY : TRUE_DIFF_ONE / target;
+        return { submissionDifficulty, submissionHash: hashResult.toString('hex') };
     }
 
 
-    private le256todouble(target: Buffer): bigint {
+    private le256todouble(target: Buffer): number {
 
-        const number = target.reduceRight((acc, byte) => {
-            // Shift the number 8 bits to the left and OR with the current byte
-            return (acc << BigInt(8)) | BigInt(byte);
-        }, BigInt(0));
+        let number = 0;
+        for (let i = target.length - 1; i >= 0; i--) {
+            number = number * 256 + target[i];
+        }
 
         return number;
     }
 
-    private validateHeaderCompliance(userAgent: string): boolean {
-        const headerCompliance = this.configService.get<string>('COMPLIANT_HEADERS');
-        if (!headerCompliance || headerCompliance.trim() === '') {
+    private isBlockedUserAgent(userAgent: string): boolean {
+        const blockedUserAgents = this.configService.get<string>('NON_COMPLIANT_USER_AGENTS')
+            || this.configService.get<string>('BLOCKED_USER_AGENTS')
+            || this.configService.get<string>('COMPLIANT_HEADERS');
+        if (!blockedUserAgents || blockedUserAgents.trim() === '') {
             return false;
         }
 
-        const complianceList = headerCompliance.split(',').map(ua => ua.trim().toLowerCase());
+        const blockedList = blockedUserAgents.split(',').map(ua => ua.trim().toLowerCase());
         const userAgentLower = userAgent.toLowerCase();
 
-        return complianceList.some(compliant => compliant.length > 0 && userAgentLower.includes(compliant));
+        return blockedList.some(blocked => blocked.length > 0 && userAgentLower.includes(blocked));
+    }
+
+    private logBlockedUserAgent(userAgent: string) {
+        const now = Date.now();
+        const logState = StratumV1Client.blockedUserAgentLogState.get(userAgent);
+
+        if (logState != null && now < logState.nextLogAt) {
+            logState.suppressed += 1;
+            return;
+        }
+
+        const suppressed = logState?.suppressed ?? 0;
+        const suffix = suppressed > 0 ? ` (${suppressed} similar connections suppressed)` : '';
+        console.log(`Blocked non-compliant connection from userAgent: ${userAgent}${suffix}`);
+        StratumV1Client.blockedUserAgentLogState.set(userAgent, {
+            nextLogAt: now + BLOCKED_USER_AGENT_LOG_INTERVAL_MS,
+            suppressed: 0
+        });
+    }
+
+    private logValidationError(label: string, errors: ValidationError[]) {
+        const now = Date.now();
+        const signature = this.getValidationErrorSignature(errors);
+        const sample = this.getValidationErrorSample(errors);
+        const key = `${label}:${signature}`;
+        const logState = StratumV1Client.validationErrorLogState.get(key);
+
+        if (logState != null && now < logState.nextLogAt) {
+            logState.suppressed += 1;
+            return;
+        }
+
+        const suppressed = logState?.suppressed ?? 0;
+        const suffix = suppressed > 0 ? ` (${suppressed} similar validation errors suppressed)` : '';
+        console.warn(`${label}: ${signature}${sample}${suffix}`);
+        StratumV1Client.validationErrorLogState.set(key, {
+            nextLogAt: now + VALIDATION_ERROR_LOG_INTERVAL_MS,
+            suppressed: 0,
+            sample
+        });
+    }
+
+    private getValidationErrorSignature(errors: ValidationError[]): string {
+        if (errors.length === 0) {
+            return 'unknown';
+        }
+
+        return errors.map(error => {
+            const constraints = Object.keys(error.constraints ?? {}).sort().join('|') || 'invalid';
+            return `${error.property}:${constraints}`;
+        }).join(';');
+    }
+
+    private getValidationErrorSample(errors: ValidationError[]): string {
+        const values = errors
+            .map(error => error.value)
+            .filter(value => value != null)
+            .map(value => String(value).replace(/[\r\n]/g, '').slice(0, 64));
+
+        if (values.length === 0) {
+            return '';
+        }
+
+        return ` sample=${values.join(',')}`;
+    }
+
+    private closeSocket() {
+        this.connectionClosed = true;
+        if (!this.socket.destroyed) {
+            this.socket.destroy();
+        }
     }
 
     private async write(message: string): Promise<boolean> {

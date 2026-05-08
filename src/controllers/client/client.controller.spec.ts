@@ -13,7 +13,7 @@ describe('ClientController', () => {
     const module: TestingModule = await Test.createTestingModule({
       imports: [
         TypeOrmModule.forRoot({
-          type: 'sqlite',
+          type: 'better-sqlite3',
           database: ':memory:',
           synchronize: true,
           autoLoadEntities: true,

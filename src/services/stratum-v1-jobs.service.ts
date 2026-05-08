@@ -162,6 +162,32 @@ export class StratumV1JobsService {
         return this.blocks[jobTemplateId];
     }
 
+    public cleanup(clearJobs: boolean, now: number = Date.now()) {
+        if (clearJobs) {
+            this.blocks = {};
+            this.jobs = {};
+            return;
+        }
+
+        let templatesDeleted = 0;
+        let jobsDeleted = 0;
+
+        for (const templateId in this.blocks) {
+            if (now - this.blocks[templateId].blockData.creation > (1000 * 60 * 5)) {
+                delete this.blocks[templateId];
+                templatesDeleted++;
+            }
+        }
+
+        for (const jobId in this.jobs) {
+            if (now - this.jobs[jobId].creation > (1000 * 60 * 5)) {
+                delete this.jobs[jobId];
+                jobsDeleted++;
+            }
+        }
+        //console.log(`Deleted ${templatesDeleted} templates and ${jobsDeleted} jobs.`)
+    }
+
     public addJob(job: MiningJob) {
         this.jobs[job.jobId] = job;
         this.latestJobId++;
@@ -177,6 +203,5 @@ export class StratumV1JobsService {
     public getNextId() {
         return this.latestJobId.toString(16);
     }
-
 
 }

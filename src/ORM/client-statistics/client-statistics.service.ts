@@ -259,6 +259,6 @@ export class ClientStatisticsService {
     }
 
     public async deleteAll() {
-        return await this.clientStatisticsRepository.delete({})
+        return await this.clientStatisticsRepository.clear()
     }
 }
