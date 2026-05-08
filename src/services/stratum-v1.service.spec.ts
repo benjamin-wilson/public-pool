@@ -5,10 +5,12 @@ describe('StratumV1Service', () => {
     const originalStratumPorts = process.env.STRATUM_PORTS;
     const originalStratumSecure = process.env.STRATUM_SECURE;
     const originalSecureStratumPorts = process.env.SECURE_STRATUM_PORTS;
+    const originalBackpressureEnabled = process.env.STRATUM_BACKPRESSURE_ENABLED;
 
     let service: StratumV1Service;
     let clientService;
     let consoleLogSpy: jest.SpyInstance;
+    let consoleWarnSpy: jest.SpyInstance;
 
     beforeEach(() => {
         jest.useFakeTimers();
@@ -26,6 +28,7 @@ describe('StratumV1Service', () => {
             {} as any
         );
         consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+        consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     });
 
     afterEach(() => {
@@ -33,7 +36,9 @@ describe('StratumV1Service', () => {
         restoreEnv('STRATUM_PORTS', originalStratumPorts);
         restoreEnv('STRATUM_SECURE', originalStratumSecure);
         restoreEnv('SECURE_STRATUM_PORTS', originalSecureStratumPorts);
+        restoreEnv('STRATUM_BACKPRESSURE_ENABLED', originalBackpressureEnabled);
         consoleLogSpy.mockRestore();
+        consoleWarnSpy.mockRestore();
         jest.useRealTimers();
     });
 
@@ -66,6 +71,52 @@ describe('StratumV1Service', () => {
         expect(startSocketServerSpy).toHaveBeenCalledWith(3333);
         expect(startSocketServerSpy).toHaveBeenCalledWith(3334);
         expect(startSecureSocketServerSpy).toHaveBeenCalledWith(4333);
+    });
+
+    it('should pause listeners when worker backpressure is high', () => {
+        const close = jest.fn((callback?: (error?: Error) => void) => callback?.());
+        (service as any).listeners.push({
+            port: 3333,
+            secure: false,
+            server: { close },
+            paused: false
+        });
+        jest.spyOn(service as any, 'getEventLoopP95Ms').mockReturnValue(5000);
+        jest.spyOn(service as any, 'getBackpressureEventLoopP95Ms').mockReturnValue(2000);
+
+        (service as any).checkBackpressure();
+
+        expect(close).toHaveBeenCalled();
+        expect((service as any).listeners[0].paused).toBe(true);
+        expect((service as any).listeners[0].server).toBeNull();
+        expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Pausing Stratum accepts'));
+    });
+
+    it('should resume listeners after consecutive healthy backpressure checks', () => {
+        (service as any).listeners.push({
+            port: 3333,
+            secure: false,
+            server: null,
+            paused: true
+        });
+        jest.spyOn(service as any, 'getEventLoopP95Ms').mockReturnValue(50);
+        jest.spyOn(service as any, 'getBackpressureEventLoopP95Ms').mockReturnValue(2000);
+        jest.spyOn(service as any, 'getBackpressureResumeEventLoopP95Ms').mockReturnValue(250);
+        jest.spyOn(service as any, 'getBackpressureResumeRssMb').mockReturnValue(Number.MAX_SAFE_INTEGER);
+        jest.spyOn(service as any, 'getBackpressureHealthyChecks').mockReturnValue(2);
+        const listenSpy = jest.spyOn(service as any, 'listen').mockImplementation((listener: any) => {
+            listener.server = {};
+            listener.paused = false;
+        });
+
+        (service as any).checkBackpressure();
+        expect(listenSpy).not.toHaveBeenCalled();
+
+        (service as any).checkBackpressure();
+
+        expect(listenSpy).toHaveBeenCalledWith((service as any).listeners[0]);
+        expect((service as any).listeners[0].paused).toBe(false);
+        expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Resuming Stratum accepts'));
     });
 
     function restoreEnv(key: string, value: string | undefined) {
