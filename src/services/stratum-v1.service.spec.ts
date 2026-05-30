@@ -6,6 +6,8 @@ describe('StratumV1Service', () => {
     const originalStratumSecure = process.env.STRATUM_SECURE;
     const originalSecureStratumPorts = process.env.SECURE_STRATUM_PORTS;
     const originalBackpressureEnabled = process.env.STRATUM_BACKPRESSURE_ENABLED;
+    const originalMaxConnectionsPerListener = process.env.STRATUM_MAX_CONNECTIONS_PER_LISTENER;
+    const originalTlsHandshakeTimeoutMs = process.env.STRATUM_TLS_HANDSHAKE_TIMEOUT_MS;
 
     let service: StratumV1Service;
     let clientService;
@@ -37,6 +39,8 @@ describe('StratumV1Service', () => {
         restoreEnv('STRATUM_SECURE', originalStratumSecure);
         restoreEnv('SECURE_STRATUM_PORTS', originalSecureStratumPorts);
         restoreEnv('STRATUM_BACKPRESSURE_ENABLED', originalBackpressureEnabled);
+        restoreEnv('STRATUM_MAX_CONNECTIONS_PER_LISTENER', originalMaxConnectionsPerListener);
+        restoreEnv('STRATUM_TLS_HANDSHAKE_TIMEOUT_MS', originalTlsHandshakeTimeoutMs);
         consoleLogSpy.mockRestore();
         consoleWarnSpy.mockRestore();
         jest.useRealTimers();
@@ -117,6 +121,28 @@ describe('StratumV1Service', () => {
         expect(listenSpy).toHaveBeenCalledWith((service as any).listeners[0]);
         expect((service as any).listeners[0].paused).toBe(false);
         expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Resuming Stratum accepts'));
+    });
+
+    it('should cap listener connections and drop excess cluster connections', () => {
+        process.env.STRATUM_MAX_CONNECTIONS_PER_LISTENER = '250';
+        const server = {} as any;
+
+        (service as any).configureConnectionLimit(server);
+
+        expect(server.maxConnections).toBe(250);
+        expect(server.dropMaxConnection).toBe(true);
+    });
+
+    it('should allow high-volume pools by default', () => {
+        delete process.env.STRATUM_MAX_CONNECTIONS_PER_LISTENER;
+
+        expect((service as any).getMaxConnectionsPerListener()).toBe(10000);
+    });
+
+    it('should use an explicit TLS handshake timeout', () => {
+        process.env.STRATUM_TLS_HANDSHAKE_TIMEOUT_MS = '5000';
+
+        expect((service as any).getTlsHandshakeTimeoutMs()).toBe(5000);
     });
 
     function restoreEnv(key: string, value: string | undefined) {

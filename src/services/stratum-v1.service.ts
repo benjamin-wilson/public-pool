@@ -29,6 +29,8 @@ const DEFAULT_BACKPRESSURE_EVENT_LOOP_RESUME_P95_MS = 250;
 const DEFAULT_BACKPRESSURE_RSS_MB = 2500;
 const DEFAULT_BACKPRESSURE_RESUME_RSS_MB = 2000;
 const DEFAULT_BACKPRESSURE_HEALTHY_CHECKS = 3;
+const DEFAULT_MAX_CONNECTIONS_PER_LISTENER = 10000;
+const DEFAULT_TLS_HANDSHAKE_TIMEOUT_MS = 10000;
 
 
 
@@ -162,6 +164,7 @@ export class StratumV1Service implements OnModuleInit {
         server.on('error', (err) => {
             console.error(`Server error: ${err.message}`);
         });
+        this.configureConnectionLimit(server);
 
         return server;
     }
@@ -186,6 +189,7 @@ export class StratumV1Service implements OnModuleInit {
         const tlsOptions: TlsOptions = {
             key: readFileSync(keyPath),
             cert: readFileSync(certPath),
+            handshakeTimeout: this.getTlsHandshakeTimeoutMs()
         };
 
         const server = createServer(tlsOptions, async (socket: TLSSocket) => {
@@ -242,6 +246,7 @@ export class StratumV1Service implements OnModuleInit {
         server.on('error', (err) => {
             console.error(`Server error: ${err.message}`);
         });
+        this.configureConnectionLimit(server);
 
         return server;
 
@@ -369,6 +374,19 @@ export class StratumV1Service implements OnModuleInit {
 
     private getBackpressureHealthyChecks() {
         return this.getPositiveIntegerEnv('STRATUM_BACKPRESSURE_HEALTHY_CHECKS', DEFAULT_BACKPRESSURE_HEALTHY_CHECKS);
+    }
+
+    private configureConnectionLimit(server: Server) {
+        server.maxConnections = this.getMaxConnectionsPerListener();
+        (server as Server & { dropMaxConnection: boolean }).dropMaxConnection = true;
+    }
+
+    private getMaxConnectionsPerListener() {
+        return this.getPositiveIntegerEnv('STRATUM_MAX_CONNECTIONS_PER_LISTENER', DEFAULT_MAX_CONNECTIONS_PER_LISTENER);
+    }
+
+    private getTlsHandshakeTimeoutMs() {
+        return this.getPositiveIntegerEnv('STRATUM_TLS_HANDSHAKE_TIMEOUT_MS', DEFAULT_TLS_HANDSHAKE_TIMEOUT_MS);
     }
 
     private getPositiveIntegerEnv(key: string, fallback: number) {
