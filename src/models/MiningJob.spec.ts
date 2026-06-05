@@ -1,9 +1,12 @@
-import { ConfigService } from "@nestjs/config";
+import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
 import * as bitcoinjs from 'bitcoinjs-lib';
-import { Test, TestingModule } from "@nestjs/testing";
-import { MiningJob } from "./MiningJob";
-import { IJobTemplate } from "../services/stratum-v1-jobs.service";
+import { BehaviorSubject, firstValueFrom } from 'rxjs';
 
+import { MockRecording1 } from '../../test/models/MockRecording1';
+import { IMiningInfo } from './bitcoin-rpc/IMiningInfo';
+import { IJobTemplate, StratumV1JobsService } from '../services/stratum-v1-jobs.service';
+import { MiningJob } from './MiningJob';
 
 function hexToAscii(hex: string): string {
     let ascii = '';
@@ -46,12 +49,7 @@ describe('MiningJob', () => {
                 {
                     provide: ConfigService,
                     useValue: {
-                        get: jest.fn((key: string) => {
-                            switch (key) {
-                                // Configure mock responses for ConfigService
-                            }
-                            return null;
-                        })
+                        get: jest.fn(() => null)
                     }
                 }
             ],
@@ -59,11 +57,11 @@ describe('MiningJob', () => {
         configService = moduleRef.get<ConfigService>(ConfigService);
     });
 
-
     describe('constructor', () => {
         beforeEach(() => {
 
             console.warn = jest.fn((message: string) => console.log('WARN:', message));
+            configService.get = jest.fn(() => null);
             payoutInformation = [
                 {
                     address: 'tb1qr2ylpdgp9ejpt6v2uxlqrn9penp82rzz2grnns',
@@ -83,8 +81,10 @@ describe('MiningJob', () => {
 
             jobTemplate = {
                 block: block,
+                merkle_branch: [],
                 blockData: {
                     id: '1',
+                    creation: Date.now(),
                     coinbasevalue: 0,
                     networkDifficulty: 0,
                     height: 0,
@@ -92,6 +92,11 @@ describe('MiningJob', () => {
                 }
             } as IJobTemplate;
         });
+
+        afterEach(() => {
+            jest.restoreAllMocks();
+        });
+
         it('should create a new MiningJob if POOL_IDENTIFIER is not set and use the default', () => {
             const expectedMiningIdentifier = 'Public-Pool';
             expect(jobTemplate.block).toBeDefined();
@@ -144,7 +149,7 @@ describe('MiningJob', () => {
         it('should use the POOL_IDENTIFIER if it doesn\'t make the script size too big with identifier abcabc', () => {
 
             jobTemplate.block.transactions = []; // remove transactions because we only want to test the script size
-            const expectedMiningIdentifier = 'A'.repeat(88); // 88 chars is the maximum size validated against bitcoin core in regtest
+            const expectedMiningIdentifier = 'A'.repeat(84); // 84 chars fits after reserving 12 bytes for extranonce space
             configService.get = jest.fn((key: string) => {
                 switch (key) {
                     case 'POOL_IDENTIFIER': return expectedMiningIdentifier;
@@ -165,7 +170,7 @@ describe('MiningJob', () => {
             jobTemplate.block.transactions = []; // remove transactions because we only want to test the script size
             configService.get = jest.fn((key: string) => {
                 switch (key) {
-                    case 'POOL_IDENTIFIER': return 'A'.repeat(89); // 88 chars is the maximum size validated against bitcoin core in regtest
+                    case 'POOL_IDENTIFIER': return 'A'.repeat(85);
                 }
                 return null;
             });
@@ -176,6 +181,115 @@ describe('MiningJob', () => {
             const miningIdentifier = extractPoolIdentifierFromScript(response.params[2]);
             expect(console.warn).toBeCalledWith('Pool identifier is too long, removing the pool identifier');
             expect(miningIdentifier).toBe(expectedMiningIdentifier);
+        });
+    });
+
+    describe('block updates', () => {
+        let job: MiningJob;
+
+        beforeEach(async () => {
+            jest.useFakeTimers();
+            jest.setSystemTime(new Date(parseInt(MockRecording1.TIME, 16) * 1000));
+            configService.get = jest.fn(() => null);
+
+            const miningInfo$ = new BehaviorSubject<IMiningInfo>({
+                blocks: MockRecording1.BLOCK_TEMPLATE.height
+            } as IMiningInfo);
+            const bitcoinRpcService = {
+                newBlock$: miningInfo$.asObservable(),
+                getBlockTemplate: jest.fn().mockResolvedValue(MockRecording1.BLOCK_TEMPLATE)
+            };
+            jest.spyOn(console, 'log').mockImplementation(() => undefined);
+
+            const jobsService = new StratumV1JobsService(bitcoinRpcService as any);
+            jobTemplate = await firstValueFrom(jobsService.newMiningJob$);
+            job = new MiningJob(
+                configService,
+                bitcoinjs.networks.testnet,
+                '1',
+                [{ address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4', percent: 100 }],
+                jobTemplate
+            );
+        });
+
+        afterEach(() => {
+            jest.restoreAllMocks();
+            jest.useRealTimers();
+        });
+
+        it('should split coinbase around 12 bytes of extranonce space', () => {
+            const notify = JSON.parse(job.response(jobTemplate));
+            const coinbasePart1 = notify.params[2];
+            const coinbasePart2 = notify.params[3];
+            const extraNonce1 = '57a6f098';
+            const extraNonce2 = 'c708000000000000';
+            const coinbase = bitcoinjs.Transaction.fromHex(`${coinbasePart1}${extraNonce1}${extraNonce2}${coinbasePart2}`);
+
+            expect(Buffer.byteLength(extraNonce1 + extraNonce2, 'hex')).toBe(12);
+            expect(coinbase.ins[0].script.toString('hex')).toContain(`${extraNonce1}${extraNonce2}`);
+            expect(coinbase.ins[0].script.toString('hex').endsWith(`${extraNonce1}${extraNonce2}`)).toBe(true);
+        });
+
+        it('should update block nonce, timestamp, version mask, and coinbase script', () => {
+            const extraNonce1 = '57a6f098';
+            const extraNonce2 = 'c708000000000000';
+            const timestamp = parseInt(MockRecording1.TIME, 16);
+            const originalMerkleRoot = Buffer.from(jobTemplate.block.merkleRoot);
+
+            const updatedBlock = job.copyAndUpdateBlock(
+                jobTemplate,
+                parseInt('00002000', 16),
+                parseInt('ed460d91', 16),
+                extraNonce1,
+                extraNonce2,
+                timestamp
+            );
+
+            expect(updatedBlock.nonce).toBe(parseInt('ed460d91', 16));
+            expect(updatedBlock.timestamp).toBe(timestamp);
+            expect(updatedBlock.version).toBe(jobTemplate.block.version ^ parseInt('00002000', 16));
+            expect(updatedBlock.transactions[0].ins[0].script.toString('hex').endsWith(`${extraNonce1}${extraNonce2}`)).toBe(true);
+            expect(updatedBlock.merkleRoot.equals(originalMerkleRoot)).toBe(false);
+        });
+
+        it('should leave block version unchanged without a version mask', () => {
+            const updatedBlock = job.copyAndUpdateBlock(
+                jobTemplate,
+                0,
+                parseInt('ed460d91', 16),
+                '57a6f098',
+                'c708000000000000',
+                parseInt(MockRecording1.TIME, 16)
+            );
+
+            expect(updatedBlock.version).toBe(jobTemplate.block.version);
+        });
+
+        it('should build the same header as the full block update path', () => {
+            const versionMask = parseInt('00002000', 16);
+            const nonce = parseInt('ed460d91', 16);
+            const extraNonce1 = '57a6f098';
+            const extraNonce2 = 'c708000000000000';
+            const timestamp = parseInt(MockRecording1.TIME, 16);
+
+            const updatedBlock = job.copyAndUpdateBlock(
+                jobTemplate,
+                versionMask,
+                nonce,
+                extraNonce1,
+                extraNonce2,
+                timestamp
+            );
+            const fastHeader = job.buildHeaderBuffer(
+                jobTemplate,
+                versionMask,
+                nonce,
+                extraNonce1,
+                extraNonce2,
+                timestamp
+            );
+
+            expect(fastHeader.equals(updatedBlock.toBuffer(true))).toBe(true);
         });
     });
 });

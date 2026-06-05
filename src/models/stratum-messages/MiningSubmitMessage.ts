@@ -1,7 +1,8 @@
 import { Expose, Transform } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsString } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsString, Length } from 'class-validator';
 
 import { eRequestMethod } from '../enums/eRequestMethod';
+import { EXTRANONCE2_SIZE_BYTES } from '../stratum.constants';
 import { StratumBaseMessage } from './StratumBaseMessage';
 import * as bitcoinjs from 'bitcoinjs-lib';
 
@@ -27,6 +28,7 @@ export class MiningSubmitMessage extends StratumBaseMessage {
     public jobId: string;
     @Expose()
     @IsString()
+    @Length(EXTRANONCE2_SIZE_BYTES * 2, EXTRANONCE2_SIZE_BYTES * 2)
     @Transform(({ value, key, obj, type }) => {
         return obj.params[2];
     })

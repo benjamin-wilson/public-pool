@@ -24,8 +24,6 @@ export interface IJobTemplate {
 @Injectable()
 export class StratumV1JobsService {
 
-    private lastIntervalCount: number;
-    private skipNext: boolean = false;
     public newMiningJob$: Observable<IJobTemplate>;
 
     public latestJobId: number = 1;
@@ -37,44 +35,61 @@ export class StratumV1JobsService {
 
     // offset the interval so that all the cluster processes don't try and refresh at the same time.
     private delay = process.env.NODE_APP_INSTANCE == null ? 0 : parseInt(process.env.NODE_APP_INSTANCE) * 5000;
+    private lastBlockHeight = 0;
+    private lastWorkSignature: string;
 
     constructor(
         private readonly bitcoinRpcService: BitcoinRpcService
     ) {
 
-        this.newMiningJob$ = combineLatest([this.bitcoinRpcService.newBlock$, interval(60000).pipe(delay(this.delay), startWith(-1))]).pipe(
+        const refreshInterval$ = this.delay > 0
+            ? interval(60000).pipe(delay(this.delay), startWith(-1))
+            : interval(60000).pipe(startWith(-1));
+
+        this.newMiningJob$ = combineLatest([this.bitcoinRpcService.newBlock$, refreshInterval$]).pipe(
             switchMap(([miningInfo, interval]) => {
                 return from(this.bitcoinRpcService.getBlockTemplate(miningInfo.blocks)).pipe(map((blockTemplate) => {
                     return {
                         blockTemplate,
-                        interval
+                        miningInfo
                     }
                 }))
             }),
-            map(({ blockTemplate, interval }) => {
+            map(({ blockTemplate, miningInfo }) => {
 
                 let clearJobs = false;
-                if (this.lastIntervalCount === interval) {
+                const currentBlockHeight = miningInfo.blocks;
+
+                if (this.lastBlockHeight == 0 || this.lastBlockHeight != currentBlockHeight) {
                     clearJobs = true;
-                    this.skipNext = true;
-                    console.log('new block')
+                    this.lastBlockHeight = currentBlockHeight;
+                    console.log('new block');
                 }
-
-                if (this.skipNext == true && clearJobs == false) {
-                    this.skipNext = false;
-                    return null;
-                }
-
-                this.lastIntervalCount = interval;
 
                 const currentTime = Math.floor(new Date().getTime() / 1000);
+                const timestamp = blockTemplate.mintime > currentTime ? blockTemplate.mintime : currentTime;
+                const workSignature = [
+                    blockTemplate.previousblockhash,
+                    blockTemplate.version,
+                    blockTemplate.bits,
+                    timestamp,
+                    blockTemplate.height,
+                    blockTemplate.coinbasevalue,
+                    ...blockTemplate.transactions.map(tx => tx.hash ?? tx.txid ?? tx.data)
+                ].join('|');
+
+                if (!clearJobs && workSignature === this.lastWorkSignature) {
+                    return null;
+                }
+                this.lastWorkSignature = workSignature;
+
                 return {
                     version: blockTemplate.version,
                     bits: parseInt(blockTemplate.bits, 16),
                     prevHash: this.convertToLittleEndian(blockTemplate.previousblockhash),
                     transactions: blockTemplate.transactions.map(t => bitcoinjs.Transaction.fromHex(t.data)),
                     coinbasevalue: blockTemplate.coinbasevalue,
-                    timestamp: blockTemplate.mintime > currentTime ? blockTemplate.mintime : currentTime,
+                    timestamp,
                     networkDifficulty: this.calculateNetworkDifficulty(parseInt(blockTemplate.bits, 16)),
                     clearJobs,
                     height: blockTemplate.height
@@ -185,6 +200,5 @@ export class StratumV1JobsService {
     public getNextId() {
         return this.latestJobId.toString(16);
     }
-
 
 }

@@ -45,6 +45,20 @@ Install pm2 (https://pm2.keymetrics.io/)
 $ pm2 start dist/main.js
 ```
 
+When running the worker app in PM2 cluster mode, start the PM2 daemon with OS-level
+connection scheduling. The environment variable must be present when the PM2 daemon
+starts, not only in the worker configuration.
+
+```bash
+$ NODE_CLUSTER_SCHED_POLICY=none pm2 start ecosystem.config.js
+```
+
+Cluster-mode connection dropping requires Node.js `22.12.0` or newer.
+
+`STRATUM_MAX_CONNECTIONS_PER_LISTENER` is enforced per worker and Stratum port.
+Size it using the busiest port: `worker count * limit`. For example, 28 workers
+with the default limit of `10000` allow up to `280000` connections on one port.
+
 ## Docker
 
 Build container:

@@ -5,6 +5,7 @@ import { IJobTemplate } from '../services/stratum-v1-jobs.service';
 import { eResponseMethod } from './enums/eResponseMethod';
 import { IMiningNotify } from './stratum-messages/IMiningNotify';
 import { ConfigService } from '@nestjs/config';
+import { TOTAL_EXTRANONCE_SIZE_BYTES } from './stratum.constants';
 
 const MAX_BLOCK_WEIGHT = 4000000;
 const MAX_SCRIPT_SIZE = 100; //   https://github.com/bitcoin/bitcoin/blob/ffdc3d6060f6e65e69cf115a13b83e6eb4a0a0a8/src/consensus/tx_check.cpp#L49
@@ -17,6 +18,9 @@ export class MiningJob {
     private coinbaseTransaction: bitcoinjs.Transaction;
     private coinbasePart1: string;
     private coinbasePart2: string;
+    private coinbasePart1Buffer: Buffer;
+    private coinbasePart2Buffer: Buffer;
+    private merkleBranchBuffers: Buffer[];
 
     public jobTemplateId: string;
     public networkDifficulty: number;
@@ -32,6 +36,7 @@ export class MiningJob {
 
         this.creation = new Date().getTime();
         this.jobTemplateId = jobTemplate.blockData.id;
+        this.merkleBranchBuffers = jobTemplate.merkle_branch.map(branch => Buffer.from(branch, 'hex'));
 
         this.coinbaseTransaction = this.createCoinbaseTransaction(payoutInformation, jobTemplate.blockData.coinbasevalue);
 
@@ -55,7 +60,7 @@ export class MiningJob {
         const blockHeightLengthByte = Buffer.from([blockHeightEncoded.length]);
 
         // Generate padding and take length of encode blockHeight into account
-        const padding = Buffer.alloc(8 + (3 - blockHeightEncoded.length), 0)
+        const padding = Buffer.alloc(TOTAL_EXTRANONCE_SIZE_BYTES + (3 - blockHeightEncoded.length), 0)
 
         // Build the script
         let script = Buffer.concat([blockHeightLengthByte, blockHeightEncoded, extra, padding]);
@@ -83,10 +88,41 @@ export class MiningJob {
 
         const partOneIndex = serializedCoinbaseTx.indexOf(inputScript) + inputScript.length;
 
-        this.coinbasePart1 = serializedCoinbaseTx.slice(0, partOneIndex - 16);
+        this.coinbasePart1 = serializedCoinbaseTx.slice(0, partOneIndex - (TOTAL_EXTRANONCE_SIZE_BYTES * 2));
         this.coinbasePart2 = serializedCoinbaseTx.slice(partOneIndex);
+        this.coinbasePart1Buffer = Buffer.from(this.coinbasePart1, 'hex');
+        this.coinbasePart2Buffer = Buffer.from(this.coinbasePart2, 'hex');
 
 
+    }
+
+    public cloneCoinbaseTransaction(): bitcoinjs.Transaction {
+        return bitcoinjs.Transaction.fromBuffer(this.coinbaseTransaction.toBuffer());
+    }
+
+    public buildHeaderBuffer(jobTemplate: IJobTemplate, versionMask: number, nonce: number, extraNonce: string, extraNonce2: string, timestamp: number): Buffer {
+        const coinbaseBuffer = Buffer.concat([
+            this.coinbasePart1Buffer,
+            Buffer.from(`${extraNonce}${extraNonce2}`, 'hex'),
+            this.coinbasePart2Buffer,
+        ]);
+        const coinbaseHash = bitcoinjs.crypto.hash256(coinbaseBuffer);
+        const merkleRoot = this.calculateMerkleRootHash(coinbaseHash, this.merkleBranchBuffers);
+
+        let version = jobTemplate.block.version;
+        if (versionMask !== undefined && versionMask != 0) {
+            version = version ^ versionMask;
+        }
+
+        const header = Buffer.alloc(80);
+        header.writeInt32LE(version, 0);
+        jobTemplate.block.prevHash.copy(header, 4);
+        merkleRoot.copy(header, 36);
+        header.writeUInt32LE(timestamp, 68);
+        header.writeUInt32LE(jobTemplate.block.bits, 72);
+        header.writeUInt32LE(nonce, 76);
+
+        return header;
     }
 
     public copyAndUpdateBlock(jobTemplate: IJobTemplate, versionMask: number, nonce: number, extraNonce: string, extraNonce2: string, timestamp: number): bitcoinjs.Block {
@@ -96,7 +132,7 @@ export class MiningJob {
             return Object.assign(new bitcoinjs.Transaction(), tx);
         });
 
-        testBlock.transactions[0] = this.coinbaseTransaction;
+        testBlock.transactions[0] = this.cloneCoinbaseTransaction();
 
         testBlock.nonce = nonce;
 
@@ -108,10 +144,10 @@ export class MiningJob {
         // set the nonces
         const nonceScript = testBlock.transactions[0].ins[0].script.toString('hex');
 
-        testBlock.transactions[0].ins[0].script = Buffer.from(`${nonceScript.substring(0, nonceScript.length - 16)}${extraNonce}${extraNonce2}`, 'hex');
+        testBlock.transactions[0].ins[0].script = Buffer.from(`${nonceScript.substring(0, nonceScript.length - (TOTAL_EXTRANONCE_SIZE_BYTES * 2))}${extraNonce}${extraNonce2}`, 'hex');
 
         //recompute the root since we updated the coinbase script with the nonces
-        testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].getHash(false), jobTemplate.merkle_branch);
+        testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].getHash(false), this.merkleBranchBuffers);
 
 
         testBlock.timestamp = timestamp;
@@ -120,14 +156,14 @@ export class MiningJob {
     }
 
 
-    private calculateMerkleRootHash(newRoot: Buffer, merkleBranches: string[]): Buffer {
+    private calculateMerkleRootHash(newRoot: Buffer, merkleBranches: Buffer[]): Buffer {
 
         const bothMerkles = Buffer.alloc(64);
 
         bothMerkles.set(newRoot);
 
         for (let i = 0; i < merkleBranches.length; i++) {
-            bothMerkles.set(Buffer.from(merkleBranches[i], 'hex'), 32);
+            bothMerkles.set(merkleBranches[i], 32);
             newRoot = bitcoinjs.crypto.hash256(bothMerkles);
             bothMerkles.set(newRoot);
         }

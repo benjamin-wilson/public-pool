@@ -1,19 +1,20 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { RPCClient } from 'rpc-bitcoin';
+import axios, { AxiosInstance } from 'axios';
+import * as fs from 'node:fs';
 import { BehaviorSubject, filter, shareReplay } from 'rxjs';
-import { RpcBlockService } from '../ORM/rpc-block/rpc-block.service';
 import * as zmq from 'zeromq';
 
+import { RpcBlockService } from '../ORM/rpc-block/rpc-block.service';
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { IMiningInfo } from '../models/bitcoin-rpc/IMiningInfo';
-import * as fs from 'node:fs';
 
 @Injectable()
 export class BitcoinRpcService implements OnModuleInit {
 
     private blockHeight = 0;
-    private client: RPCClient;
+    private client: AxiosInstance;
+    private rpcRequestId = 0;
     private _newBlock$: BehaviorSubject<IMiningInfo> = new BehaviorSubject(undefined);
     public newBlock$ = this._newBlock$.pipe(filter(block => block != null), shareReplay({ refCount: true, bufferSize: 1 }));
 
@@ -30,18 +31,26 @@ export class BitcoinRpcService implements OnModuleInit {
         const port = parseInt(this.configService.get('BITCOIN_RPC_PORT'));
         const timeout = parseInt(this.configService.get('BITCOIN_RPC_TIMEOUT'));
 
-        const cookiefile = this.configService.get('BITCOIN_RPC_COOKIEFILE')
+        const cookiefile = this.configService.get('BITCOIN_RPC_COOKIEFILE');
 
         if (cookiefile != undefined && cookiefile != '') {
-            const cookie = fs.readFileSync(cookiefile).toString().split(':')
+            const cookie = fs.readFileSync(cookiefile).toString().trim().split(':');
 
-            user = cookie[0]
-            pass = cookie[1]
+            user = cookie[0];
+            pass = cookie[1];
         }
 
-        this.client = new RPCClient({ url, port, timeout, user, pass });
+        const baseURL = this.buildRpcUrl(url, port);
+        this.client = axios.create({
+            baseURL,
+            timeout,
+            auth: {
+                username: user,
+                password: pass
+            }
+        });
 
-        this.client.getrpcinfo().then((res) => {
+        this.callRpc('getrpcinfo').then(() => {
             console.log('Bitcoin RPC connected');
         }, () => {
             console.error('Could not reach RPC host');
@@ -138,13 +147,13 @@ export class BitcoinRpcService implements OnModuleInit {
 
         let blockTemplate: IBlockTemplate;
         while (blockTemplate == null) {
-            blockTemplate = await this.client.getblocktemplate({
-                template_request: {
+            blockTemplate = await this.callRpc<IBlockTemplate>('getblocktemplate', [
+                {
                     rules: ['segwit'],
                     mode: 'template',
                     capabilities: ['serverlist', 'proposal']
                 }
-            });
+            ]);
         }
 
 
@@ -155,7 +164,7 @@ export class BitcoinRpcService implements OnModuleInit {
 
     public async getMiningInfo(): Promise<IMiningInfo> {
         try {
-            return await this.client.getmininginfo();
+            return await this.callRpc<IMiningInfo>('getmininginfo');
         } catch (e) {
             console.error('Error getmininginfo', e.message);
             return null;
@@ -166,9 +175,7 @@ export class BitcoinRpcService implements OnModuleInit {
     public async SUBMIT_BLOCK(hexdata: string): Promise<string> {
         let response: string = 'unknown';
         try {
-            response = await this.client.submitblock({
-                hexdata
-            });
+            response = await this.callRpc<string>('submitblock', [hexdata]);
             if (response == null) {
                 response = 'SUCCESS!';
             }
@@ -182,5 +189,28 @@ export class BitcoinRpcService implements OnModuleInit {
         return response;
 
     }
-}
 
+    private async callRpc<T>(method: string, params: unknown[] = []): Promise<T> {
+        const response = await this.client.post('', {
+            jsonrpc: '1.0',
+            id: ++this.rpcRequestId,
+            method,
+            params
+        });
+
+        if (response.data.error != null) {
+            throw response.data.error;
+        }
+
+        return response.data.result;
+    }
+
+    private buildRpcUrl(url: string, port: number): string {
+        const normalizedUrl = /^https?:\/\//i.test(url) ? url : `http://${url}`;
+        const rpcUrl = new URL(normalizedUrl);
+        if (Number.isFinite(port) && port > 0) {
+            rpcUrl.port = port.toString();
+        }
+        return rpcUrl.toString();
+    }
+}

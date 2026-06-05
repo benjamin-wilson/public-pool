@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { BehaviorSubject, firstValueFrom } from 'rxjs';
+import { firstValueFrom, Subject } from 'rxjs';
 import { ObjectLiteral, Repository } from 'typeorm';
 
 import { ClientEntity } from './client.entity';
@@ -12,7 +12,7 @@ import { ClientEntity } from './client.entity';
 export class ClientService {
 
 
-    public insertQueue: { result: BehaviorSubject<ObjectLiteral | null>, partialClient: Partial<ClientEntity> }[] = [];
+    public insertQueue: { result: Subject<ObjectLiteral>, partialClient: Partial<ClientEntity> }[] = [];
 
 
     constructor(
@@ -27,11 +27,21 @@ export class ClientService {
         const queueCopy = [...this.insertQueue];
         this.insertQueue = [];
 
-        const results = await this.clientRepository.insert(queueCopy.map(c => c.partialClient));
+        if (queueCopy.length === 0) {
+            return;
+        }
 
-        queueCopy.forEach((c, index) => {
-            c.result.next(results.generatedMaps[index]);
-        });
+        try {
+            const results = await this.clientRepository.insert(queueCopy.map(c => c.partialClient));
+
+            queueCopy.forEach((c, index) => {
+                c.result.next(results.generatedMaps[index]);
+                c.result.complete();
+            });
+        } catch (e) {
+            queueCopy.forEach(c => c.result.error(e));
+            throw e;
+        }
     }
 
     public async killDeadClients() {
@@ -56,7 +66,7 @@ export class ClientService {
 
     public async insert(partialClient: Partial<ClientEntity>): Promise<ClientEntity> {
 
-        const result = new BehaviorSubject(null);
+        const result = new Subject<ObjectLiteral>();
 
         this.insertQueue.push({ result, partialClient });
 
@@ -93,6 +103,17 @@ export class ClientService {
     public async updateBestDifficulty(sessionId: string, bestDifficulty: number) {
         return await this.clientRepository.update({ sessionId }, { bestDifficulty });
     }
+
+    public async updateBestDifficultyIfHigher(sessionId: string, bestDifficulty: number) {
+        return await this.clientRepository
+            .createQueryBuilder()
+            .update(ClientEntity)
+            .set({ bestDifficulty })
+            .where('sessionId = :sessionId', { sessionId })
+            .andWhere('"bestDifficulty" < :bestDifficulty', { bestDifficulty })
+            .execute();
+    }
+
     public async connectedClientCount(): Promise<number> {
         return await this.clientRepository.count();
     }
@@ -126,7 +147,10 @@ export class ClientService {
     }
 
     public async deleteAll() {
-        return await this.clientRepository.softDelete({})
+        return await this.clientRepository
+            .createQueryBuilder()
+            .softDelete()
+            .execute();
     }
 
     public async getUserAgents() {

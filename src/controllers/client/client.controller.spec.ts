@@ -14,7 +14,7 @@ describe('ClientController', () => {
       imports: [
         TypeOrmModule.forRoot({
           type: 'sqlite',
-          database: './DB/public-pool.test.sqlite',
+          database: ':memory:',
           synchronize: true,
           autoLoadEntities: true,
           cache: true,
