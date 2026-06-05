@@ -58,6 +58,7 @@ export class StratumV1Client {
 
     private buffer: string = '';
     private connectionClosed = false;
+    private lastSentMiningJobTimestamp: number = null;
 
     private miningSubmissionHashes = new Set<string>()
 
@@ -467,6 +468,7 @@ export class StratumV1Client {
         if (!success) {
             return;
         }
+        this.lastSentMiningJobTimestamp = jobTemplate.block.timestamp;
 
 
         //console.log(`Sent new job to ${this.clientAuthorization.worker}.${this.extraNonceAndSessionId}. (clearJobs: ${jobTemplate.blockData.clearJobs}, fee?: ${!this.noFee})`)
@@ -659,9 +661,21 @@ export class StratumV1Client {
             await this.socket.write(data);
 
             const jobTemplate = await firstValueFrom(this.stratumV1JobsService.newMiningJob$);
-            // we need to clear the jobs so that the difficulty set takes effect. Otherwise the different miner implementations can cause issues
-            jobTemplate.blockData.clearJobs = true;
-            await this.sendNewMiningJob(jobTemplate);
+            const nextTimestamp = Math.max(
+                jobTemplate.block.timestamp,
+                Math.floor(Date.now() / 1000),
+                (this.lastSentMiningJobTimestamp ?? 0) + 1
+            );
+            // We need to clear jobs so the difficulty takes effect, but avoid mutating or
+            // re-sending the shared cached template with byte-identical work.
+            const refreshedJobTemplate: IJobTemplate = {
+                ...jobTemplate,
+                block: Object.assign(new bitcoinjs.Block(), jobTemplate.block, {
+                    timestamp: nextTimestamp
+                }),
+                blockData: { ...jobTemplate.blockData, clearJobs: true }
+            };
+            await this.sendNewMiningJob(refreshedJobTemplate);
 
         }
     }

@@ -31,6 +31,7 @@ export class StratumV1JobsService {
     public blocks: { [id: number]: IJobTemplate } = {};
 
     private lastBlockHeight = 0;
+    private lastWorkSignature: string;
 
     constructor(
         private readonly bitcoinRpcService: BitcoinRpcService
@@ -53,13 +54,29 @@ export class StratumV1JobsService {
                 }
 
                 const currentTime = Math.floor(new Date().getTime() / 1000);
+                const timestamp = blockTemplate.mintime > currentTime ? blockTemplate.mintime : currentTime;
+                const workSignature = [
+                    blockTemplate.previousblockhash,
+                    blockTemplate.version,
+                    blockTemplate.bits,
+                    timestamp,
+                    blockTemplate.height,
+                    blockTemplate.coinbasevalue,
+                    ...blockTemplate.transactions.map(tx => tx.hash ?? tx.txid ?? tx.data)
+                ].join('|');
+
+                if (!clearJobs && workSignature === this.lastWorkSignature) {
+                    return null;
+                }
+                this.lastWorkSignature = workSignature;
+
                 return {
                     version: blockTemplate.version,
                     bits: parseInt(blockTemplate.bits, 16),
                     prevHash: this.convertToLittleEndian(blockTemplate.previousblockhash),
                     transactions: blockTemplate.transactions.map(t => bitcoinjs.Transaction.fromHex(t.data)),
                     coinbasevalue: blockTemplate.coinbasevalue,
-                    timestamp: blockTemplate.mintime > currentTime ? blockTemplate.mintime : currentTime,
+                    timestamp,
                     networkDifficulty: this.calculateNetworkDifficulty(parseInt(blockTemplate.bits, 16)),
                     clearJobs,
                     height: blockTemplate.height

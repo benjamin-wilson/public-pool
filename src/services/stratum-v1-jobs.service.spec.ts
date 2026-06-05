@@ -12,6 +12,7 @@ describe('StratumV1JobsService', () => {
 
     const createTemplate = (height = MockRecording1.BLOCK_TEMPLATE.height): IBlockTemplate => ({
         ...MockRecording1.BLOCK_TEMPLATE,
+        transactions: MockRecording1.BLOCK_TEMPLATE.transactions.map(tx => ({ ...tx })),
         height
     });
 
@@ -62,6 +63,34 @@ describe('StratumV1JobsService', () => {
         expect(service.getJobTemplateById(jobTemplate.blockData.id)).toBe(jobTemplate);
     });
 
+    it('should skip identical non-clean template refreshes', async () => {
+        await firstValueFrom(service.newMiningJob$);
+
+        blockTemplate$.next(createTemplate());
+
+        expect(service.latestJobTemplateId).toBe(2);
+        expect(Object.keys(service.blocks)).toHaveLength(1);
+    });
+
+    it('should emit when transaction identity changes without changing transaction count', async () => {
+        await firstValueFrom(service.newMiningJob$);
+
+        const reorderedTemplate = createTemplate();
+        reorderedTemplate.transactions = [
+            reorderedTemplate.transactions[1],
+            reorderedTemplate.transactions[0],
+            ...reorderedTemplate.transactions.slice(2)
+        ];
+
+        const nextTemplate = firstValueFrom(service.newMiningJob$.pipe(skip(1)));
+        blockTemplate$.next(reorderedTemplate);
+        const jobTemplate = await nextTemplate;
+
+        expect(jobTemplate.blockData.clearJobs).toBe(false);
+        expect(jobTemplate.blockData.id).toBe('2');
+        expect(service.getJobTemplateById(jobTemplate.blockData.id)).toBe(jobTemplate);
+    });
+
     it('should age old jobs and templates after five minutes', async () => {
         await firstValueFrom(service.newMiningJob$);
         const oldCreation = Date.now() - (1000 * 60 * 11);
@@ -71,6 +100,7 @@ describe('StratumV1JobsService', () => {
         } as any;
 
         bitcoinRpcService.miningInfo.blocks = MockRecording1.BLOCK_TEMPLATE.height;
+        jest.setSystemTime(new Date(Date.now() + 1000));
         const nextTemplate = firstValueFrom(service.newMiningJob$.pipe(skip(1)));
         blockTemplate$.next(createTemplate());
         const jobTemplate = await nextTemplate;
