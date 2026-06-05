@@ -11,6 +11,7 @@ import { ClientService } from './ORM/client/client.service';
 import { HomeGraphService } from './ORM/home-graph/home-graph.service';
 import { BitcoinRpcService } from './services/bitcoin-rpc.service';
 import { UserAgentReportView } from './ORM/_views/user-agent-report/user-agent-report.view';
+import { StratumV2Service } from './services/stratum-v2.service';
 
 @Controller()
 export class AppController {
@@ -25,7 +26,8 @@ export class AppController {
     private readonly bitcoinRpcService: BitcoinRpcService,
     private readonly homeGraphService: HomeGraphService,
     private readonly addressSettingsService: AddressSettingsService,
-    private readonly userAgentReportService: UserAgentReportService
+    private readonly userAgentReportService: UserAgentReportService,
+    private readonly stratumV2Service: StratumV2Service
   ) { }
 
   @Get('info')
@@ -42,6 +44,7 @@ export class AppController {
 
     const blockData = await this.blocksService.getFoundBlocks();
     const highScores = await this.addressSettingsService.getHighScores();
+    const poolAuthority = await this.stratumV2Service.getPoolAuthorityPublicKey();
 
     const other: {
       count: number,
@@ -72,6 +75,10 @@ export class AppController {
       blockData,
       userAgents,
       highScores,
+      sv2: {
+        poolAuthorityPublicKey: poolAuthority.publicKey,
+        authorityKeyConfigured: poolAuthority.configured
+      },
       uptime: this.uptime
     };
 

@@ -4,6 +4,7 @@ import { Server, Socket } from 'net';
 import { monitorEventLoopDelay } from 'perf_hooks';
 
 import { StratumV1Client } from '../models/StratumV1Client';
+import { StratumV2Client } from '../models/StratumV2Client';
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
 import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
@@ -11,6 +12,7 @@ import { ClientService } from '../ORM/client/client.service';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 import { NotificationService } from './notification.service';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
+import { StratumV2Service } from './stratum-v2.service';
 
 import { readFileSync } from 'fs';
 import { TlsOptions, TLSSocket, createServer } from 'tls';
@@ -54,7 +56,8 @@ export class StratumV1Service implements OnModuleInit {
         private readonly blocksService: BlocksService,
         private readonly configService: ConfigService,
         private readonly stratumV1JobsService: StratumV1JobsService,
-        private readonly addressSettingsService: AddressSettingsService
+        private readonly addressSettingsService: AddressSettingsService,
+        private readonly stratumV2Service: StratumV2Service
     ) {
 
     }
@@ -107,21 +110,12 @@ export class StratumV1Service implements OnModuleInit {
             // Set 15-minute timeout
             socket.setTimeout(1000 * 60 * 15);
 
-            const client = new StratumV1Client(
-                socket,
-                this.stratumV1JobsService,
-                this.bitcoinRpcService,
-                this.clientService,
-                this.clientStatisticsService,
-                this.notificationService,
-                this.blocksService,
-                this.configService,
-                this.addressSettingsService
-            );
+            let client: StratumV1Client | StratumV2Client = null;
+            let protocol: 'v1' | 'v2' | null = null;
 
             // Unified cleanup function
             const cleanup = async (reason: string) => {
-                if (client.extraNonceAndSessionId != null) {
+                if (client != null && (protocol === 'v2' || (client as StratumV1Client).extraNonceAndSessionId != null)) {
                     await client.destroy();
                     if (reason == 'Error') {
                         this.errorClosure++;
@@ -155,8 +149,30 @@ export class StratumV1Service implements OnModuleInit {
                 await cleanup("Error");
             });
 
-            //
+            socket.once('data', async (firstChunk: Buffer) => {
+                try {
+                    protocol = this.detectProtocol(firstChunk);
+                    if (protocol === 'v1') {
+                        client = this.createV1Client(socket);
+                        socket.emit('data', firstChunk);
+                        return;
+                    }
 
+                    if (protocol === 'v2') {
+                        await this.stratumV2Service.ensureInitialized();
+                        client = this.stratumV2Service.createClient(socket, firstChunk);
+                        return;
+                    }
+
+                    if (!socket.destroyed) {
+                        socket.end();
+                        socket.destroy();
+                    }
+                } catch (error) {
+                    console.error(`Protocol detection failed: ${error.message}`);
+                    await cleanup('Error');
+                }
+            });
 
         });
 
@@ -167,6 +183,20 @@ export class StratumV1Service implements OnModuleInit {
         this.configureConnectionLimit(server);
 
         return server;
+    }
+
+    private createV1Client(socket: Socket): StratumV1Client {
+        return new StratumV1Client(
+            socket,
+            this.stratumV1JobsService,
+            this.bitcoinRpcService,
+            this.clientService,
+            this.clientStatisticsService,
+            this.notificationService,
+            this.blocksService,
+            this.configService,
+            this.addressSettingsService
+        );
     }
 
     private startSecureSocketServer(port: number) {
@@ -196,17 +226,7 @@ export class StratumV1Service implements OnModuleInit {
             // Set 15-minute timeout
             socket.setTimeout(1000 * 60 * 15);
 
-            const client = new StratumV1Client(
-                socket,
-                this.stratumV1JobsService,
-                this.bitcoinRpcService,
-                this.clientService,
-                this.clientStatisticsService,
-                this.notificationService,
-                this.blocksService,
-                this.configService,
-                this.addressSettingsService
-            );
+            const client = this.createV1Client(socket);
 
             const cleanup = async (reason: string) => {
                 if (client.extraNonceAndSessionId != null) {
@@ -387,6 +407,70 @@ export class StratumV1Service implements OnModuleInit {
 
     private getTlsHandshakeTimeoutMs() {
         return this.getPositiveIntegerEnv('STRATUM_TLS_HANDSHAKE_TIMEOUT_MS', DEFAULT_TLS_HANDSHAKE_TIMEOUT_MS);
+    }
+
+    private detectProtocol(firstChunk: Buffer): 'v1' | 'v2' | null {
+        if (firstChunk.length === 0) {
+            return null;
+        }
+
+        if (this.looksLikeJsonRpc(firstChunk)) {
+            return 'v1';
+        }
+
+        // TLS ClientHello. Secure SV1 remains on SECURE_STRATUM_PORTS.
+        if (this.looksLikeTlsClientHello(firstChunk)) {
+            return null;
+        }
+
+        // HTTP on a stratum port is not supported in this branch.
+        if (this.looksLikeHttpRequest(firstChunk)) {
+            return null;
+        }
+
+        return 'v2';
+    }
+
+    private looksLikeJsonRpc(firstChunk: Buffer): boolean {
+        let firstNonWhitespace = -1;
+        for (let i = 0; i < firstChunk.length; i++) {
+            const byte = firstChunk[i];
+            if (byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d) {
+                continue;
+            }
+            firstNonWhitespace = i;
+            break;
+        }
+
+        if (firstNonWhitespace < 0 || firstChunk[firstNonWhitespace] !== 0x7b) {
+            return false;
+        }
+
+        for (const byte of firstChunk) {
+            const isWhitespace = byte === 0x09 || byte === 0x0a || byte === 0x0d;
+            const isPrintableAscii = byte >= 0x20 && byte <= 0x7e;
+            if (!isWhitespace && !isPrintableAscii) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private looksLikeTlsClientHello(firstChunk: Buffer): boolean {
+        return firstChunk.length >= 3
+            && firstChunk[0] === 0x16
+            && firstChunk[1] === 0x03;
+    }
+
+    private looksLikeHttpRequest(firstChunk: Buffer): boolean {
+        const prefix = firstChunk.subarray(0, Math.min(firstChunk.length, 8)).toString('ascii').toUpperCase();
+        return prefix.startsWith('GET ')
+            || prefix.startsWith('POST ')
+            || prefix.startsWith('PUT ')
+            || prefix.startsWith('PATCH ')
+            || prefix.startsWith('HEAD ')
+            || prefix.startsWith('OPTIONS ');
     }
 
     private getPositiveIntegerEnv(key: string, fallback: number) {

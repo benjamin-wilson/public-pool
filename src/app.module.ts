@@ -34,6 +34,7 @@ import { DiscordService } from './services/discord.service';
 import { NotificationService } from './services/notification.service';
 import { StratumV1JobsService } from './services/stratum-v1-jobs.service';
 import { StratumV1Service } from './services/stratum-v1.service';
+import { StratumV2Service } from './services/stratum-v2.service';
 import { TelegramService } from './services/telegram.service';
 
 
@@ -100,6 +101,7 @@ const ORMModules = [
         NotificationService,
         BitcoinAddressValidator,
         StratumV1JobsService,
+        StratumV2Service,
         BTCPayService,
         BraiinsService
     ],

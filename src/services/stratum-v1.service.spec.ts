@@ -11,6 +11,7 @@ describe('StratumV1Service', () => {
 
     let service: StratumV1Service;
     let clientService;
+    let stratumV2Service;
     let consoleLogSpy: jest.SpyInstance;
     let consoleWarnSpy: jest.SpyInstance;
 
@@ -18,6 +19,10 @@ describe('StratumV1Service', () => {
         jest.useFakeTimers();
         clientService = {
             deleteAll: jest.fn().mockResolvedValue(undefined)
+        };
+        stratumV2Service = {
+            ensureInitialized: jest.fn().mockResolvedValue(undefined),
+            createClient: jest.fn()
         };
         service = new StratumV1Service(
             {} as any,
@@ -27,7 +32,8 @@ describe('StratumV1Service', () => {
             {} as any,
             {} as any,
             {} as any,
-            {} as any
+            {} as any,
+            stratumV2Service as any
         );
         consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
         consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -143,6 +149,29 @@ describe('StratumV1Service', () => {
         process.env.STRATUM_TLS_HANDSHAKE_TIMEOUT_MS = '5000';
 
         expect((service as any).getTlsHandshakeTimeoutMs()).toBe(5000);
+    });
+
+    it('should detect JSON-RPC as Stratum V1', () => {
+        const firstChunk = Buffer.from('{"id":1,"method":"mining.subscribe","params":[]}\n');
+
+        expect((service as any).detectProtocol(firstChunk)).toBe('v1');
+    });
+
+    it('should detect binary Noise traffic as Stratum V2', () => {
+        const firstChunk = Buffer.concat([
+            Buffer.from([0x01, 0x02, 0x03, 0x04]),
+            Buffer.alloc(60, 0xaa)
+        ]);
+
+        expect((service as any).detectProtocol(firstChunk)).toBe('v2');
+    });
+
+    it('should reject recognizable TLS client hello on the unified plain stratum port', () => {
+        expect((service as any).detectProtocol(Buffer.from([0x16, 0x03, 0x01]))).toBeNull();
+    });
+
+    it('should route binary data that only shares a TLS first byte to Stratum V2', () => {
+        expect((service as any).detectProtocol(Buffer.from([0x16, 0xaa, 0xbb]))).toBe('v2');
     });
 
     function restoreEnv(key: string, value: string | undefined) {

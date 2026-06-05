@@ -48,6 +48,22 @@ describe('MiningJob', () => {
         expect(coinbase.ins[0].script.toString('hex').endsWith(`${extraNonce1}${extraNonce2}`)).toBe(true);
     });
 
+    it('should expose coinbase prefix and suffix buffers for SV2 extended jobs', () => {
+        const notify = JSON.parse(job.response(jobTemplate));
+        const extraNonce1 = '57a6f098';
+        const extraNonce2 = 'c708000000000000';
+        const fromNotify = Buffer.from(`${notify.params[2]}${extraNonce1}${extraNonce2}${notify.params[3]}`, 'hex');
+        const fromBuffers = Buffer.concat([
+            job.getCoinbasePrefixBuffer(),
+            Buffer.from(`${extraNonce1}${extraNonce2}`, 'hex'),
+            job.getCoinbaseSuffixBuffer(),
+        ]);
+
+        expect(fromBuffers).toEqual(fromNotify);
+        expect(bitcoinjs.Transaction.fromBuffer(fromBuffers).ins[0].script.toString('hex'))
+            .toContain(`${extraNonce1}${extraNonce2}`);
+    });
+
     it('should update block nonce, timestamp, version mask, and coinbase script', () => {
         const extraNonce1 = '57a6f098';
         const extraNonce2 = 'c708000000000000';
