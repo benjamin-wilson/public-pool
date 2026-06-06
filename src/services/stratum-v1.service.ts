@@ -428,6 +428,13 @@ export class StratumV1Service implements OnModuleInit {
             return null;
         }
 
+        // Plaintext that is not JSON-RPC is not a valid SV2 Noise Act 1. This
+        // catches PROXY-protocol lines, SSH banners, and malformed SV1 clients
+        // before they get misrouted into the SV2 decrypt path.
+        if (this.looksLikePlaintext(firstChunk)) {
+            return null;
+        }
+
         return 'v2';
     }
 
@@ -471,6 +478,18 @@ export class StratumV1Service implements OnModuleInit {
             || prefix.startsWith('PATCH ')
             || prefix.startsWith('HEAD ')
             || prefix.startsWith('OPTIONS ');
+    }
+
+    private looksLikePlaintext(firstChunk: Buffer): boolean {
+        for (const byte of firstChunk) {
+            const isWhitespace = byte === 0x09 || byte === 0x0a || byte === 0x0d;
+            const isPrintableAscii = byte >= 0x20 && byte <= 0x7e;
+            if (!isWhitespace && !isPrintableAscii) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private getPositiveIntegerEnv(key: string, fallback: number) {

@@ -61,6 +61,7 @@ const DEFAULT_TARGET_SHARES_PER_MINUTE = 2;
 const DEFAULT_DIFFICULTY_CHECK_INTERVAL_MS = 60 * 1000;
 const FIXED_STANDARD_EXTRANONCE2 = '0000000000000000';
 const RETIRED_EXTENDED_JOB_RETENTION_MS = 5 * 60 * 1000;
+const SV2_AUTH_FAILURE_LOG_INTERVAL_MS = 60 * 1000;
 
 interface ExtendedJobData {
     coinbasePrefix: Buffer;
@@ -93,6 +94,8 @@ interface ChannelState {
 }
 
 export class StratumV2Client {
+    private static authFailureLogState = new Map<string, { nextLogAt: number; suppressed: number }>();
+
     private readonly sessionId = crypto.randomBytes(4).toString('hex');
     private readonly noiseSession: Sv2NoiseSession;
     private readonly frameReader = new Sv2FrameReader(null);
@@ -116,6 +119,7 @@ export class StratumV2Client {
     private sessionDifficulty: number;
     private clientEntity: ClientEntity = null;
     private creatingEntity: Promise<void> = null;
+    private readonly firstChunkSummary: string;
 
     constructor(
         private readonly socket: Socket,
@@ -130,6 +134,7 @@ export class StratumV2Client {
         private readonly configService: ConfigService,
         private readonly addressSettingsService: AddressSettingsService,
     ) {
+        this.firstChunkSummary = this.describeChunk(firstChunk);
         this.noiseSession = new Sv2NoiseSession(this.stratumV2Service.getNoiseConfig());
         this.sessionDifficulty = this.getInitialDifficulty();
         this.targetSharesPerMinute = this.getTargetSharesPerMinute();
@@ -182,7 +187,7 @@ export class StratumV2Client {
                 await this.handleEncryptedData(data);
             }
         } catch (error) {
-            console.error(`[SV2 ${this.sessionId}] ${error.message}`);
+            this.logProtocolError(error);
             this.closeSocket();
         }
     }
@@ -1150,6 +1155,43 @@ export class StratumV2Client {
             return bitcoinjs.networks.regtest;
         }
         throw new Error('Invalid network configuration');
+    }
+
+    private logProtocolError(error: Error): void {
+        if (!this.isNoisyAuthFailure(error)) {
+            console.error(`[SV2 ${this.sessionId}] ${error.message}`);
+            return;
+        }
+
+        const remote = this.socket.remoteAddress ?? 'unknown';
+        const key = `${remote}:${error.message}`;
+        const now = Date.now();
+        const logState = StratumV2Client.authFailureLogState.get(key);
+        if (logState != null && now < logState.nextLogAt) {
+            logState.suppressed += 1;
+            return;
+        }
+
+        const suppressed = logState?.suppressed ?? 0;
+        const suffix = suppressed > 0 ? ` (${suppressed} similar auth failures suppressed)` : '';
+        console.warn(`[SV2 ${this.sessionId}] Authentication failed from ${remote}: ${error.message}; firstChunk=${this.firstChunkSummary}${suffix}`);
+        StratumV2Client.authFailureLogState.set(key, {
+            nextLogAt: now + SV2_AUTH_FAILURE_LOG_INTERVAL_MS,
+            suppressed: 0,
+        });
+    }
+
+    private isNoisyAuthFailure(error: Error): boolean {
+        return error.message.includes('Unsupported state or unable to authenticate data');
+    }
+
+    private describeChunk(chunk: Buffer): string {
+        const preview = chunk.subarray(0, 16);
+        const printable = Array.from(preview).every(byte => byte >= 0x20 && byte <= 0x7e);
+        const prefix = printable
+            ? preview.toString('ascii').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+            : preview.toString('hex');
+        return `len=${chunk.length},${printable ? 'ascii' : 'hex'}=${prefix}`;
     }
 
     private closeSocket(): void {

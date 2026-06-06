@@ -174,6 +174,16 @@ describe('StratumV1Service', () => {
         expect((service as any).detectProtocol(Buffer.from([0x16, 0xaa, 0xbb]))).toBe('v2');
     });
 
+    it('should not route plaintext PROXY protocol headers to Stratum V2', () => {
+        const firstChunk = Buffer.from('PROXY TCP4 203.0.113.10 192.0.2.10 54321 3333\\r\\n');
+
+        expect((service as any).detectProtocol(firstChunk)).toBeNull();
+    });
+
+    it('should not route malformed plaintext to Stratum V2', () => {
+        expect((service as any).detectProtocol(Buffer.from('mining.subscribe\\n'))).toBeNull();
+    });
+
     function restoreEnv(key: string, value: string | undefined) {
         if (value == null) {
             delete process.env[key];
