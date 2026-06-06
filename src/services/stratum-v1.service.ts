@@ -453,6 +453,13 @@ export class StratumV1Service implements OnModuleInit {
             return false;
         }
 
+        const jsonPrefix = firstChunk
+            .subarray(firstNonWhitespace, Math.min(firstChunk.length, firstNonWhitespace + 256))
+            .toString('utf8');
+        if (jsonPrefix.includes('"method"') || jsonPrefix.includes('"id"')) {
+            return true;
+        }
+
         for (const byte of firstChunk) {
             const isWhitespace = byte === 0x09 || byte === 0x0a || byte === 0x0d;
             const isPrintableAscii = byte >= 0x20 && byte <= 0x7e;

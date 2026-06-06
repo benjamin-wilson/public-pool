@@ -157,6 +157,15 @@ describe('StratumV1Service', () => {
         expect((service as any).detectProtocol(firstChunk)).toBe('v1');
     });
 
+    it('should detect JSON-RPC as Stratum V1 even with non-printable trailing bytes', () => {
+        const firstChunk = Buffer.concat([
+            Buffer.from('{"id": 1, "method": "mining.subscribe", "params": []}\n'),
+            Buffer.from([0x00, 0xff])
+        ]);
+
+        expect((service as any).detectProtocol(firstChunk)).toBe('v1');
+    });
+
     it('should detect binary Noise traffic as Stratum V2', () => {
         const firstChunk = Buffer.concat([
             Buffer.from([0x01, 0x02, 0x03, 0x04]),
