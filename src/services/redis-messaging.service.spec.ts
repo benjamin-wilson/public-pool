@@ -133,6 +133,7 @@ function createRedisClient() {
             return Promise.resolve('OK');
         }),
         get: jest.fn((key: string) => Promise.resolve(store.get(key) ?? null)),
+        mGet: jest.fn((keys: string[]) => Promise.resolve(keys.map(key => store.get(key) ?? null))),
         del: jest.fn((...args: (string | string[])[]) => {
             const keys = args.flatMap(key => Array.isArray(key) ? key : [key]);
             let deleted = 0;
@@ -148,9 +149,13 @@ function createRedisClient() {
             sets.set(key, set);
             return Promise.resolve(1);
         }),
-        sRem: jest.fn((key: string, value: string) => {
+        sRem: jest.fn((key: string, value: string | string[]) => {
             const set = sets.get(key);
-            const deleted = set?.delete(value) ? 1 : 0;
+            const values = Array.isArray(value) ? value : [value];
+            let deleted = 0;
+            values.forEach(item => {
+                deleted += set?.delete(item) ? 1 : 0;
+            });
             return Promise.resolve(deleted);
         }),
         sMembers: jest.fn((key: string) => Promise.resolve([...sets.get(key) ?? []])),

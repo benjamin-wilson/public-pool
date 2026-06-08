@@ -12,6 +12,7 @@ import { BitcoinRpcService } from './services/bitcoin-rpc.service';
 import { UserAgentReportView } from './ORM/_views/user-agent-report/user-agent-report.view';
 import { StratumV2Service } from './services/stratum-v2.service';
 import { ShareAccountingService } from './ORM/share-accounting/share-accounting.service';
+import { RedisMessagingService } from './services/redis-messaging.service';
 
 @Controller()
 export class AppController {
@@ -27,7 +28,8 @@ export class AppController {
     private readonly addressSettingsService: AddressSettingsService,
     private readonly userAgentReportService: UserAgentReportService,
     private readonly stratumV2Service: StratumV2Service,
-    private readonly shareAccountingService: ShareAccountingService
+    private readonly shareAccountingService: ShareAccountingService,
+    private readonly redisMessagingService: RedisMessagingService
   ) { }
 
   @Get('info')
@@ -35,7 +37,7 @@ export class AppController {
 
 
     const CACHE_KEY = 'SITE_INFO';
-    const cachedResult = await this.cacheManager.get(CACHE_KEY);
+    const cachedResult = await this.getCached(CACHE_KEY);
 
     if (cachedResult != null) {
       return cachedResult;
@@ -86,7 +88,7 @@ export class AppController {
     };
 
     // Keep online miner counts responsive after reconnect cleanup.
-    await this.cacheManager.set(CACHE_KEY, data, 15 * 1000);
+    await this.setCached(CACHE_KEY, data, 15 * 1000);
 
     return data;
 
@@ -95,7 +97,7 @@ export class AppController {
   @Get('info/accounting')
   public async infoAccounting() {
     const CACHE_KEY = 'SITE_ACCOUNTING';
-    const cachedResult = await this.cacheManager.get(CACHE_KEY);
+    const cachedResult = await this.getCached(CACHE_KEY);
 
     if (cachedResult != null) {
       return cachedResult;
@@ -104,7 +106,7 @@ export class AppController {
     const data = await this.shareAccountingService.getPoolSummary();
 
     //15 sec
-    await this.cacheManager.set(CACHE_KEY, data, 15 * 1000);
+    await this.setCached(CACHE_KEY, data, 15 * 1000);
 
     return data;
   }
@@ -113,7 +115,7 @@ export class AppController {
   public async pool() {
 
     const CACHE_KEY = 'POOL_INFO';
-    const cachedResult = await this.cacheManager.get(CACHE_KEY);
+    const cachedResult = await this.getCached(CACHE_KEY);
 
     if (cachedResult != null) {
       return cachedResult;
@@ -135,7 +137,7 @@ export class AppController {
     }
 
     // Keep online miner counts responsive after reconnect cleanup.
-    await this.cacheManager.set(CACHE_KEY, data, 15 * 1000);
+    await this.setCached(CACHE_KEY, data, 15 * 1000);
 
     return data;
   }
@@ -150,7 +152,7 @@ export class AppController {
 
 
     const CACHE_KEY = 'SITE_HASHRATE_GRAPH';
-    const cachedResult = await this.cacheManager.get(CACHE_KEY);
+    const cachedResult = await this.getCached(CACHE_KEY);
 
     if (cachedResult != null) {
       return cachedResult;
@@ -159,11 +161,32 @@ export class AppController {
     const chartData = await this.clientStatisticsService.getChartDataForSite();
 
     //10 min
-    await this.cacheManager.set(CACHE_KEY, chartData, 10 * 60 * 1000);
+    await this.setCached(CACHE_KEY, chartData, 10 * 60 * 1000);
 
     return chartData;
 
 
+  }
+
+  private async getCached<T>(key: string): Promise<T | null> {
+    const shared = await this.redisMessagingService.getJsonCache<T>(`api:${key}`).catch(error => {
+      console.error(`Shared API cache read failed for ${key}: ${error.message}`);
+      return null;
+    });
+    if (shared != null) {
+      return shared;
+    }
+
+    return await this.cacheManager.get<T>(key) ?? null;
+  }
+
+  private async setCached(key: string, value: unknown, ttlMs: number): Promise<void> {
+    await Promise.all([
+      this.cacheManager.set(key, value, ttlMs),
+      this.redisMessagingService.setJsonCache(`api:${key}`, value, ttlMs).catch(error => {
+        console.error(`Shared API cache write failed for ${key}: ${error.message}`);
+      }),
+    ]);
   }
 
 }

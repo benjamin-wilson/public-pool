@@ -13,6 +13,7 @@ const blockTemplateKey = (height: number) => `block-template:${height}`;
 const CLIENT_PRESENCE_ALL_KEY = 'client-presence:all';
 const clientPresenceKey = (clientId: string) => `client-presence:${clientId}`;
 const clientPresenceAddressKey = (address: string) => `client-presence:address:${address}`;
+const jsonCacheKey = (key: string) => `json-cache:${key}`;
 
 export interface ClientPresence {
     clientId: string;
@@ -218,6 +219,37 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
         await this.deleteKeys(batch);
     }
 
+    public async getJsonCache<T>(key: string): Promise<T | null> {
+        if (!await this.ensureConnected()) {
+            return null;
+        }
+
+        const value = await this.publisher.get(jsonCacheKey(key));
+        if (value == null) {
+            return null;
+        }
+
+        try {
+            return JSON.parse(value as string) as T;
+        } catch (error) {
+            console.error(`Invalid Redis JSON cache for ${key}: ${error.message}`);
+            await this.publisher.del(jsonCacheKey(key));
+            return null;
+        }
+    }
+
+    public async setJsonCache(key: string, value: unknown, ttlMs: number): Promise<void> {
+        if (!await this.ensureConnected() || ttlMs <= 0) {
+            return;
+        }
+
+        await this.publisher.setEx(
+            jsonCacheKey(key),
+            Math.max(1, Math.ceil(ttlMs / 1000)),
+            JSON.stringify(value),
+        );
+    }
+
     private async ensureConnected(): Promise<boolean> {
         if (!this.connected) {
             try {
@@ -236,18 +268,33 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
             return [];
         }
 
-        const presences = await Promise.all(clientIds.map(async clientId => {
-            const presence = await this.getClientPresence(clientId);
-            if (presence == null) {
-                await this.publisher.sRem(setKey, clientId);
-                if (setKey !== CLIENT_PRESENCE_ALL_KEY) {
-                    await this.publisher.sRem(CLIENT_PRESENCE_ALL_KEY, clientId);
+        const presences: ClientPresence[] = [];
+        const staleClientIds: string[] = [];
+        for (let i = 0; i < clientIds.length; i += 1000) {
+            const chunk = clientIds.slice(i, i + 1000);
+            const values = await this.publisher.mGet(chunk.map(clientPresenceKey));
+            values.forEach((value, index) => {
+                const presence = this.parseClientPresence(value);
+                if (presence == null) {
+                    staleClientIds.push(chunk[index]);
+                    return;
                 }
-            }
-            return presence;
-        }));
+                presences.push(presence);
+            });
+        }
 
-        return presences.filter((presence): presence is ClientPresence => presence != null);
+        for (let i = 0; i < staleClientIds.length; i += 1000) {
+            const staleChunk = staleClientIds.slice(i, i + 1000);
+            if (staleChunk.length === 0) {
+                continue;
+            }
+            await this.publisher.sRem(setKey, staleChunk);
+            if (setKey !== CLIENT_PRESENCE_ALL_KEY) {
+                await this.publisher.sRem(CLIENT_PRESENCE_ALL_KEY, staleChunk);
+            }
+        }
+
+        return presences;
     }
 
     private parseClientPresence(value: unknown): ClientPresence | null {
