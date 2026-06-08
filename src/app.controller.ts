@@ -144,7 +144,7 @@ export class AppController {
 
   @Get('network')
   public async network() {
-    return this.bitcoinRpcService.miningInfo;
+    return this.bitcoinRpcService.miningInfo ?? {};
   }
 
   @Get('info/chart')

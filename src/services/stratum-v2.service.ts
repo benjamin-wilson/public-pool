@@ -46,6 +46,11 @@ export class StratumV2Service implements OnModuleInit {
     ) {}
 
     public async onModuleInit(): Promise<void> {
+        if (process.env.API_ONLY === 'true') {
+            console.log('API-only process skipping Stratum V2 socket listeners');
+            return;
+        }
+
         if (process.env.MASTER === 'true') {
             return;
         }
