@@ -47,22 +47,30 @@ export class BitcoinRpcService implements OnModuleInit {
             }
         });
 
-        this.callRpc('getrpcinfo').then((res) => {
-            console.log('Bitcoin RPC connected');
-        }, () => {
-            console.error('Could not reach RPC host');
-        });
-        
-        this.miningInfo = await this.getMiningInfo();
-
         console.log(`MASTER? ${process.env.MASTER}`)
         if (process.env.MASTER != 'true') {
-            await this.loadLatestTemplateForWorker();
+            await this.loadLatestMiningInfoForReplayProcess();
+            if (process.env.API_ONLY != 'true') {
+                await this.loadLatestTemplateForWorker();
+            }
             await this.redisMessagingService.subscribeMiningInfoUpdates(async (miningInfo: IMiningInfo) => {
                 this.miningInfo = miningInfo;
-                await this.loadTemplateForWorker(miningInfo.blocks);
+                if (process.env.API_ONLY != 'true') {
+                    await this.loadTemplateForWorker(miningInfo.blocks);
+                }
             });
+            if (process.env.API_ONLY == 'true') {
+                console.log('API-only process using Redis mining info replay');
+            }
+            return;
         } else {
+            this.callRpc('getrpcinfo').then((res) => {
+                console.log('Bitcoin RPC connected');
+            }, () => {
+                console.error('Could not reach RPC host');
+            });
+
+            this.miningInfo = await this.getMiningInfo();
             console.log('Using ZMQ');
             const sock = new zmq.Subscriber;
 
@@ -89,6 +97,13 @@ export class BitcoinRpcService implements OnModuleInit {
 
         }
 
+    }
+
+    private async loadLatestMiningInfoForReplayProcess() {
+        const latestMiningInfo = await this.redisMessagingService.getLatestMiningInfo();
+        if (latestMiningInfo != null) {
+            this.miningInfo = latestMiningInfo;
+        }
     }
 
     private async listenForNewBlocks(sock: zmq.Subscriber) {

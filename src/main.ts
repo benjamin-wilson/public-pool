@@ -15,7 +15,8 @@ async function bootstrap() {
     return;
   }
 
-  const serveApi = process.env.MASTER !== 'false';
+  const apiEnabled = process.env.API_ENABLED?.toLowerCase();
+  const serveApi = apiEnabled == null ? process.env.MASTER !== 'false' : apiEnabled === 'true';
   const secure = serveApi && process.env.API_SECURE?.toLowerCase() === 'true';
   const currentDirectory = process.cwd();
   const keyPath = path.join(currentDirectory, 'secrets', 'key.pem');

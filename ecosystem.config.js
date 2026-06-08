@@ -1,12 +1,28 @@
 module.exports = {
     apps: [
+      // API instance
+      {
+        name: 'api',
+        script: './dist/main.js',
+        instances: 1,
+        exec_mode: 'fork',
+        env: {
+          MASTER: 'false',
+          API_ONLY: 'true',
+          API_ENABLED: 'true',
+          NODE_CLUSTER_SCHED_POLICY: 'none',
+        },
+        time: true
+      },
       // Master instance
       {
         name: 'master',
         script: './dist/main.js',
         instances: 1,
+        exec_mode: 'fork',
         env: {
           MASTER: 'true',
+          API_ENABLED: 'false',
           NODE_CLUSTER_SCHED_POLICY: 'none',
         },
         time: true
@@ -19,6 +35,7 @@ module.exports = {
         exec_mode: "cluster",
         env: {
           MASTER: 'false',
+          API_ENABLED: 'false',
           NODE_CLUSTER_SCHED_POLICY: 'none',
         },
         time: true

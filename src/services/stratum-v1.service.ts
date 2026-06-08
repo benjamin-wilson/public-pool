@@ -68,6 +68,11 @@ export class StratumV1Service implements OnModuleInit {
 
     async onModuleInit(): Promise<void> {
 
+        if (process.env.API_ONLY == 'true') {
+            console.log('API-only process skipping Stratum socket listeners');
+            return;
+        }
+
         if (process.env.MASTER == 'true') {
             await this.clientService.deleteAll();
             await this.redisMessagingService?.clearClientPresence();
