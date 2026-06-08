@@ -15,7 +15,8 @@ async function bootstrap() {
     return;
   }
 
-  const secure = process.env.API_SECURE?.toLowerCase() === 'true';
+  const serveApi = process.env.MASTER !== 'false';
+  const secure = serveApi && process.env.API_SECURE?.toLowerCase() === 'true';
   const currentDirectory = process.cwd();
   const keyPath = path.join(currentDirectory, 'secrets', 'key.pem');
   const certPath = path.join(currentDirectory, 'secrets', 'cert.pem');
@@ -56,6 +57,12 @@ async function bootstrap() {
 
   // Taproot
   bitcoinjs.initEccLib(ecc);
+
+  if (!serveApi) {
+    await app.init();
+    console.log('Worker process skipping API listener');
+    return;
+  }
 
   await app.listen(process.env.API_PORT, '0.0.0.0', (err, address) => {
     if (err) {
