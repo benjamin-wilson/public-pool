@@ -9,12 +9,12 @@ import * as ecc from 'tiny-secp256k1';
 
 import { AppModule } from './app.module';
 
-const DEFAULT_API_MAX_CONNECTIONS = 512;
+const DEFAULT_API_MAX_CONNECTIONS = 10000;
 const DEFAULT_API_REQUEST_TIMEOUT_MS = 15000;
 const DEFAULT_API_HEADERS_TIMEOUT_MS = 10000;
 const DEFAULT_API_KEEP_ALIVE_TIMEOUT_MS = 5000;
-const DEFAULT_API_SOCKET_TIMEOUT_MS = 15000;
-const DEFAULT_API_TLS_HANDSHAKE_TIMEOUT_MS = 3000;
+const DEFAULT_API_SOCKET_TIMEOUT_MS = 0;
+const DEFAULT_API_TLS_HANDSHAKE_TIMEOUT_MS = 10000;
 const DEFAULT_API_LISTEN_BACKLOG = 1024;
 
 async function bootstrap() {
@@ -128,25 +128,21 @@ async function bootstrap() {
 }
 
 function configureApiServer(server: any) {
-  const socketTimeoutMs = getPositiveIntegerEnv('API_SOCKET_TIMEOUT_MS', DEFAULT_API_SOCKET_TIMEOUT_MS);
-
   server.maxConnections = getPositiveIntegerEnv('API_MAX_CONNECTIONS', DEFAULT_API_MAX_CONNECTIONS);
   server.requestTimeout = getPositiveIntegerEnv('API_REQUEST_TIMEOUT_MS', DEFAULT_API_REQUEST_TIMEOUT_MS);
   server.headersTimeout = getPositiveIntegerEnv('API_HEADERS_TIMEOUT_MS', DEFAULT_API_HEADERS_TIMEOUT_MS);
   server.keepAliveTimeout = getPositiveIntegerEnv('API_KEEP_ALIVE_TIMEOUT_MS', DEFAULT_API_KEEP_ALIVE_TIMEOUT_MS);
-  server.timeout = socketTimeoutMs;
-
-  server.on('connection', (socket: NodeJS.ReadWriteStream & { setTimeout?: (ms: number) => void; destroy?: () => void }) => {
-    socket.setTimeout?.(socketTimeoutMs);
-    socket.once?.('timeout', () => {
-      socket.destroy?.();
-    });
-  });
+  server.timeout = getNonNegativeIntegerEnv('API_SOCKET_TIMEOUT_MS', DEFAULT_API_SOCKET_TIMEOUT_MS);
 }
 
 function getPositiveIntegerEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function getNonNegativeIntegerEnv(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isInteger(value) && value >= 0 ? value : fallback;
 }
 
 bootstrap();
