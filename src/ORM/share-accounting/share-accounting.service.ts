@@ -159,7 +159,7 @@ export class ShareAccountingService implements OnModuleDestroy {
         return summary;
     }
 
-    private emptySummary(): ShareAccountingSummary {
+    public emptySummary(): ShareAccountingSummary {
         return {
             totalAcceptedShares: 0,
             totalCreditedDifficulty: 0,
@@ -193,7 +193,7 @@ export class ShareAccountingService implements OnModuleDestroy {
     public async getSessionSummaries(clientIds: string[]): Promise<Map<string, SessionShareSummary>> {
         const uniqueClientIds = [...new Set(clientIds.filter(clientId => clientId != null))];
         const summaries = new Map<string, SessionShareSummary>();
-        if (uniqueClientIds.length === 0) {
+        if (uniqueClientIds.length === 0 || process.env.API_ONLY === 'true') {
             return summaries;
         }
 
@@ -222,6 +222,10 @@ export class ShareAccountingService implements OnModuleDestroy {
     }
 
     private async getSummary(filter: AccountingFilter): Promise<ShareAccountingSummary> {
+        if (process.env.API_ONLY === 'true') {
+            return this.emptySummary();
+        }
+
         const cacheKey = this.getSummaryCacheKey(filter);
         const cached = this.summaryCache.get(cacheKey);
         const now = Date.now();

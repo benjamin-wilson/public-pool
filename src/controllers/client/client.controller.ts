@@ -27,11 +27,16 @@ export class ClientController {
         const workers = await timeAsync('/api/client/:address presence', () => this.redisMessagingService.getClientPresenceByAddress(address), { address });
         const sessionSummaries = await timeAsync('/api/client/:address session summaries', () => this.shareAccountingService.getSessionSummaries(workers.map(worker => worker.clientId)), { address, workers: workers.length });
 
-        const addressSettings = await timeAsync('/api/client/:address address settings', () => this.addressSettingsService.getSettings(address, false), { address });
+        const addressSettings = process.env.API_ONLY === 'true'
+            ? null
+            : await timeAsync('/api/client/:address address settings', () => this.addressSettingsService.getSettings(address, false), { address });
         const accounting = await timeAsync('/api/client/:address accounting', () => this.shareAccountingService.getAddressSummary(address), { address });
+        const bestDifficulty = addressSettings?.bestDifficulty ?? workers.reduce((best, worker) => {
+            return Math.max(best, Number(worker.bestDifficulty ?? 0));
+        }, 0);
 
         const response = {
-            bestDifficulty: addressSettings?.bestDifficulty,
+            bestDifficulty,
             workersCount: workers.length,
             accounting,
             workers: await Promise.all(
