@@ -187,7 +187,6 @@ describe('TimescaleDB and Redis integration', () => {
       dataSource.getRepository(UserAgentReportView),
       repository,
       redisMessagingService,
-      new ShareAccountingService(dataSource.getRepository(AcceptedShareEntity)),
     );
 
     const activeClient = await repository.save({

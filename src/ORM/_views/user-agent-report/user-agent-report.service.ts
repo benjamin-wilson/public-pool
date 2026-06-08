@@ -3,7 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { ClientEntity } from '../../client/client.entity';
-import { ShareAccountingService } from '../../share-accounting/share-accounting.service';
 import { UserAgentReportView } from './user-agent-report.view';
 import { RedisMessagingService } from '../../../services/redis-messaging.service';
 
@@ -16,16 +15,12 @@ export class UserAgentReportService {
         @InjectRepository(ClientEntity)
         private clientRepository: Repository<ClientEntity>,
         private redisMessagingService: RedisMessagingService,
-        private shareAccountingService: ShareAccountingService,
     ) {
 
     }
 
     public async getReport() {
         const presences = await this.redisMessagingService.getAllClientPresence();
-        const shareSummaries = await this.shareAccountingService.getSessionSummaries(
-            presences.map(presence => presence.clientId),
-        );
         const rows = new Map<string, {
             userAgent: string;
             count: number;
@@ -43,14 +38,12 @@ export class UserAgentReportService {
                 bestDifficulty: 0,
                 totalHashRate: 0,
             };
-            const shareSummary = shareSummaries.get(presence.clientId);
             row.count++;
             row.bestDifficulty = Math.max(
                 row.bestDifficulty,
                 Number(presence.bestDifficulty ?? 0),
-                Number(shareSummary?.bestSubmissionDifficulty ?? 0),
             );
-            row.totalHashRate += Number(shareSummary?.hashRateLast10Minutes ?? presence.hashRate ?? 0);
+            row.totalHashRate += Number(presence.hashRate ?? 0);
             rows.set(userAgent, row);
         });
 

@@ -6,7 +6,6 @@ const HASHES_PER_DIFFICULTY = 4294967296;
 const CHART_BUCKET_SECONDS = 600;
 const CHART_WINDOW = '24 hours';
 const SITE_CHART_WINDOW = '7 days';
-const REALTIME_WINDOW = '20 minutes';
 
 @Injectable()
 export class ClientStatisticsService {
@@ -67,7 +66,7 @@ export class ClientStatisticsService {
             WITH bounds AS (
                 SELECT
                     NOW() - INTERVAL '${windowSql}' AS since,
-                    time_bucket(INTERVAL '10 minutes', NOW() - INTERVAL '${REALTIME_WINDOW}') AS realtime_start
+                    time_bucket(INTERVAL '10 minutes', NOW()) AS realtime_start
             ),
             aggregate_rows AS (
                 SELECT
