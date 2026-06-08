@@ -249,7 +249,7 @@ describe('ShareAccountingService', () => {
         );
     });
 
-    it('should overlay live pool data and best share from the current round', async () => {
+    it('should refresh pool summaries from completed rollup buckets and current round rollups', async () => {
         const redis = {
             getJsonCache: jest.fn().mockResolvedValue(null),
             setJsonCache: jest.fn().mockResolvedValue(undefined),
@@ -259,27 +259,19 @@ describe('ShareAccountingService', () => {
                 .mockResolvedValueOnce([{
                     totalAcceptedShares: '3',
                     totalCreditedDifficulty: '96',
-                    acceptedSharesLast10Minutes: '0',
-                    creditedDifficultyLast10Minutes: '0',
+                    acceptedSharesLast10Minutes: '2',
+                    creditedDifficultyLast10Minutes: '64',
                     acceptedSharesLastHour: '3',
                     creditedDifficultyLastHour: '96',
                     acceptedSharesLastDay: '3',
                     creditedDifficultyLastDay: '96',
-                    hashRateLast10Minutes: '0',
+                    hashRateLast10Minutes: '458129844.9',
                     hashRateLastHour: '114532461.2',
                     latestShareAt: new Date('2026-06-07T12:10:00Z'),
                 }])
                 .mockResolvedValueOnce([{
-                    acceptedSharesLast10Minutes: '7',
-                    creditedDifficultyLast10Minutes: '224',
-                    hashRateLast10Minutes: '1603451170.77',
-                    latestShareAt: new Date('2026-06-07T12:20:00Z'),
-                }])
-                .mockResolvedValueOnce([{
                     bestSubmissionDifficulty: '4096',
-                    bestSubmissionDifficultyAt: new Date('2026-06-07T12:19:00Z'),
-                }])
-                .mockResolvedValueOnce([{
+                    bestSubmissionDifficultyAt: new Date('2026-06-07T12:10:00Z'),
                     currentRoundAcceptedShares: '11',
                     workSinceLastBlock: '352',
                     currentRoundNetworkDifficulty: '1000',
@@ -288,24 +280,23 @@ describe('ShareAccountingService', () => {
         const service = new ShareAccountingService(repository as any, redis as any);
 
         await expect(service.refreshPoolSummary()).resolves.toEqual(expect.objectContaining({
-            acceptedSharesLast10Minutes: 7,
-            creditedDifficultyLast10Minutes: 224,
-            hashRateLast10Minutes: 1603451170.77,
+            acceptedSharesLast10Minutes: 2,
+            creditedDifficultyLast10Minutes: 64,
+            hashRateLast10Minutes: 458129844.9,
             bestSubmissionDifficulty: 4096,
-            bestSubmissionDifficultyAt: '2026-06-07T12:19:00.000Z',
+            bestSubmissionDifficultyAt: '2026-06-07T12:10:00.000Z',
             workSinceLastBlock: 352,
             currentRoundAcceptedShares: 11,
             currentRoundNetworkDifficulty: 1000,
             networkDifficultyPercent: 35.2,
-            latestShareAt: '2026-06-07T12:20:00.000Z',
+            latestShareAt: '2026-06-07T12:10:00.000Z',
         }));
         expect(repository.query).toHaveBeenNthCalledWith(
-            3,
-            expect.stringContaining('WHERE "blockHeight" > latest_found_block."height"'),
-        );
-        expect(repository.query).toHaveBeenNthCalledWith(
-            4,
+            2,
             expect.stringContaining('FROM "accepted_share_block_10m"'),
+        );
+        expect(repository.query).not.toHaveBeenCalledWith(
+            expect.stringContaining('FROM "accepted_share_entity"'),
         );
     });
 

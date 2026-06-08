@@ -156,7 +156,7 @@ export class ShareAccountingService implements OnModuleDestroy {
     }
 
     public async refreshPoolSummary(): Promise<ShareAccountingSummary> {
-        const summary = await this.withPoolLiveOverlay(await this.getSummary({}));
+        const summary = await this.withPoolRollupOverlay(await this.getSummary({}));
         await this.redisMessagingService
             ?.setJsonCache(this.poolSummaryCacheKey, summary, 10 * 60 * 1000)
             .catch(error => {
@@ -165,68 +165,52 @@ export class ShareAccountingService implements OnModuleDestroy {
         return summary;
     }
 
-    private async withPoolLiveOverlay(summary: ShareAccountingSummary): Promise<ShareAccountingSummary> {
+    private async withPoolRollupOverlay(summary: ShareAccountingSummary): Promise<ShareAccountingSummary> {
         if (process.env.API_ONLY === 'true') {
             return summary;
         }
 
-        const [[liveWindow], [bestDifficultyRow], [currentRoundRow]] = await Promise.all([
-            this.acceptedShareRepository.query(`
-                SELECT
-                    COUNT(*)::int AS "acceptedSharesLast10Minutes",
-                    COALESCE(SUM("creditedDifficulty"), 0)::float AS "creditedDifficultyLast10Minutes",
-                    COALESCE((SUM("creditedDifficulty") * ${HASHES_PER_DIFFICULTY}) / 600, 0)::float AS "hashRateLast10Minutes",
-                    MAX("acceptedAt") AS "latestShareAt"
-                    FROM "accepted_share_entity"
-                    WHERE "acceptedAt" > NOW() - INTERVAL '10 minutes'
-                `),
-            this.acceptedShareRepository.query(`
+        const [currentRoundRow] = await this.acceptedShareRepository.query(`
                 WITH latest_found_block AS (
                     SELECT COALESCE(MAX("height"), 0) AS "height"
                     FROM "blocks_entity"
-                )
-                SELECT
-                    COALESCE("submissionDifficulty", 0)::float AS "bestSubmissionDifficulty",
-                    "acceptedAt" AS "bestSubmissionDifficultyAt"
-                FROM "accepted_share_entity", latest_found_block
-                WHERE "blockHeight" > latest_found_block."height"
-                ORDER BY "submissionDifficulty" DESC, "acceptedAt" DESC
-                LIMIT 1
-            `),
-            this.acceptedShareRepository.query(`
-                WITH latest_found_block AS (
-                    SELECT COALESCE(MAX("height"), 0) AS "height"
-                    FROM "blocks_entity"
+                ),
+                filtered_rows AS (
+                    SELECT "accepted_share_block_10m".*
+                    FROM "accepted_share_block_10m", latest_found_block
+                    WHERE "blockHeight" > latest_found_block."height"
+                ),
+                best_share AS (
+                    SELECT
+                        "bestSubmissionDifficulty",
+                        "bucket"
+                    FROM filtered_rows
+                    ORDER BY "bestSubmissionDifficulty" DESC, "bucket" DESC
+                    LIMIT 1
                 )
                 SELECT
                     COALESCE(SUM("acceptedCount"), 0)::int AS "currentRoundAcceptedShares",
                     COALESCE(SUM("shares"), 0)::float AS "workSinceLastBlock",
-                    COALESCE(MAX("networkDifficulty"), 0)::float AS "currentRoundNetworkDifficulty"
-                FROM "accepted_share_block_10m", latest_found_block
-                WHERE "blockHeight" > latest_found_block."height"
-            `),
-        ]);
+                    COALESCE(MAX("networkDifficulty"), 0)::float AS "currentRoundNetworkDifficulty",
+                    COALESCE((SELECT "bestSubmissionDifficulty" FROM best_share), 0)::float AS "bestSubmissionDifficulty",
+                    (SELECT "bucket" FROM best_share) AS "bestSubmissionDifficultyAt"
+                FROM filtered_rows
+        `);
         const currentRoundNetworkDifficulty = this.toNumber(currentRoundRow?.currentRoundNetworkDifficulty);
         const workSinceLastBlock = this.toNumber(currentRoundRow?.workSinceLastBlock);
 
         return {
             ...summary,
-            acceptedSharesLast10Minutes: this.toNumber(liveWindow?.acceptedSharesLast10Minutes),
-            creditedDifficultyLast10Minutes: this.toNumber(liveWindow?.creditedDifficultyLast10Minutes),
-            hashRateLast10Minutes: this.toNumber(liveWindow?.hashRateLast10Minutes),
-            bestSubmissionDifficulty: this.toNumber(bestDifficultyRow?.bestSubmissionDifficulty),
-            bestSubmissionDifficultyAt: bestDifficultyRow?.bestSubmissionDifficultyAt == null
+            bestSubmissionDifficulty: this.toNumber(currentRoundRow?.bestSubmissionDifficulty),
+            bestSubmissionDifficultyAt: currentRoundRow?.bestSubmissionDifficultyAt == null
                 ? null
-                : new Date(bestDifficultyRow.bestSubmissionDifficultyAt).toISOString(),
+                : new Date(currentRoundRow.bestSubmissionDifficultyAt).toISOString(),
             workSinceLastBlock,
             currentRoundAcceptedShares: this.toNumber(currentRoundRow?.currentRoundAcceptedShares),
             currentRoundNetworkDifficulty,
             networkDifficultyPercent: currentRoundNetworkDifficulty > 0
                 ? this.roundPercent((workSinceLastBlock / currentRoundNetworkDifficulty) * 100)
                 : 0,
-            latestShareAt: liveWindow?.latestShareAt == null
-                ? summary.latestShareAt
-                : new Date(liveWindow.latestShareAt).toISOString(),
         };
     }
 
@@ -365,7 +349,9 @@ export class ShareAccountingService implements OnModuleDestroy {
             filtered_rows AS (
                 SELECT "accepted_share_10m".*, bounds."currentBucket", bounds."lastCompletedBucket"
                 FROM "accepted_share_10m", bounds
-                ${whereSql}
+                ${whereSql.length > 0
+                    ? `${whereSql} AND "accepted_share_10m"."bucket" < bounds."currentBucket"`
+                    : `WHERE "accepted_share_10m"."bucket" < bounds."currentBucket"`}
             )
             SELECT
                 COALESCE(SUM("acceptedCount"), 0)::int AS "totalAcceptedShares",
