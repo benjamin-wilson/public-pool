@@ -8,6 +8,8 @@ import { RedisMessagingService } from '../../../services/redis-messaging.service
 
 @Injectable()
 export class UserAgentReportService {
+    private readonly liveReportCacheKey = 'presence:user-agent-report';
+    private liveRefreshPromise: Promise<UserAgentReportView[]> | null = null;
 
     constructor(
         @InjectRepository(UserAgentReportView)
@@ -20,6 +22,37 @@ export class UserAgentReportService {
     }
 
     public async getReport() {
+        const cachedReport = await this.redisMessagingService
+            .getJsonCache<UserAgentReportView[]>(this.liveReportCacheKey)
+            .catch(error => {
+                console.error(`Live user-agent report cache read failed: ${error.message}`);
+                return null;
+            });
+        if (cachedReport != null) {
+            return cachedReport;
+        }
+
+        if (process.env.API_ONLY == 'true') {
+            return this.userAgentReport.find();
+        }
+
+        return this.refreshLiveReport();
+    }
+
+    public async refreshLiveReport() {
+        if (this.liveRefreshPromise != null) {
+            return this.liveRefreshPromise;
+        }
+
+        this.liveRefreshPromise = this.buildLiveReport()
+            .finally(() => {
+                this.liveRefreshPromise = null;
+            });
+
+        return this.liveRefreshPromise;
+    }
+
+    private async buildLiveReport() {
         const presences = await this.redisMessagingService.getAllClientPresence();
         const rows = new Map<string, {
             userAgent: string;
@@ -47,7 +80,7 @@ export class UserAgentReportService {
             rows.set(userAgent, row);
         });
 
-        return [...rows.values()]
+        const report = [...rows.values()]
             .sort((left, right) => right.totalHashRate - left.totalHashRate)
             .map(row => ({
                 userAgent: row.userAgent,
@@ -55,11 +88,20 @@ export class UserAgentReportService {
                 bestDifficulty: row.bestDifficulty,
                 totalHashRate: row.totalHashRate.toString(),
             }));
+
+        await this.redisMessagingService
+            .setJsonCache(this.liveReportCacheKey, report, 60 * 1000)
+            .catch(error => {
+                console.error(`Live user-agent report cache write failed: ${error.message}`);
+            });
+
+        return report;
     }
 
     public async refreshReport() {
         try {
-            return await this.userAgentReport.query(`REFRESH MATERIALIZED VIEW user_agent_report_view`);
+            await this.userAgentReport.query(`REFRESH MATERIALIZED VIEW user_agent_report_view`);
+            return await this.refreshLiveReport();
         } catch (e) {
 
             console.log(e)

@@ -6,6 +6,7 @@ import { RpcBlockService } from '../ORM/rpc-block/rpc-block.service';
 
 @Injectable()
 export class AppService implements OnModuleInit {
+    private refreshingLiveUserAgentReport = false;
 
     constructor(
         private readonly clientService: ClientService,
@@ -28,6 +29,14 @@ export class AppService implements OnModuleInit {
             }, 1000 * 60 * 60 * 24);
 
             setInterval(async () => {
+                await this.refreshLiveUserAgentReport();
+            }, 1000 * 30);
+
+            setTimeout(async () => {
+                await this.refreshLiveUserAgentReport();
+            }, 1000 * 15);
+
+            setInterval(async () => {
                 console.log('Refreshing user agent report view')
                 await this.userAgentReportService.refreshReport();
                 console.log('Finished Refreshing user agent report view')
@@ -42,5 +51,20 @@ export class AppService implements OnModuleInit {
         const deletedClients = await this.clientService.deleteOldClients();
         console.log(`Deleted ${deletedClients.affected} old clients`);
 
+    }
+
+    private async refreshLiveUserAgentReport() {
+        if (this.refreshingLiveUserAgentReport) {
+            return;
+        }
+
+        this.refreshingLiveUserAgentReport = true;
+        try {
+            await this.userAgentReportService.refreshLiveReport();
+        } catch (error) {
+            console.error(`Failed refreshing live user agent report: ${error.message}`);
+        } finally {
+            this.refreshingLiveUserAgentReport = false;
+        }
     }
 }
