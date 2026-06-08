@@ -165,8 +165,89 @@ describe('ShareAccountingService', () => {
         expect(repository.query).toHaveBeenCalledTimes(1);
     });
 
+    it('should serve API-only address accounting from the share rollup instead of empty summaries', async () => {
+        process.env.API_ONLY = 'true';
+        const repository = {
+            query: jest.fn()
+                .mockResolvedValueOnce([{
+                    totalAcceptedShares: '12',
+                    totalCreditedDifficulty: '384',
+                    acceptedSharesLast10Minutes: '4',
+                    creditedDifficultyLast10Minutes: '128',
+                    acceptedSharesLastHour: '10',
+                    creditedDifficultyLastHour: '320',
+                    acceptedSharesLastDay: '12',
+                    creditedDifficultyLastDay: '384',
+                    hashRateLast10Minutes: '916259689.8',
+                    hashRateLastHour: '381774870.2',
+                    latestShareAt: new Date('2026-06-07T12:30:00Z'),
+                }]),
+        };
+        const service = new ShareAccountingService(repository as any);
+
+        await expect(service.getAddressSummary('bc1qapi')).resolves.toEqual(expect.objectContaining({
+            totalAcceptedShares: 12,
+            totalCreditedDifficulty: 384,
+            acceptedSharesLast10Minutes: 4,
+            creditedDifficultyLast10Minutes: 128,
+            hashRateLast10Minutes: 916259689.8,
+            latestShareAt: '2026-06-07T12:30:00.000Z',
+        }));
+        expect(repository.query).toHaveBeenCalledWith(
+            expect.stringContaining('FROM "accepted_share_10m"'),
+            ['bc1qapi'],
+        );
+        expect(repository.query).not.toHaveBeenCalledWith(
+            expect.stringContaining('FROM "accepted_share_entity"'),
+            expect.anything(),
+        );
+    });
+
+    it('should use Redis cache for share accounting summaries across API workers', async () => {
+        process.env.SHARE_ACCOUNTING_SUMMARY_CACHE_MS = '0';
+        const repository = {
+            query: jest.fn()
+                .mockResolvedValueOnce([{
+                    totalAcceptedShares: '1',
+                    totalCreditedDifficulty: '32',
+                    acceptedSharesLast10Minutes: '1',
+                    creditedDifficultyLast10Minutes: '32',
+                    acceptedSharesLastHour: '1',
+                    creditedDifficultyLastHour: '32',
+                    acceptedSharesLastDay: '1',
+                    creditedDifficultyLastDay: '32',
+                    hashRateLast10Minutes: '1',
+                    hashRateLastHour: '1',
+                    latestShareAt: null,
+                }]),
+        };
+        const redis = {
+            getJsonCache: jest.fn()
+                .mockResolvedValueOnce(null)
+                .mockResolvedValueOnce({
+                    ...new ShareAccountingService(repository as any).emptySummary(),
+                    totalAcceptedShares: 1,
+                }),
+            setJsonCache: jest.fn().mockResolvedValue(undefined),
+        };
+        const service = new ShareAccountingService(repository as any, redis as any);
+
+        await service.getAddressSummary('bc1qcached');
+        await expect(service.getAddressSummary('bc1qcached')).resolves.toEqual(expect.objectContaining({
+            totalAcceptedShares: 1,
+        }));
+
+        expect(repository.query).toHaveBeenCalledTimes(1);
+        expect(redis.setJsonCache).toHaveBeenCalledWith(
+            expect.stringContaining('accounting:summary:'),
+            expect.objectContaining({ totalAcceptedShares: 1 }),
+            30000,
+        );
+    });
+
     it('should overlay live pool data and best share from the current round', async () => {
         const redis = {
+            getJsonCache: jest.fn().mockResolvedValue(null),
             setJsonCache: jest.fn().mockResolvedValue(undefined),
         };
         const repository = {

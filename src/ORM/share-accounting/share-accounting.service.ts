@@ -69,6 +69,7 @@ const DEFAULT_FLUSH_INTERVAL_MS = 25;
 const DEFAULT_MAX_QUEUE_SIZE = 50000;
 const DEFAULT_SUMMARY_CACHE_MS = 2500;
 const DEFAULT_SUMMARY_CACHE_MAX = 10000;
+const DEFAULT_REDIS_SUMMARY_CACHE_MS = 30000;
 
 @Injectable()
 export class ShareAccountingService implements OnModuleDestroy {
@@ -82,6 +83,7 @@ export class ShareAccountingService implements OnModuleDestroy {
     private readonly maxQueueSize = this.readPositiveInt('SHARE_ACCOUNTING_MAX_QUEUE_SIZE', DEFAULT_MAX_QUEUE_SIZE);
     private readonly summaryCacheMs = this.readNonNegativeInt('SHARE_ACCOUNTING_SUMMARY_CACHE_MS', DEFAULT_SUMMARY_CACHE_MS);
     private readonly summaryCacheMax = this.readPositiveInt('SHARE_ACCOUNTING_SUMMARY_CACHE_MAX', DEFAULT_SUMMARY_CACHE_MAX);
+    private readonly redisSummaryCacheMs = this.readNonNegativeInt('SHARE_ACCOUNTING_REDIS_SUMMARY_CACHE_MS', DEFAULT_REDIS_SUMMARY_CACHE_MS);
 
     constructor(
         @InjectRepository(AcceptedShareEntity)
@@ -269,10 +271,6 @@ export class ShareAccountingService implements OnModuleDestroy {
     }
 
     private async getSummary(filter: AccountingFilter): Promise<ShareAccountingSummary> {
-        if (process.env.API_ONLY === 'true') {
-            return this.emptySummary();
-        }
-
         const cacheKey = this.getSummaryCacheKey(filter);
         const cached = this.summaryCache.get(cacheKey);
         const now = Date.now();
@@ -281,7 +279,7 @@ export class ShareAccountingService implements OnModuleDestroy {
             return cached.value;
         }
 
-        const value = this.loadSummary(filter).catch(error => {
+        const value = this.loadCachedSummary(filter, cacheKey).catch(error => {
             this.summaryCache.delete(cacheKey);
             throw error;
         });
@@ -295,6 +293,29 @@ export class ShareAccountingService implements OnModuleDestroy {
         }
 
         return value;
+    }
+
+    private async loadCachedSummary(filter: AccountingFilter, cacheKey: string): Promise<ShareAccountingSummary> {
+        const redisCacheKey = `accounting:summary:${cacheKey}`;
+        const cached = await this.redisMessagingService
+            ?.getJsonCache<ShareAccountingSummary>(redisCacheKey)
+            .catch(error => {
+                console.error(`Share accounting summary cache read failed: ${error.message}`);
+                return null;
+            });
+        if (cached != null) {
+            return cached;
+        }
+
+        const summary = await this.loadSummary(filter);
+
+        await this.redisMessagingService
+            ?.setJsonCache(redisCacheKey, summary, this.redisSummaryCacheMs)
+            .catch(error => {
+                console.error(`Share accounting summary cache write failed: ${error.message}`);
+            });
+
+        return summary;
     }
 
     private async loadSummary(filter: AccountingFilter): Promise<ShareAccountingSummary> {
