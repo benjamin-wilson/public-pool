@@ -66,34 +66,7 @@ export class ClientStatisticsService {
             WITH bounds AS (
                 SELECT
                     NOW() - INTERVAL '${windowSql}' AS since,
-                    time_bucket(INTERVAL '10 minutes', NOW()) AS realtime_start
-            ),
-            aggregate_rows AS (
-                SELECT
-                    "bucket",
-                    SUM("shares") AS "shares",
-                    SUM("acceptedCount") AS "acceptedCount"
-                FROM "accepted_share_10m", bounds
-                WHERE "bucket" > bounds.since
-                    AND "bucket" < bounds.realtime_start
-                    ${filterSql}
-                GROUP BY "bucket"
-            ),
-            realtime_rows AS (
-                SELECT
-                    time_bucket(INTERVAL '10 minutes', "acceptedAt") AS "bucket",
-                    SUM("creditedDifficulty") AS "shares",
-                    COUNT(*) AS "acceptedCount"
-                FROM "accepted_share_entity", bounds
-                WHERE "acceptedAt" > bounds.since
-                    AND "acceptedAt" >= bounds.realtime_start
-                    ${filterSql}
-                GROUP BY "bucket"
-            ),
-            combined_rows AS (
-                SELECT * FROM aggregate_rows
-                UNION ALL
-                SELECT * FROM realtime_rows
+                    time_bucket(INTERVAL '10 minutes', NOW()) AS current_bucket
             )
             SELECT
                 "label",
@@ -106,7 +79,10 @@ export class ClientStatisticsService {
                     ROUND((SUM("shares") * ${HASHES_PER_DIFFICULTY}) / ${CHART_BUCKET_SECONDS}) AS "data",
                     SUM("shares") AS "shares",
                     SUM("acceptedCount") AS "acceptedCount"
-                FROM combined_rows
+                FROM "accepted_share_10m", bounds
+                WHERE "bucket" > bounds.since
+                    AND "bucket" < bounds.current_bucket
+                    ${filterSql}
                 GROUP BY "bucket"
                 ORDER BY "bucket" DESC
                 LIMIT ${limit}

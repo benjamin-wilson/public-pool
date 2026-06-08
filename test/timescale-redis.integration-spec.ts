@@ -229,7 +229,7 @@ describe('TimescaleDB and Redis integration', () => {
     }]));
   });
 
-  it('should serve realtime chart and hashrate data from accepted shares', async () => {
+  it('should serve completed chart buckets and omit the current in-progress bucket', async () => {
     const client = await dataSource.getRepository(ClientEntity).save({
       address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
       clientName: 'worker',
@@ -241,7 +241,10 @@ describe('TimescaleDB and Redis integration', () => {
     });
     const accountingService = new ShareAccountingService(dataSource.getRepository(AcceptedShareEntity));
     const statisticsService = new ClientStatisticsService(dataSource);
-    const acceptedAt = new Date();
+    const currentBucketStart = Math.floor(Date.now() / (10 * 60 * 1000)) * 10 * 60 * 1000;
+    const completedBucketStart = currentBucketStart - (10 * 60 * 1000);
+    const completedBucketEnd = currentBucketStart;
+    const acceptedAt = new Date(completedBucketStart + 1000);
 
     for (const [index, difficulty] of [64, 32].entries()) {
       await accountingService.recordAcceptedShare({
@@ -265,11 +268,36 @@ describe('TimescaleDB and Redis integration', () => {
         blockSubmissionResult: null,
       });
     }
+    await accountingService.recordAcceptedShare({
+      protocol: 'sv1',
+      acceptedAt: new Date(currentBucketStart + 1000),
+      address: client.address,
+      clientName: client.clientName,
+      sessionId: client.sessionId,
+      clientId: client.id,
+      jobId: 'current-bucket',
+      jobTemplateId: 'realtime-template',
+      blockHeight: 900001,
+      creditedDifficulty: 1024,
+      submissionDifficulty: 2048,
+      networkDifficulty: 100000,
+      nonce: 'nonce-current',
+      ntime: '64b3f3ec',
+      version: '20000000',
+      extraNonce2: 'c708000000000000',
+      isBlockCandidate: false,
+      blockSubmissionResult: null,
+    });
+    await dataSource.query(
+      `CALL refresh_continuous_aggregate('accepted_share_10m', $1::timestamptz, $2::timestamptz)`,
+      [new Date(completedBucketStart), new Date(completedBucketEnd)],
+    );
 
     const expectedHashRate = (96 * 4294967296) / 600;
     const expectedChartData = Math.round(expectedHashRate).toString();
+    const expectedLiveHashRate = ((96 + 1024) * 4294967296) / 600;
     expect(await statisticsService.getHashRateForGroup(client.address, client.clientName))
-      .toBeCloseTo(expectedHashRate);
+      .toBeCloseTo(expectedLiveHashRate);
 
     const addressChart = await statisticsService.getChartDataForAddress(client.address);
     const groupChart = await statisticsService.getChartDataForGroup(client.address, client.clientName);
@@ -279,6 +307,9 @@ describe('TimescaleDB and Redis integration', () => {
     for (const chart of [addressChart, groupChart, sessionChart, siteChart]) {
       expect(chart).toEqual(expect.arrayContaining([
         expect.objectContaining({ data: expectedChartData }),
+      ]));
+      expect(chart).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ label: new Date(currentBucketStart).toISOString() }),
       ]));
     }
   });
