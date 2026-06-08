@@ -1,8 +1,9 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { AcceptedShareEntity } from '../accepted-share/accepted-share.entity';
+import { AddressSettingsEntity } from '../address-settings/address-settings.entity';
 import { RedisMessagingService } from '../../services/redis-messaging.service';
 import { timeAsync } from '../../utils/timing.utils';
 
@@ -85,6 +86,9 @@ export class ShareAccountingService implements OnModuleDestroy {
     constructor(
         @InjectRepository(AcceptedShareEntity)
         private readonly acceptedShareRepository: Repository<AcceptedShareEntity>,
+        @Optional()
+        @InjectRepository(AddressSettingsEntity)
+        private readonly addressSettingsRepository?: Repository<AddressSettingsEntity>,
         private readonly redisMessagingService?: RedisMessagingService,
     ) { }
 
@@ -150,13 +154,48 @@ export class ShareAccountingService implements OnModuleDestroy {
     }
 
     public async refreshPoolSummary(): Promise<ShareAccountingSummary> {
-        const summary = await this.getSummary({});
+        const summary = await this.withPoolLiveOverlay(await this.getSummary({}));
         await this.redisMessagingService
             ?.setJsonCache(this.poolSummaryCacheKey, summary, 10 * 60 * 1000)
             .catch(error => {
                 console.error(`Pool accounting summary cache write failed: ${error.message}`);
             });
         return summary;
+    }
+
+    private async withPoolLiveOverlay(summary: ShareAccountingSummary): Promise<ShareAccountingSummary> {
+        if (process.env.API_ONLY === 'true') {
+            return summary;
+        }
+
+        const [[liveWindow], [bestDifficultyRow]] = await Promise.all([
+            timeAsync('share accounting live 10m pool query', () => this.acceptedShareRepository.query(`
+                SELECT
+                    COUNT(*)::int AS "acceptedSharesLast10Minutes",
+                    COALESCE(SUM("creditedDifficulty"), 0)::float AS "creditedDifficultyLast10Minutes",
+                    COALESCE((SUM("creditedDifficulty") * ${HASHES_PER_DIFFICULTY}) / 600, 0)::float AS "hashRateLast10Minutes",
+                    MAX("acceptedAt") AS "latestShareAt"
+                FROM "accepted_share_entity"
+                WHERE "acceptedAt" > NOW() - INTERVAL '10 minutes'
+            `)),
+            this.addressSettingsRepository == null
+                ? Promise.resolve([{ bestSubmissionDifficulty: 0 }])
+                : timeAsync('share accounting best submitted share query', () => this.addressSettingsRepository.query(`
+                    SELECT COALESCE(MAX("bestDifficulty"), 0)::float AS "bestSubmissionDifficulty"
+                    FROM "address_settings_entity"
+                `)),
+        ]);
+
+        return {
+            ...summary,
+            acceptedSharesLast10Minutes: this.toNumber(liveWindow?.acceptedSharesLast10Minutes),
+            creditedDifficultyLast10Minutes: this.toNumber(liveWindow?.creditedDifficultyLast10Minutes),
+            hashRateLast10Minutes: this.toNumber(liveWindow?.hashRateLast10Minutes),
+            bestSubmissionDifficulty: this.toNumber(bestDifficultyRow?.bestSubmissionDifficulty),
+            latestShareAt: liveWindow?.latestShareAt == null
+                ? summary.latestShareAt
+                : new Date(liveWindow.latestShareAt).toISOString(),
+        };
     }
 
     public emptySummary(): ShareAccountingSummary {
