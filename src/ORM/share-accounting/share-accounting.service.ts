@@ -1,9 +1,8 @@
-import { Injectable, OnModuleDestroy, Optional } from '@nestjs/common';
+import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { AcceptedShareEntity } from '../accepted-share/accepted-share.entity';
-import { AddressSettingsEntity } from '../address-settings/address-settings.entity';
 import { RedisMessagingService } from '../../services/redis-messaging.service';
 import { timeAsync } from '../../utils/timing.utils';
 
@@ -40,6 +39,7 @@ export interface ShareAccountingSummary {
     hashRateLast10Minutes: number;
     hashRateLastHour: number;
     bestSubmissionDifficulty: number;
+    bestSubmissionDifficultyAt: string | null;
     blockCandidateCount: number;
     latestShareAt: string | null;
     protocolBreakdown: {
@@ -86,9 +86,6 @@ export class ShareAccountingService implements OnModuleDestroy {
     constructor(
         @InjectRepository(AcceptedShareEntity)
         private readonly acceptedShareRepository: Repository<AcceptedShareEntity>,
-        @Optional()
-        @InjectRepository(AddressSettingsEntity)
-        private readonly addressSettingsRepository?: Repository<AddressSettingsEntity>,
         private readonly redisMessagingService?: RedisMessagingService,
     ) { }
 
@@ -175,15 +172,22 @@ export class ShareAccountingService implements OnModuleDestroy {
                     COALESCE(SUM("creditedDifficulty"), 0)::float AS "creditedDifficultyLast10Minutes",
                     COALESCE((SUM("creditedDifficulty") * ${HASHES_PER_DIFFICULTY}) / 600, 0)::float AS "hashRateLast10Minutes",
                     MAX("acceptedAt") AS "latestShareAt"
-                FROM "accepted_share_entity"
-                WHERE "acceptedAt" > NOW() - INTERVAL '10 minutes'
-            `)),
-            this.addressSettingsRepository == null
-                ? Promise.resolve([{ bestSubmissionDifficulty: 0 }])
-                : timeAsync('share accounting best submitted share query', () => this.addressSettingsRepository.query(`
-                    SELECT COALESCE(MAX("bestDifficulty"), 0)::float AS "bestSubmissionDifficulty"
-                    FROM "address_settings_entity"
+                    FROM "accepted_share_entity"
+                    WHERE "acceptedAt" > NOW() - INTERVAL '10 minutes'
                 `)),
+            timeAsync('share accounting current round best share query', () => this.acceptedShareRepository.query(`
+                WITH latest_found_block AS (
+                    SELECT COALESCE(MAX("height"), 0) AS "height"
+                    FROM "blocks_entity"
+                )
+                SELECT
+                    COALESCE("submissionDifficulty", 0)::float AS "bestSubmissionDifficulty",
+                    "acceptedAt" AS "bestSubmissionDifficultyAt"
+                FROM "accepted_share_entity", latest_found_block
+                WHERE "blockHeight" > latest_found_block."height"
+                ORDER BY "submissionDifficulty" DESC, "acceptedAt" DESC
+                LIMIT 1
+            `)),
         ]);
 
         return {
@@ -192,6 +196,9 @@ export class ShareAccountingService implements OnModuleDestroy {
             creditedDifficultyLast10Minutes: this.toNumber(liveWindow?.creditedDifficultyLast10Minutes),
             hashRateLast10Minutes: this.toNumber(liveWindow?.hashRateLast10Minutes),
             bestSubmissionDifficulty: this.toNumber(bestDifficultyRow?.bestSubmissionDifficulty),
+            bestSubmissionDifficultyAt: bestDifficultyRow?.bestSubmissionDifficultyAt == null
+                ? null
+                : new Date(bestDifficultyRow.bestSubmissionDifficultyAt).toISOString(),
             latestShareAt: liveWindow?.latestShareAt == null
                 ? summary.latestShareAt
                 : new Date(liveWindow.latestShareAt).toISOString(),
@@ -211,6 +218,7 @@ export class ShareAccountingService implements OnModuleDestroy {
             hashRateLast10Minutes: 0,
             hashRateLastHour: 0,
             bestSubmissionDifficulty: 0,
+            bestSubmissionDifficultyAt: null,
             blockCandidateCount: 0,
             latestShareAt: null,
             protocolBreakdown: [],
@@ -320,6 +328,7 @@ export class ShareAccountingService implements OnModuleDestroy {
             hashRateLast10Minutes: this.toNumber(summary?.hashRateLast10Minutes),
             hashRateLastHour: this.toNumber(summary?.hashRateLastHour),
             bestSubmissionDifficulty: 0,
+            bestSubmissionDifficultyAt: null,
             blockCandidateCount: 0,
             latestShareAt: summary?.latestShareAt == null
                 ? null

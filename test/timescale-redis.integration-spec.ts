@@ -45,6 +45,8 @@ describe('TimescaleDB and Redis integration', () => {
     await dataSource.query(`DELETE FROM accepted_share_entity`);
     await dataSource.query(`DELETE FROM client_entity`);
     await dataSource.query(`REFRESH MATERIALIZED VIEW user_agent_report_view`);
+    await redisMessagingService.clearClientPresence();
+    await (redisMessagingService as any).publisher.del('json-cache:presence:user-agent-report');
   });
 
   it('should create Timescale extension, hypertable, continuous aggregates, and operational policies', async () => {

@@ -152,6 +152,7 @@ describe('ShareAccountingService', () => {
             hashRateLast10Minutes: 458129844.9,
             hashRateLastHour: 114532461.2,
             bestSubmissionDifficulty: 0,
+            bestSubmissionDifficultyAt: null,
             blockCandidateCount: 0,
             latestShareAt: '2026-06-07T12:10:00.000Z',
             protocolBreakdown: [],
@@ -162,6 +163,52 @@ describe('ShareAccountingService', () => {
             ['bc1qtest'],
         );
         expect(repository.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('should overlay live pool data and best share from the current round', async () => {
+        const redis = {
+            setJsonCache: jest.fn().mockResolvedValue(undefined),
+        };
+        const repository = {
+            query: jest.fn()
+                .mockResolvedValueOnce([{
+                    totalAcceptedShares: '3',
+                    totalCreditedDifficulty: '96',
+                    acceptedSharesLast10Minutes: '0',
+                    creditedDifficultyLast10Minutes: '0',
+                    acceptedSharesLastHour: '3',
+                    creditedDifficultyLastHour: '96',
+                    acceptedSharesLastDay: '3',
+                    creditedDifficultyLastDay: '96',
+                    hashRateLast10Minutes: '0',
+                    hashRateLastHour: '114532461.2',
+                    latestShareAt: new Date('2026-06-07T12:10:00Z'),
+                }])
+                .mockResolvedValueOnce([{
+                    acceptedSharesLast10Minutes: '7',
+                    creditedDifficultyLast10Minutes: '224',
+                    hashRateLast10Minutes: '1603451170.77',
+                    latestShareAt: new Date('2026-06-07T12:20:00Z'),
+                }])
+                .mockResolvedValueOnce([{
+                    bestSubmissionDifficulty: '4096',
+                    bestSubmissionDifficultyAt: new Date('2026-06-07T12:19:00Z'),
+                }]),
+        };
+        const service = new ShareAccountingService(repository as any, redis as any);
+
+        await expect(service.refreshPoolSummary()).resolves.toEqual(expect.objectContaining({
+            acceptedSharesLast10Minutes: 7,
+            creditedDifficultyLast10Minutes: 224,
+            hashRateLast10Minutes: 1603451170.77,
+            bestSubmissionDifficulty: 4096,
+            bestSubmissionDifficultyAt: '2026-06-07T12:19:00.000Z',
+            latestShareAt: '2026-06-07T12:20:00.000Z',
+        }));
+        expect(repository.query).toHaveBeenNthCalledWith(
+            3,
+            expect.stringContaining('WHERE "blockHeight" > latest_found_block."height"'),
+        );
     });
 
     it('should cache accounting summaries briefly to protect hot dashboard endpoints', async () => {
