@@ -18,6 +18,7 @@ import { RedisMessagingService } from './services/redis-messaging.service';
 export class AppController {
 
   private uptime = new Date();
+  private siteInfoRefreshPromise: Promise<SiteInfoResponse> | null = null;
 
   constructor(
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
@@ -37,27 +38,51 @@ export class AppController {
 
 
     const CACHE_KEY = 'SITE_INFO';
+    const STALE_CACHE_KEY = 'SITE_INFO_STALE';
     const cachedResult = await this.getCached(CACHE_KEY, 5 * 60 * 1000);
 
     if (cachedResult != null) {
       return cachedResult;
     }
 
-    let usedFallback = false;
-    const withInfoTimeout = async <T>(label: string, promise: Promise<T>, fallback: T): Promise<T> => {
-      return await this.withTimeout(label, promise, fallback, () => {
-        usedFallback = true;
+    const staleResult = await this.getCached<SiteInfoResponse>(STALE_CACHE_KEY, 60 * 60 * 1000);
+    if (staleResult != null) {
+      void this.refreshSiteInfo(staleResult);
+      return staleResult;
+    }
+
+    return this.refreshSiteInfo(null);
+
+  }
+
+  private async refreshSiteInfo(staleInfo: SiteInfoResponse | null): Promise<SiteInfoResponse> {
+    if (this.siteInfoRefreshPromise != null) {
+      return this.siteInfoRefreshPromise;
+    }
+
+    this.siteInfoRefreshPromise = this.loadSiteInfo(staleInfo)
+      .finally(() => {
+        this.siteInfoRefreshPromise = null;
       });
+
+    return this.siteInfoRefreshPromise;
+  }
+
+  private async loadSiteInfo(staleInfo: SiteInfoResponse | null): Promise<SiteInfoResponse> {
+    const CACHE_KEY = 'SITE_INFO';
+    const STALE_CACHE_KEY = 'SITE_INFO_STALE';
+    const withInfoTimeout = async <T>(label: string, promise: Promise<T>, fallback: T): Promise<T> => {
+      return await this.withTimeout(label, promise, fallback);
     };
 
     const [blockData, highScores, poolAuthority, userAgentReport] = await Promise.all([
-      withInfoTimeout('found blocks', this.blocksService.getFoundBlocks(), []),
-      withInfoTimeout('high scores', this.addressSettingsService.getHighScores(), []),
+      withInfoTimeout('found blocks', this.blocksService.getFoundBlocks(), staleInfo?.blockData ?? []),
+      withInfoTimeout('high scores', this.addressSettingsService.getHighScores(), staleInfo?.highScores ?? []),
       withInfoTimeout('SV2 authority', this.stratumV2Service.getPoolAuthorityPublicKey(), {
-        publicKey: '',
-        configured: false
+        publicKey: staleInfo?.sv2?.poolAuthorityPublicKey ?? '',
+        configured: staleInfo?.sv2?.authorityKeyConfigured ?? false
       }),
-      withInfoTimeout<UserAgentReportView[]>('user agent report', this.userAgentReportService.getReport(), []),
+      withInfoTimeout<UserAgentReportView[]>('user agent report', this.userAgentReportService.getReport(), staleInfo?.userAgents ?? []),
     ]);
 
     const other: {
@@ -87,7 +112,7 @@ export class AppController {
       userAgents.push({ userAgent: 'Other', count: other.count.toString(), bestDifficulty: other.bestDifficulty, totalHashRate: other.totalHashRate.toString() })
     }
 
-    const data = {
+    const data: SiteInfoResponse = {
       blockData,
       userAgents,
       highScores,
@@ -98,11 +123,12 @@ export class AppController {
       uptime: this.uptime
     };
 
-    // Match the pre-Timescale dashboard cache behavior; live accounting is exposed separately.
-    await this.setCached(CACHE_KEY, data, usedFallback ? 15 * 1000 : 5 * 60 * 1000);
+    // Cache a complete response even when one slow component falls back to stale data.
+    // A short retry loop here causes repeated DB work because timed-out TypeORM queries are not cancelled.
+    await this.setCached(CACHE_KEY, data, 5 * 60 * 1000);
+    await this.setCached(STALE_CACHE_KEY, data, 60 * 60 * 1000);
 
     return data;
-
   }
 
   @Get('info/accounting')
@@ -211,7 +237,7 @@ export class AppController {
     label: string,
     promise: Promise<T>,
     fallback: T,
-    onTimeout: () => void,
+    onTimeout: () => void = () => undefined,
     timeoutMs = 1500
   ): Promise<T> {
     let timeout: NodeJS.Timeout;
@@ -245,4 +271,15 @@ export class AppController {
     }
   }
 
+}
+
+interface SiteInfoResponse {
+  blockData: unknown[];
+  userAgents: UserAgentReportView[];
+  highScores: unknown[];
+  sv2: {
+    poolAuthorityPublicKey: string;
+    authorityKeyConfigured: boolean;
+  };
+  uptime: Date;
 }
