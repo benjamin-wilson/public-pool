@@ -33,13 +33,16 @@ export class AppService implements OnModuleInit {
 
             setInterval(async () => {
                 await this.refreshLiveUserAgentReport();
-                await this.refreshPoolSummary();
             }, 1000 * 30);
 
             setTimeout(async () => {
                 await this.refreshLiveUserAgentReport();
                 await this.refreshPoolSummary();
             }, 1000 * 15);
+
+            setInterval(async () => {
+                await this.refreshPoolSummary();
+            }, 1000 * 60 * 5);
 
             setInterval(async () => {
                 console.log('Refreshing user agent report view')

@@ -140,17 +140,40 @@ export class ShareAccountingService implements OnModuleDestroy {
             return cached;
         }
 
+        if (process.env.API_ONLY === 'true') {
+            return this.emptySummary();
+        }
+
         return this.getSummary({});
     }
 
     public async refreshPoolSummary(): Promise<ShareAccountingSummary> {
         const summary = await this.getSummary({});
         await this.redisMessagingService
-            ?.setJsonCache(this.poolSummaryCacheKey, summary, 60 * 1000)
+            ?.setJsonCache(this.poolSummaryCacheKey, summary, 10 * 60 * 1000)
             .catch(error => {
                 console.error(`Pool accounting summary cache write failed: ${error.message}`);
             });
         return summary;
+    }
+
+    private emptySummary(): ShareAccountingSummary {
+        return {
+            totalAcceptedShares: 0,
+            totalCreditedDifficulty: 0,
+            acceptedSharesLast10Minutes: 0,
+            creditedDifficultyLast10Minutes: 0,
+            acceptedSharesLastHour: 0,
+            creditedDifficultyLastHour: 0,
+            acceptedSharesLastDay: 0,
+            creditedDifficultyLastDay: 0,
+            hashRateLast10Minutes: 0,
+            hashRateLastHour: 0,
+            bestSubmissionDifficulty: 0,
+            blockCandidateCount: 0,
+            latestShareAt: null,
+            protocolBreakdown: [],
+        };
     }
 
     public async getAddressSummary(address: string): Promise<ShareAccountingSummary> {
