@@ -14,6 +14,10 @@ export class NotificationService implements OnModuleInit {
     ) { }
 
     async onModuleInit(): Promise<void> {
+        if (process.env.MASTER !== 'true') {
+            return;
+        }
+
         await this.discordService.notifyRestarted();
     }
 

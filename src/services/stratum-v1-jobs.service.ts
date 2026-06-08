@@ -154,7 +154,9 @@ export class StratumV1JobsService {
             shareReplay({ refCount: true, bufferSize: 1 })
         )
 
-        this.newMiningJob$.subscribe();
+        if (process.env.API_ONLY !== 'true') {
+            this.newMiningJob$.subscribe();
+        }
     }
 
     private calculateNetworkDifficulty(nBits: number) {

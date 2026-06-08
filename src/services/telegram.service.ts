@@ -18,6 +18,10 @@ export class TelegramService implements OnModuleInit {
         private readonly configService: ConfigService,
         private readonly telegramSubscriptionsService: TelegramSubscriptionsService
     ) {
+        if (process.env.MASTER !== 'true') {
+            return;
+        }
+
         const token: string | null = this.configService.get('TELEGRAM_BOT_TOKEN');
         if (token == null || token.length < 1) {
             return;
@@ -32,6 +36,9 @@ export class TelegramService implements OnModuleInit {
     }
 
     async onModuleInit(): Promise<void> {
+        if (process.env.MASTER !== 'true') {
+            return;
+        }
 
         if (this.bot == null) {
             return;
