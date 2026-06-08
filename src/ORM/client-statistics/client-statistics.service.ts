@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { timeAsync } from '../../utils/timing.utils';
 
 const HASHES_PER_DIFFICULTY = 4294967296;
 const CHART_BUCKET_SECONDS = 600;
@@ -31,14 +32,14 @@ export class ClientStatisticsService {
     }
 
     public async getHashRateForGroup(address: string, clientName: string) {
-        const result = await this.dataSource.query(`
+        const result = await timeAsync('client statistics group hashrate query', () => this.dataSource.query(`
             SELECT
                 COALESCE((SUM("creditedDifficulty") * ${HASHES_PER_DIFFICULTY}) / ${CHART_BUCKET_SECONDS}, 0) AS "hashRate"
             FROM "accepted_share_entity"
             WHERE "address" = $1
                 AND "clientName" = $2
                 AND "acceptedAt" > NOW() - INTERVAL '1 hour'
-        `, [address, clientName]);
+        `, [address, clientName]), { address, clientName });
 
         return parseFloat(result[0]?.hashRate ?? '0');
     }
@@ -90,7 +91,12 @@ export class ClientStatisticsService {
             ORDER BY "label"
         `;
 
-        const result = await this.dataSource.query(query, params);
+        const result = await timeAsync('client statistics chart query', () => this.dataSource.query(query, params), {
+            filterSql,
+            params: params.length,
+            limit,
+            windowSql,
+        });
 
         return result.map(res => {
             return {

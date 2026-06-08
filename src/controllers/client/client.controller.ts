@@ -5,6 +5,7 @@ import { ClientStatisticsService } from '../../ORM/client-statistics/client-stat
 import { ClientService } from '../../ORM/client/client.service';
 import { ShareAccountingService } from '../../ORM/share-accounting/share-accounting.service';
 import { RedisMessagingService } from '../../services/redis-messaging.service';
+import { logTiming, timeAsync, timingStart } from '../../utils/timing.utils';
 
 
 @Controller('client')
@@ -21,16 +22,18 @@ export class ClientController {
 
     @Get(':address')
     async getClientInfo(@Param('address') address: string) {
+        const start = timingStart();
 
-        const workers = await this.redisMessagingService.getClientPresenceByAddress(address);
-        const sessionSummaries = await this.shareAccountingService.getSessionSummaries(workers.map(worker => worker.clientId));
+        const workers = await timeAsync('/api/client/:address presence', () => this.redisMessagingService.getClientPresenceByAddress(address), { address });
+        const sessionSummaries = await timeAsync('/api/client/:address session summaries', () => this.shareAccountingService.getSessionSummaries(workers.map(worker => worker.clientId)), { address, workers: workers.length });
 
-        const addressSettings = await this.addressSettingsService.getSettings(address, false);
+        const addressSettings = await timeAsync('/api/client/:address address settings', () => this.addressSettingsService.getSettings(address, false), { address });
+        const accounting = await timeAsync('/api/client/:address accounting', () => this.shareAccountingService.getAddressSummary(address), { address });
 
-        return {
+        const response = {
             bestDifficulty: addressSettings?.bestDifficulty,
             workersCount: workers.length,
-            accounting: await this.shareAccountingService.getAddressSummary(address),
+            accounting,
             workers: await Promise.all(
                 workers.map(async (worker) => {
                     const sessionSummary = sessionSummaries.get(worker.clientId);
@@ -49,18 +52,24 @@ export class ClientController {
                 })
             )
         }
+        logTiming('GET /api/client/:address', start, { address, workers: workers.length });
+        return response;
     }
 
     @Get(':address/chart')
     async getClientInfoChart(@Param('address') address: string) {
-        const chartData = await this.clientStatisticsService.getChartDataForAddress(address);
+        const start = timingStart();
+        const chartData = await timeAsync('/api/client/:address/chart query', () => this.clientStatisticsService.getChartDataForAddress(address), { address });
+        logTiming('GET /api/client/:address/chart', start, { address, points: chartData.length });
         return chartData;
     }
 
     @Get(':address/:workerName')
     async getWorkerGroupInfo(@Param('address') address: string, @Param('workerName') workerName: string) {
+        const start = timingStart();
 
-        const workers = (await this.redisMessagingService.getClientPresenceByAddress(address))
+        const addressWorkers = await timeAsync('/api/client/:address/:workerName address presence', () => this.redisMessagingService.getClientPresenceByAddress(address), { address, workerName });
+        const workers = addressWorkers
             .filter(worker => worker.clientName === workerName);
 
         const bestDifficulty = workers.reduce((pre, cur, idx, arr) => {
@@ -70,24 +79,29 @@ export class ClientController {
             return pre;
         }, 0);
 
-        const chartData = await this.clientStatisticsService.getChartDataForGroup(address, workerName);
-        return {
+        const chartData = await timeAsync('/api/client/:address/:workerName chart', () => this.clientStatisticsService.getChartDataForGroup(address, workerName), { address, workerName });
+        const accounting = await timeAsync('/api/client/:address/:workerName accounting', () => this.shareAccountingService.getWorkerGroupSummary(address, workerName), { address, workerName });
+        const response = {
 
             name: workerName,
             bestDifficulty: Math.floor(bestDifficulty),
-            accounting: await this.shareAccountingService.getWorkerGroupSummary(address, workerName),
+            accounting,
             chartData: chartData,
 
         }
+        logTiming('GET /api/client/:address/:workerName', start, { address, workerName, addressWorkers: addressWorkers.length, matchedWorkers: workers.length, points: chartData.length });
+        return response;
     }
 
     @Get(':address/:workerName/:sessionId')
     async getWorkerInfo(@Param('address') address: string, @Param('workerName') workerName: string, @Param('sessionId') sessionId: string) {
+        const start = timingStart();
 
-        const presenceWorker = (await this.redisMessagingService.getClientPresenceByAddress(address))
+        const addressWorkers = await timeAsync('/api/client/:address/:workerName/:sessionId address presence', () => this.redisMessagingService.getClientPresenceByAddress(address), { address, workerName, sessionId });
+        const presenceWorker = addressWorkers
             .find(worker => worker.clientName === workerName && worker.sessionId === sessionId);
         const worker = presenceWorker == null
-            ? await this.clientService.getBySessionId(address, workerName, sessionId)
+            ? await timeAsync('/api/client/:address/:workerName/:sessionId DB fallback', () => this.clientService.getBySessionId(address, workerName, sessionId), { address, workerName, sessionId })
             : {
                 id: presenceWorker.clientId,
                 sessionId: presenceWorker.sessionId,
@@ -96,17 +110,21 @@ export class ClientController {
                 startTime: presenceWorker.startTime,
             };
         if (worker == null) {
+            logTiming('GET /api/client/:address/:workerName/:sessionId', start, { address, workerName, sessionId, found: false, addressWorkers: addressWorkers.length });
             return new NotFoundException();
         }
-        const chartData = await this.clientStatisticsService.getChartDataForSession(worker.id);
+        const chartData = await timeAsync('/api/client/:address/:workerName/:sessionId chart', () => this.clientStatisticsService.getChartDataForSession(worker.id), { address, workerName, sessionId, clientId: worker.id });
+        const accounting = await timeAsync('/api/client/:address/:workerName/:sessionId accounting', () => this.shareAccountingService.getSessionSummary(worker.id), { address, workerName, sessionId, clientId: worker.id });
 
-        return {
+        const response = {
             sessionId: worker.sessionId,
             name: worker.clientName,
             bestDifficulty: Math.floor(worker.bestDifficulty),
-            accounting: await this.shareAccountingService.getSessionSummary(worker.id),
+            accounting,
             chartData: chartData,
             startTime: worker.startTime
         }
+        logTiming('GET /api/client/:address/:workerName/:sessionId', start, { address, workerName, sessionId, found: true, addressWorkers: addressWorkers.length, points: chartData.length });
+        return response;
     }
 }

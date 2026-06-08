@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 
 import { AcceptedShareEntity } from '../accepted-share/accepted-share.entity';
 import { RedisMessagingService } from '../../services/redis-messaging.service';
+import { timeAsync } from '../../utils/timing.utils';
 
 export interface AcceptedShareRecord {
     protocol: 'sv1' | 'sv2';
@@ -195,7 +196,7 @@ export class ShareAccountingService implements OnModuleDestroy {
             return summaries;
         }
 
-        const rows = await this.acceptedShareRepository.query(`
+        const rows = await timeAsync('share accounting session summaries query', () => this.acceptedShareRepository.query(`
             SELECT
                 "clientId",
                 MAX("acceptedAt") AS "latestShareAt",
@@ -204,7 +205,7 @@ export class ShareAccountingService implements OnModuleDestroy {
             FROM "accepted_share_entity"
             WHERE "clientId" = ANY($1::uuid[])
             GROUP BY "clientId"
-        `, [uniqueClientIds]);
+        `, [uniqueClientIds]), { clientIds: uniqueClientIds.length });
 
         rows.forEach(row => {
             summaries.set(row.clientId, {
@@ -247,7 +248,7 @@ export class ShareAccountingService implements OnModuleDestroy {
 
     private async loadSummary(filter: AccountingFilter): Promise<ShareAccountingSummary> {
         const { whereSql, params } = this.buildWhereClause(filter);
-        const [summary] = await this.acceptedShareRepository.query(`
+        const [summary] = await timeAsync('share accounting summary query', () => this.acceptedShareRepository.query(`
             SELECT
                 COUNT(*)::int AS "totalAcceptedShares",
                 COALESCE(SUM("creditedDifficulty"), 0)::float AS "totalCreditedDifficulty",
@@ -264,9 +265,9 @@ export class ShareAccountingService implements OnModuleDestroy {
                 MAX("acceptedAt") AS "latestShareAt"
             FROM "accepted_share_entity"
             ${whereSql}
-        `, params);
+        `, params), { filter, params: params.length });
 
-        const protocolRows = await this.acceptedShareRepository.query(`
+        const protocolRows = await timeAsync('share accounting protocol breakdown query', () => this.acceptedShareRepository.query(`
             SELECT
                 "protocol",
                 COUNT(*)::int AS "acceptedShares",
@@ -275,7 +276,7 @@ export class ShareAccountingService implements OnModuleDestroy {
             ${whereSql}
             GROUP BY "protocol"
             ORDER BY "protocol"
-        `, params);
+        `, params), { filter, params: params.length });
 
         return {
             totalAcceptedShares: this.toNumber(summary?.totalAcceptedShares),
