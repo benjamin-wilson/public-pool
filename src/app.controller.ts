@@ -37,7 +37,7 @@ export class AppController {
 
 
     const CACHE_KEY = 'SITE_INFO';
-    const cachedResult = await this.getCached(CACHE_KEY);
+    const cachedResult = await this.getCached(CACHE_KEY, 5 * 60 * 1000);
 
     if (cachedResult != null) {
       return cachedResult;
@@ -108,7 +108,7 @@ export class AppController {
   @Get('info/accounting')
   public async infoAccounting() {
     const CACHE_KEY = 'SITE_ACCOUNTING';
-    const cachedResult = await this.getCached(CACHE_KEY);
+    const cachedResult = await this.getCached(CACHE_KEY, 15 * 1000);
 
     if (cachedResult != null) {
       return cachedResult;
@@ -126,7 +126,7 @@ export class AppController {
   public async pool() {
 
     const CACHE_KEY = 'POOL_INFO';
-    const cachedResult = await this.getCached(CACHE_KEY);
+    const cachedResult = await this.getCached(CACHE_KEY, 15 * 1000);
 
     if (cachedResult != null) {
       return cachedResult;
@@ -163,7 +163,7 @@ export class AppController {
 
 
     const CACHE_KEY = 'SITE_HASHRATE_GRAPH';
-    const cachedResult = await this.getCached(CACHE_KEY);
+    const cachedResult = await this.getCached(CACHE_KEY, 10 * 60 * 1000);
 
     if (cachedResult != null) {
       return cachedResult;
@@ -179,25 +179,32 @@ export class AppController {
 
   }
 
-  private async getCached<T>(key: string): Promise<T | null> {
-    const shared = await this.redisMessagingService.getJsonCache<T>(`api:${key}`).catch(error => {
-      console.error(`Shared API cache read failed for ${key}: ${error.message}`);
-      return null;
-    });
+  private async getCached<T>(key: string, localTtlMs: number): Promise<T | null> {
+    const local = await this.cacheManager.get<T>(key);
+    if (local != null) {
+      return local;
+    }
+
+    const shared = await this.withSecondaryCacheTimeout(
+      this.redisMessagingService.getJsonCache<T>(`api:${key}`).catch(error => {
+        console.error(`Shared API cache read failed for ${key}: ${error.message}`);
+        return null;
+      }),
+      100
+    );
     if (shared != null) {
+      await this.cacheManager.set(key, shared, localTtlMs);
       return shared;
     }
 
-    return await this.cacheManager.get<T>(key) ?? null;
+    return null;
   }
 
   private async setCached(key: string, value: unknown, ttlMs: number): Promise<void> {
-    await Promise.all([
-      this.cacheManager.set(key, value, ttlMs),
-      this.redisMessagingService.setJsonCache(`api:${key}`, value, ttlMs).catch(error => {
-        console.error(`Shared API cache write failed for ${key}: ${error.message}`);
-      }),
-    ]);
+    await this.cacheManager.set(key, value, ttlMs);
+    void this.redisMessagingService.setJsonCache(`api:${key}`, value, ttlMs).catch(error => {
+      console.error(`Shared API cache write failed for ${key}: ${error.message}`);
+    });
   }
 
   private async withTimeout<T>(
@@ -214,6 +221,20 @@ export class AppController {
         console.error(`/api/info ${label} timed out after ${timeoutMs}ms`);
         resolve(fallback);
       }, timeoutMs);
+      timeout.unref?.();
+    });
+
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async withSecondaryCacheTimeout<T>(promise: Promise<T | null>, timeoutMs: number): Promise<T | null> {
+    let timeout: NodeJS.Timeout;
+    const timeoutPromise = new Promise<null>(resolve => {
+      timeout = setTimeout(() => resolve(null), timeoutMs);
       timeout.unref?.();
     });
 
