@@ -274,12 +274,21 @@ export class ShareAccountingService implements OnModuleDestroy {
         }
 
         const rows = await this.acceptedShareRepository.query(`
+            WITH bounds AS (
+                SELECT
+                    time_bucket(INTERVAL '10 minutes', NOW()) AS "currentBucket",
+                    time_bucket(INTERVAL '10 minutes', NOW()) - INTERVAL '10 minutes' AS "lastCompletedBucket"
+            ),
+            filtered_rows AS (
+                SELECT "accepted_share_10m".*, bounds."lastCompletedBucket"
+                FROM "accepted_share_10m", bounds
+                WHERE "clientId" = ANY($1::uuid[])
+            )
             SELECT
                 "clientId",
                 MAX("bucket") AS "latestShareAt",
-                COALESCE((SUM("shares") FILTER (WHERE "bucket" > NOW() - INTERVAL '10 minutes') * ${HASHES_PER_DIFFICULTY}) / ${ROLLUP_BUCKET_SECONDS}, 0)::float AS "hashRateLast10Minutes"
-            FROM "accepted_share_10m"
-            WHERE "clientId" = ANY($1::uuid[])
+                COALESCE((SUM("shares") FILTER (WHERE "bucket" = "lastCompletedBucket") * ${HASHES_PER_DIFFICULTY}) / ${ROLLUP_BUCKET_SECONDS}, 0)::float AS "hashRateLast10Minutes"
+            FROM filtered_rows
             GROUP BY "clientId"
         `, [uniqueClientIds]);
 
@@ -348,20 +357,29 @@ export class ShareAccountingService implements OnModuleDestroy {
     private async loadSummary(filter: AccountingFilter): Promise<ShareAccountingSummary> {
         const { whereSql, params } = this.buildWhereClause(filter);
         const [summary] = await this.acceptedShareRepository.query(`
+            WITH bounds AS (
+                SELECT
+                    time_bucket(INTERVAL '10 minutes', NOW()) AS "currentBucket",
+                    time_bucket(INTERVAL '10 minutes', NOW()) - INTERVAL '10 minutes' AS "lastCompletedBucket"
+            ),
+            filtered_rows AS (
+                SELECT "accepted_share_10m".*, bounds."currentBucket", bounds."lastCompletedBucket"
+                FROM "accepted_share_10m", bounds
+                ${whereSql}
+            )
             SELECT
                 COALESCE(SUM("acceptedCount"), 0)::int AS "totalAcceptedShares",
                 COALESCE(SUM("shares"), 0)::float AS "totalCreditedDifficulty",
-                COALESCE(SUM("acceptedCount") FILTER (WHERE "bucket" > NOW() - INTERVAL '10 minutes'), 0)::int AS "acceptedSharesLast10Minutes",
-                COALESCE(SUM("shares") FILTER (WHERE "bucket" > NOW() - INTERVAL '10 minutes'), 0)::float AS "creditedDifficultyLast10Minutes",
-                COALESCE(SUM("acceptedCount") FILTER (WHERE "bucket" > NOW() - INTERVAL '1 hour'), 0)::int AS "acceptedSharesLastHour",
-                COALESCE(SUM("shares") FILTER (WHERE "bucket" > NOW() - INTERVAL '1 hour'), 0)::float AS "creditedDifficultyLastHour",
-                COALESCE(SUM("acceptedCount") FILTER (WHERE "bucket" > NOW() - INTERVAL '1 day'), 0)::int AS "acceptedSharesLastDay",
-                COALESCE(SUM("shares") FILTER (WHERE "bucket" > NOW() - INTERVAL '1 day'), 0)::float AS "creditedDifficultyLastDay",
-                COALESCE((SUM("shares") FILTER (WHERE "bucket" > NOW() - INTERVAL '10 minutes') * ${HASHES_PER_DIFFICULTY}) / ${ROLLUP_BUCKET_SECONDS}, 0)::float AS "hashRateLast10Minutes",
-                COALESCE((SUM("shares") FILTER (WHERE "bucket" > NOW() - INTERVAL '1 hour') * ${HASHES_PER_DIFFICULTY}) / 3600, 0)::float AS "hashRateLastHour",
+                COALESCE(SUM("acceptedCount") FILTER (WHERE "bucket" = "lastCompletedBucket"), 0)::int AS "acceptedSharesLast10Minutes",
+                COALESCE(SUM("shares") FILTER (WHERE "bucket" = "lastCompletedBucket"), 0)::float AS "creditedDifficultyLast10Minutes",
+                COALESCE(SUM("acceptedCount") FILTER (WHERE "bucket" >= "currentBucket" - INTERVAL '1 hour' AND "bucket" < "currentBucket"), 0)::int AS "acceptedSharesLastHour",
+                COALESCE(SUM("shares") FILTER (WHERE "bucket" >= "currentBucket" - INTERVAL '1 hour' AND "bucket" < "currentBucket"), 0)::float AS "creditedDifficultyLastHour",
+                COALESCE(SUM("acceptedCount") FILTER (WHERE "bucket" >= "currentBucket" - INTERVAL '1 day' AND "bucket" < "currentBucket"), 0)::int AS "acceptedSharesLastDay",
+                COALESCE(SUM("shares") FILTER (WHERE "bucket" >= "currentBucket" - INTERVAL '1 day' AND "bucket" < "currentBucket"), 0)::float AS "creditedDifficultyLastDay",
+                COALESCE((SUM("shares") FILTER (WHERE "bucket" = "lastCompletedBucket") * ${HASHES_PER_DIFFICULTY}) / ${ROLLUP_BUCKET_SECONDS}, 0)::float AS "hashRateLast10Minutes",
+                COALESCE((SUM("shares") FILTER (WHERE "bucket" >= "currentBucket" - INTERVAL '1 hour' AND "bucket" < "currentBucket") * ${HASHES_PER_DIFFICULTY}) / 3600, 0)::float AS "hashRateLastHour",
                 MAX("bucket") AS "latestShareAt"
-            FROM "accepted_share_10m"
-            ${whereSql}
+            FROM filtered_rows
         `, params);
 
         return {
