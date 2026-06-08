@@ -1,20 +1,10 @@
 import { ConfigService } from '@nestjs/config';
-import { Test, TestingModule } from '@nestjs/testing';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { Socket } from 'net';
 import { BehaviorSubject } from 'rxjs';
-import { DataSource } from 'typeorm';
 
 import { MockRecording1 } from '../../test/models/MockRecording1';
-import { AddressSettingsModule } from '../ORM/address-settings/address-settings.module';
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
-import { BlocksEntity } from '../ORM/blocks/blocks.entity';
 import { BlocksService } from '../ORM/blocks/blocks.service';
-import { ClientStatisticsEntity } from '../ORM/client-statistics/client-statistics.entity';
-import { ClientStatisticsModule } from '../ORM/client-statistics/client-statistics.module';
-import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
-import { ClientEntity } from '../ORM/client/client.entity';
-import { ClientModule } from '../ORM/client/client.module';
 import { ClientService } from '../ORM/client/client.service';
 import { BitcoinRpcService as MockBitcoinRpcService } from '../services/bitcoin-rpc.service';
 import { NotificationService } from '../services/notification.service';
@@ -45,10 +35,12 @@ describe('StratumV1Client', () => {
     let bitcoinRpcService: MockBitcoinRpcService;
 
     let clientService: ClientService;
-    let clientStatisticsService: ClientStatisticsService;
     let notificationService: NotificationService;
     let blocksService: BlocksService;
     let configService: ConfigService;
+    let addressSettings: AddressSettingsService;
+    let shareAccountingService: { recordAcceptedShare: jest.Mock };
+    let redisMessagingService: { setClientPresence: jest.Mock; removeClientPresence: jest.Mock };
 
     let client: StratumV1Client;
 
@@ -60,46 +52,6 @@ describe('StratumV1Client', () => {
 
     let newBlockEmitter: BehaviorSubject<IBlockTemplate> = new BehaviorSubject(MockRecording1.BLOCK_TEMPLATE);
 
-    let moduleRef: TestingModule;
-
-    beforeAll(async () => {
-        moduleRef = await Test.createTestingModule({
-            imports: [
-                TypeOrmModule.forRoot({
-                    type: 'better-sqlite3',
-                    database: ':memory:',
-                    synchronize: true,
-                    autoLoadEntities: true,
-                    cache: true,
-                    logging: false,
-                    entities: [ClientEntity, ClientStatisticsEntity, BlocksEntity]
-                }),
-                ClientModule,
-                ClientStatisticsModule,
-                AddressSettingsModule
-            ],
-            providers: [
-                {
-                    provide: ConfigService,
-                    useValue: {
-                        get: jest.fn((key: string) => {
-                            switch (key) {
-                                case 'DEV_FEE_ADDRESS':
-                                    return 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4';
-                                case 'NETWORK':
-                                    return 'testnet';
-                            }
-                            return null;
-                        })
-                    }
-                }
-            ],
-        }).compile();
-
-
-    })
-
-
     beforeEach(async () => {
 
         jest.useFakeTimers({ advanceTimers: true })
@@ -108,27 +60,38 @@ describe('StratumV1Client', () => {
         consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
         consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-        clientService = moduleRef.get<ClientService>(ClientService);
+        const clients = new Map<string, any>();
+        let nextClientId = 1;
+        clientService = {
+            insert: jest.fn(async (partialClient) => {
+                const clientEntity = {
+                    id: `00000000-0000-4000-8000-${String(nextClientId++).padStart(12, '0')}`,
+                    hashRate: 0,
+                    updatedAt: new Date(),
+                    deletedAt: null,
+                    ...partialClient,
+                };
+                clients.set(clientEntity.id, clientEntity);
+                return clientEntity;
+            }),
+            delete: jest.fn(async (id: string) => {
+                clients.delete(id);
+            }),
+            connectedClientCount: jest.fn(async () => clients.size),
+            updateBestDifficultyIfHigher: jest.fn().mockResolvedValue({ affected: 1 }),
+        } as any;
 
-        const dataSource = moduleRef.get<DataSource>(DataSource);
-
-        await dataSource.getRepository(ClientStatisticsEntity).clear();
-        await dataSource.getRepository(ClientEntity).clear();
-        await dataSource.getRepository(BlocksEntity).clear();
-
-
-        clientStatisticsService = moduleRef.get<ClientStatisticsService>(ClientStatisticsService);
-
-        configService = moduleRef.get<ConfigService>(ConfigService);
-        (configService.get as jest.Mock).mockImplementation((key: string) => {
-            switch (key) {
-                case 'DEV_FEE_ADDRESS':
-                    return 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4';
-                case 'NETWORK':
-                    return 'testnet';
-            }
-            return null;
-        });
+        configService = {
+            get: jest.fn((key: string) => {
+                switch (key) {
+                    case 'DEV_FEE_ADDRESS':
+                        return 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4';
+                    case 'NETWORK':
+                        return 'testnet';
+                }
+                return null;
+            })
+        } as any;
         (StratumV1Client as any).blockedUserAgentLogState.clear();
         (StratumV1Client as any).validationErrorLogState.clear();
 
@@ -154,13 +117,24 @@ describe('StratumV1Client', () => {
         socket.end = jest.fn();
         jest.spyOn(socket, 'destroy').mockImplementation(() => socket);
 
-        const addressSettings = moduleRef.get<AddressSettingsService>(AddressSettingsService);
+        addressSettings = {
+            getSettings: jest.fn().mockResolvedValue(null),
+            updateBestDifficultyIfHigher: jest.fn().mockResolvedValue({ affected: 1 }),
+            resetBestDifficultyAndShares: jest.fn().mockResolvedValue(undefined),
+        } as any;
         notificationService = {
             notifySubscribersBlockFound: jest.fn().mockResolvedValue(undefined)
         } as any;
         blocksService = {
             save: jest.fn().mockResolvedValue(undefined)
         } as any;
+        shareAccountingService = {
+            recordAcceptedShare: jest.fn().mockResolvedValue(undefined),
+        };
+        redisMessagingService = {
+            setClientPresence: jest.fn().mockResolvedValue(undefined),
+            removeClientPresence: jest.fn().mockResolvedValue(undefined),
+        };
 
 
         client = new StratumV1Client(
@@ -168,11 +142,12 @@ describe('StratumV1Client', () => {
             stratumV1JobsService,
             bitcoinRpcService,
             clientService,
-            clientStatisticsService,
             notificationService,
             blocksService,
             configService,
-            addressSettings
+            addressSettings,
+            shareAccountingService as any,
+            redisMessagingService as any
         );
 
         client.extraNonceAndSessionId = MockRecording1.EXTRA_NONCE;
@@ -263,11 +238,10 @@ describe('StratumV1Client', () => {
             stratumV1JobsService,
             bitcoinRpcService,
             clientService,
-            clientStatisticsService,
             notificationService,
             blocksService,
             configService,
-            moduleRef.get<AddressSettingsService>(AddressSettingsService)
+            addressSettings
         );
 
         socketEmitter(Buffer.from(`{"id":1,"method":"mining.subscribe","params":["NMMiner/1.0"]}\n`));
@@ -369,6 +343,21 @@ describe('StratumV1Client', () => {
         await new Promise((r) => setTimeout(r, 1000));
 
         expect((client as any).write).lastCalledWith(`{\"id\":5,\"error\":null,\"result\":true}\n`);
+        expect(shareAccountingService.recordAcceptedShare).toHaveBeenCalledWith(expect.objectContaining({
+            protocol: 'sv1',
+            address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
+            clientName: 'bitaxe3',
+            sessionId: MockRecording1.EXTRA_NONCE,
+            jobId: '1',
+            jobTemplateId: '1',
+            creditedDifficulty: 0,
+            isBlockCandidate: false,
+        }));
+        expect(redisMessagingService.setClientPresence).toHaveBeenCalledWith(expect.objectContaining({
+            address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
+            clientName: 'bitaxe3',
+            sessionId: MockRecording1.EXTRA_NONCE,
+        }));
 
 
     });
@@ -423,7 +412,6 @@ describe('StratumV1Client', () => {
             submissionDifficulty: 1024,
             submissionHash: 'share'
         });
-        const addressSettings = moduleRef.get<AddressSettingsService>(AddressSettingsService);
         const getSettingsSpy = jest.spyOn(addressSettings, 'getSettings');
         const updateIfHigherSpy = jest.spyOn(addressSettings as any, 'updateBestDifficultyIfHigher').mockResolvedValue({ affected: 1 });
         const clientUpdateIfHigherSpy = jest.spyOn(clientService as any, 'updateBestDifficultyIfHigher').mockResolvedValue({ affected: 1 });
@@ -546,11 +534,10 @@ describe('StratumV1Client', () => {
             stratumV1JobsService,
             bitcoinRpcService,
             clientService,
-            clientStatisticsService,
             notificationService,
             blocksService,
             configService,
-            moduleRef.get<AddressSettingsService>(AddressSettingsService)
+            addressSettings
         );
         jest.spyOn(secondClient as any, 'write').mockImplementation((data) => Promise.resolve(true));
         jest.spyOn(secondClient as any, 'getRandomHexString').mockReturnValue(MockRecording1.EXTRA_NONCE);
@@ -580,7 +567,6 @@ describe('StratumV1Client', () => {
             submissionDifficulty: Number.MAX_SAFE_INTEGER,
             submissionHash: 'block-share'
         });
-        const addressSettings = moduleRef.get<AddressSettingsService>(AddressSettingsService);
         jest.spyOn(addressSettings, 'resetBestDifficultyAndShares').mockResolvedValue(undefined);
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);

@@ -7,11 +7,12 @@ import { firstValueFrom, Subscription } from 'rxjs';
 
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
-import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientEntity } from '../ORM/client/client.entity';
 import { ClientService } from '../ORM/client/client.service';
+import { ShareAccountingService } from '../ORM/share-accounting/share-accounting.service';
 import { BitcoinRpcService } from '../services/bitcoin-rpc.service';
 import { NotificationService } from '../services/notification.service';
+import { RedisMessagingService } from '../services/redis-messaging.service';
 import { StratumV2Service } from '../services/stratum-v2.service';
 import { IJobTemplate, StratumV1JobsService } from '../services/stratum-v1-jobs.service';
 import { patchCoinbasePrefixVarint } from '../utils/coinbase-prefix.utils';
@@ -128,18 +129,19 @@ export class StratumV2Client {
         private readonly stratumV1JobsService: StratumV1JobsService,
         private readonly bitcoinRpcService: BitcoinRpcService,
         private readonly clientService: ClientService,
-        private readonly clientStatisticsService: ClientStatisticsService,
         private readonly notificationService: NotificationService,
         private readonly blocksService: BlocksService,
         private readonly configService: ConfigService,
         private readonly addressSettingsService: AddressSettingsService,
+        private readonly shareAccountingService?: ShareAccountingService,
+        private readonly redisMessagingService?: RedisMessagingService,
     ) {
         this.firstChunkSummary = this.describeChunk(firstChunk);
         this.noiseSession = new Sv2NoiseSession(this.stratumV2Service.getNoiseConfig());
         this.sessionDifficulty = this.getInitialDifficulty();
         this.targetSharesPerMinute = this.getTargetSharesPerMinute();
         this.difficultyCheckIntervalMs = this.getDifficultyCheckIntervalMs();
-        this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService);
+        this.statistics = new StratumV1ClientStatistics();
         this.statistics.targetSubmitShareEveryNSeconds = 60 / this.targetSharesPerMinute;
         this.network = this.getNetwork();
 
@@ -171,6 +173,7 @@ export class StratumV2Client {
         }
         this.channels.clear();
         if (this.clientEntity?.id != null) {
+            await this.redisMessagingService?.removeClientPresence(this.clientEntity.id, this.clientEntity.address);
             await this.clientService.delete(this.clientEntity.id);
         }
     }
@@ -647,7 +650,13 @@ export class StratumV2Client {
         if (submissionDifficulty >= extendedJob.jobTemplate.blockData.networkDifficulty) {
             updatedJobBlock = this.reconstructExtendedBlock(extendedJob, submission, merkleRoot, channel.extranoncePrefix);
         }
-        await this.recordAcceptedShare(submissionDifficulty, jobDifficulty, extendedJob.jobTemplate, updatedJobBlock);
+        await this.recordAcceptedShare(submissionDifficulty, jobDifficulty, extendedJob.jobTemplate, updatedJobBlock, {
+            jobId: submission.jobId.toString(16),
+            nonce: submission.nonce,
+            ntime: submission.ntime,
+            version: submission.version,
+            extraNonce2: submission.extranonce.toString('hex'),
+        });
     }
 
     private async handleAcceptedShare(
@@ -671,7 +680,13 @@ export class StratumV2Client {
             );
         }
 
-        await this.recordAcceptedShare(submissionDifficulty, jobDifficulty, jobTemplate, updatedJobBlock);
+        await this.recordAcceptedShare(submissionDifficulty, jobDifficulty, jobTemplate, updatedJobBlock, {
+            jobId: job.jobId,
+            nonce: submission.nonce,
+            ntime: submission.ntime,
+            version: submission.version,
+            extraNonce2: FIXED_STANDARD_EXTRANONCE2,
+        });
     }
 
     private async recordAcceptedShare(
@@ -679,13 +694,15 @@ export class StratumV2Client {
         jobDifficulty: number,
         jobTemplate: IJobTemplate,
         updatedJobBlock: bitcoinjs.Block | null,
+        share: { jobId: string; nonce: number; ntime: number; version: number; extraNonce2: string },
     ): Promise<void> {
         await this.ensureClientEntity();
 
+        let blockSubmissionResult: string = null;
         if (updatedJobBlock != null) {
             console.log(`[SV2 ${this.sessionId}] BLOCK FOUND at height ${jobTemplate.blockData.height}`);
             const blockHex = updatedJobBlock.toHex(false);
-            const result = await this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
+            blockSubmissionResult = await this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
             await this.blocksService.save({
                 height: jobTemplate.blockData.height,
                 minerAddress: this.address,
@@ -697,17 +714,37 @@ export class StratumV2Client {
                 this.address,
                 jobTemplate.blockData.height,
                 updatedJobBlock,
-                result,
+                blockSubmissionResult,
             );
-            if (result == null) {
+            if (blockSubmissionResult == null) {
                 await this.addressSettingsService.resetBestDifficultyAndShares();
             }
         }
 
+        await this.shareAccountingService?.recordAcceptedShare({
+            protocol: 'sv2',
+            address: this.address,
+            clientName: this.workerName,
+            sessionId: this.sessionId,
+            clientId: this.clientEntity.id,
+            jobId: share.jobId,
+            jobTemplateId: jobTemplate.blockData.id,
+            blockHeight: jobTemplate.blockData.height,
+            creditedDifficulty: jobDifficulty,
+            submissionDifficulty,
+            networkDifficulty: jobTemplate.blockData.networkDifficulty,
+            nonce: share.nonce,
+            ntime: share.ntime,
+            version: share.version,
+            extraNonce2: share.extraNonce2,
+            isBlockCandidate: updatedJobBlock != null,
+            blockSubmissionResult,
+        });
         await this.statistics.addShares(this.clientEntity, jobDifficulty);
         const now = new Date();
-        this.clientService.heartbeatBulkAsync(this.clientEntity.id, this.statistics.hashRate, now);
         this.clientEntity.updatedAt = now;
+        this.clientEntity.hashRate = this.statistics.hashRate;
+        await this.updateClientPresence(now);
 
         if (submissionDifficulty > this.clientEntity.bestDifficulty) {
             await this.clientService.updateBestDifficultyIfHigher(this.clientEntity.id, submissionDifficulty);
@@ -717,6 +754,7 @@ export class StratumV2Client {
                 submissionDifficulty,
                 this.userAgent,
             );
+            await this.updateClientPresence(new Date());
         }
     }
 
@@ -1085,10 +1123,33 @@ export class StratumV2Client {
                     startTime: new Date(),
                     bestDifficulty: 0,
                 });
+                await this.updateClientPresence(new Date());
             })();
         }
 
         await this.creatingEntity;
+    }
+
+    private async updateClientPresence(lastSeen: Date): Promise<void> {
+        if (this.clientEntity == null) {
+            return;
+        }
+
+        try {
+            await this.redisMessagingService?.setClientPresence({
+                clientId: this.clientEntity.id,
+                address: this.clientEntity.address,
+                clientName: this.clientEntity.clientName,
+                sessionId: this.clientEntity.sessionId,
+                userAgent: this.clientEntity.userAgent,
+                startTime: new Date(this.clientEntity.startTime).toISOString(),
+                lastSeen: lastSeen.toISOString(),
+                hashRate: this.statistics.hashRate,
+                bestDifficulty: Number(this.clientEntity.bestDifficulty ?? 0),
+            });
+        } catch (error) {
+            console.error(`Failed to update SV2 client presence: ${error.message}`);
+        }
     }
 
     private parseUserIdentity(userIdentity: string): { address: string; workerName: string } {

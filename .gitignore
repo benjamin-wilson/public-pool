@@ -13,10 +13,13 @@ lerna-debug.log*
 
 # OS
 .DS_Store
+._*
 
 # Tests
 /coverage
 /.nyc_output
+/.baseline-*.json
+/.test-artifacts
 
 # IDEs and editors
 /.idea

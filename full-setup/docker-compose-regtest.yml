@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   bitcoin-regtest:
     container_name: bitcoin-regtest
@@ -22,6 +20,50 @@ services:
       - "./data/regtest/bitcoin:/app/data"
       - "./bitcoin-regtest.conf:/app/data/bitcoin.conf:ro"
 
+  timescaledb-regtest:
+    image: timescale/timescaledb:latest-pg17
+    container_name: public-pool-regtest-timescaledb
+    restart: unless-stopped
+    networks:
+      - bitcoin-regtest
+    environment:
+      POSTGRES_DB: public_pool_regtest
+      POSTGRES_USER: public_pool
+      POSTGRES_PASSWORD: public_pool
+    command:
+      - postgres
+      - -c
+      - max_wal_size=16GB
+      - -c
+      - min_wal_size=2GB
+      - -c
+      - checkpoint_timeout=15min
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - wal_compression=on
+    volumes:
+      - "./data/regtest/timescaledb:/var/lib/postgresql/data"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U public_pool -d public_pool_regtest"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis-regtest:
+    image: redis:8-alpine
+    container_name: public-pool-regtest-redis
+    restart: unless-stopped
+    networks:
+      - bitcoin-regtest
+    volumes:
+      - "./data/regtest/redis:/data"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   public-pool-regtest:
     container_name: public-pool-regtest
     build:
@@ -29,16 +71,32 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     stop_grace_period: 30s
+    depends_on:
+      timescaledb-regtest:
+        condition: service_healthy
+      redis-regtest:
+        condition: service_healthy
     networks:
       - bitcoin-regtest
     ports:
       - "0.0.0.0:23333:23333/tcp"
+      - "0.0.0.0:23332:23332/tcp"
+      - "0.0.0.0:23331:23331/tcp"
+      - "0.0.0.0:23330:23330/tcp"
       - "127.0.0.1:23334:23334/tcp"
     volumes:
-      - "./data/regtest/public-pool:/public-pool/DB"
       - "./public-pool-regtest.env:/public-pool/.env:ro"
+      - "../secrets:/public-pool/secrets:ro"
     environment:
-      - NODE_ENV=production
+      NODE_ENV: production
+      DB_HOST: timescaledb-regtest
+      DB_PORT: 5432
+      DB_USERNAME: public_pool
+      DB_PASSWORD: public_pool
+      DB_DATABASE: public_pool_regtest
+      REDIS_URL: redis://redis-regtest:6379
+      PM2_ENABLED: "true"
+      STRATUM_WORKERS: ${STRATUM_WORKERS:-2}
 
 networks:
   bitcoin-regtest:

@@ -8,10 +8,10 @@ import { AddressSettingsService } from './ORM/address-settings/address-settings.
 import { BlocksService } from './ORM/blocks/blocks.service';
 import { ClientStatisticsService } from './ORM/client-statistics/client-statistics.service';
 import { ClientService } from './ORM/client/client.service';
-import { HomeGraphService } from './ORM/home-graph/home-graph.service';
 import { BitcoinRpcService } from './services/bitcoin-rpc.service';
 import { UserAgentReportView } from './ORM/_views/user-agent-report/user-agent-report.view';
 import { StratumV2Service } from './services/stratum-v2.service';
+import { ShareAccountingService } from './ORM/share-accounting/share-accounting.service';
 
 @Controller()
 export class AppController {
@@ -24,10 +24,10 @@ export class AppController {
     private readonly clientStatisticsService: ClientStatisticsService,
     private readonly blocksService: BlocksService,
     private readonly bitcoinRpcService: BitcoinRpcService,
-    private readonly homeGraphService: HomeGraphService,
     private readonly addressSettingsService: AddressSettingsService,
     private readonly userAgentReportService: UserAgentReportService,
-    private readonly stratumV2Service: StratumV2Service
+    private readonly stratumV2Service: StratumV2Service,
+    private readonly shareAccountingService: ShareAccountingService
   ) { }
 
   @Get('info')
@@ -69,12 +69,15 @@ export class AppController {
       return pre;
     }, []);
 
-    userAgents.push({ userAgent: 'Other', count: other.count.toString(), bestDifficulty: other.bestDifficulty, totalHashRate: other.totalHashRate.toString() })
+    if (other.count > 0) {
+      userAgents.push({ userAgent: 'Other', count: other.count.toString(), bestDifficulty: other.bestDifficulty, totalHashRate: other.totalHashRate.toString() })
+    }
 
     const data = {
       blockData,
       userAgents,
       highScores,
+      accounting: await this.shareAccountingService.getPoolSummary(),
       sv2: {
         poolAuthorityPublicKey: poolAuthority.publicKey,
         authorityKeyConfigured: poolAuthority.configured
@@ -82,11 +85,28 @@ export class AppController {
       uptime: this.uptime
     };
 
-    //5 min
-    await this.cacheManager.set(CACHE_KEY, data, 5 * 60 * 1000);
+    // Keep online miner counts responsive after reconnect cleanup.
+    await this.cacheManager.set(CACHE_KEY, data, 15 * 1000);
 
     return data;
 
+  }
+
+  @Get('info/accounting')
+  public async infoAccounting() {
+    const CACHE_KEY = 'SITE_ACCOUNTING';
+    const cachedResult = await this.cacheManager.get(CACHE_KEY);
+
+    if (cachedResult != null) {
+      return cachedResult;
+    }
+
+    const data = await this.shareAccountingService.getPoolSummary();
+
+    //15 sec
+    await this.cacheManager.set(CACHE_KEY, data, 15 * 1000);
+
+    return data;
   }
 
   @Get('pool')
@@ -114,8 +134,8 @@ export class AppController {
       fee: 0
     }
 
-    //5 min
-    await this.cacheManager.set(CACHE_KEY, data, 5 * 60 * 1000);
+    // Keep online miner counts responsive after reconnect cleanup.
+    await this.cacheManager.set(CACHE_KEY, data, 15 * 1000);
 
     return data;
   }
@@ -136,7 +156,7 @@ export class AppController {
       return cachedResult;
     }
 
-    const chartData = await this.homeGraphService.getChartDataForSite();
+    const chartData = await this.clientStatisticsService.getChartDataForSite();
 
     //10 min
     await this.cacheManager.set(CACHE_KEY, chartData, 10 * 60 * 1000);

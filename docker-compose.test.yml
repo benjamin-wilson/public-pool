@@ -1,0 +1,56 @@
+name: public-pool-test
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg17
+    environment:
+      POSTGRES_DB: public_pool_test
+      POSTGRES_USER: public_pool
+      POSTGRES_PASSWORD: public_pool
+    command:
+      - postgres
+      - -c
+      - max_wal_size=16GB
+      - -c
+      - min_wal_size=2GB
+      - -c
+      - checkpoint_timeout=15min
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - wal_compression=on
+    ports:
+      - "127.0.0.1:15432:5432/tcp"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U public_pool -d public_pool_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "127.0.0.1:16379:6379/tcp"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  integration-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: integration
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      DB_USERNAME: public_pool
+      DB_PASSWORD: public_pool
+      DB_DATABASE: public_pool_test
+      REDIS_URL: redis://redis:6379

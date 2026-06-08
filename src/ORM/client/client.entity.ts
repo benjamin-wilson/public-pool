@@ -1,6 +1,5 @@
-import { Column, Entity, Index, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
-import { ClientStatisticsEntity } from '../client-statistics/client-statistics.entity';
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
 
@@ -38,11 +37,5 @@ export class ClientEntity extends TrackedEntity {
 
     @Column({ default: 0, type: 'decimal' })
     hashRate: number;
-
-    @OneToMany(
-        () => ClientStatisticsEntity,
-        clientStatisticsEntity => clientStatisticsEntity.client
-    )
-    statistics: ClientStatisticsEntity[]
 
 }

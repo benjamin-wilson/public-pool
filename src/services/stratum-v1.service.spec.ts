@@ -11,7 +11,9 @@ describe('StratumV1Service', () => {
 
     let service: StratumV1Service;
     let clientService;
+    let userAgentReportService;
     let stratumV2Service;
+    let redisMessagingService;
     let consoleLogSpy: jest.SpyInstance;
     let consoleWarnSpy: jest.SpyInstance;
 
@@ -20,9 +22,15 @@ describe('StratumV1Service', () => {
         clientService = {
             deleteAll: jest.fn().mockResolvedValue(undefined)
         };
+        userAgentReportService = {
+            refreshReport: jest.fn().mockResolvedValue(undefined)
+        };
         stratumV2Service = {
             ensureInitialized: jest.fn().mockResolvedValue(undefined),
             createClient: jest.fn()
+        };
+        redisMessagingService = {
+            clearClientPresence: jest.fn().mockResolvedValue(undefined)
         };
         service = new StratumV1Service(
             {} as any,
@@ -32,8 +40,10 @@ describe('StratumV1Service', () => {
             {} as any,
             {} as any,
             {} as any,
-            {} as any,
-            stratumV2Service as any
+            stratumV2Service as any,
+            userAgentReportService as any,
+            undefined,
+            redisMessagingService as any
         );
         consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
         consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -61,6 +71,8 @@ describe('StratumV1Service', () => {
         jest.runOnlyPendingTimers();
 
         expect(clientService.deleteAll).toHaveBeenCalled();
+        expect(redisMessagingService.clearClientPresence).toHaveBeenCalled();
+        expect(userAgentReportService.refreshReport).toHaveBeenCalled();
         expect(startSocketServerSpy).not.toHaveBeenCalled();
         expect(startSecureSocketServerSpy).not.toHaveBeenCalled();
         expect(consoleLogSpy).toHaveBeenCalledWith('Master process skipping Stratum socket listeners');
@@ -78,6 +90,7 @@ describe('StratumV1Service', () => {
         jest.advanceTimersByTime(10000);
 
         expect(clientService.deleteAll).not.toHaveBeenCalled();
+        expect(userAgentReportService.refreshReport).not.toHaveBeenCalled();
         expect(startSocketServerSpy).toHaveBeenCalledWith(3333);
         expect(startSocketServerSpy).toHaveBeenCalledWith(3334);
         expect(startSecureSocketServerSpy).toHaveBeenCalledWith(4333);

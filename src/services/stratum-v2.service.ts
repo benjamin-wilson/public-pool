@@ -5,8 +5,8 @@ import { Server, Socket } from 'net';
 
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
-import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientService } from '../ORM/client/client.service';
+import { ShareAccountingService } from '../ORM/share-accounting/share-accounting.service';
 import { StratumV2Client } from '../models/StratumV2Client';
 import { encodeSv2AuthorityPublicKey } from '../models/sv2/sv2-authority-key';
 import { Sv2ExtranonceManager } from '../models/sv2/sv2-extranonce-manager';
@@ -19,6 +19,7 @@ import {
 } from '../models/sv2/sv2-noise';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 import { NotificationService } from './notification.service';
+import { RedisMessagingService } from './redis-messaging.service';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
 
 @Injectable()
@@ -35,12 +36,13 @@ export class StratumV2Service implements OnModuleInit {
     constructor(
         private readonly bitcoinRpcService: BitcoinRpcService,
         private readonly clientService: ClientService,
-        private readonly clientStatisticsService: ClientStatisticsService,
         private readonly notificationService: NotificationService,
         private readonly blocksService: BlocksService,
         private readonly configService: ConfigService,
         private readonly stratumV1JobsService: StratumV1JobsService,
         private readonly addressSettingsService: AddressSettingsService,
+        private readonly shareAccountingService?: ShareAccountingService,
+        private readonly redisMessagingService?: RedisMessagingService,
     ) {}
 
     public async onModuleInit(): Promise<void> {
@@ -77,11 +79,12 @@ export class StratumV2Service implements OnModuleInit {
             this.stratumV1JobsService,
             this.bitcoinRpcService,
             this.clientService,
-            this.clientStatisticsService,
             this.notificationService,
             this.blocksService,
             this.configService,
             this.addressSettingsService,
+            this.shareAccountingService,
+            this.redisMessagingService,
         );
     }
 

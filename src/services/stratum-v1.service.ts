@@ -5,12 +5,14 @@ import { monitorEventLoopDelay } from 'perf_hooks';
 
 import { StratumV1Client } from '../models/StratumV1Client';
 import { StratumV2Client } from '../models/StratumV2Client';
+import { UserAgentReportService } from '../ORM/_views/user-agent-report/user-agent-report.service';
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
-import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientService } from '../ORM/client/client.service';
+import { ShareAccountingService } from '../ORM/share-accounting/share-accounting.service';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 import { NotificationService } from './notification.service';
+import { RedisMessagingService } from './redis-messaging.service';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
 import { StratumV2Service } from './stratum-v2.service';
 
@@ -51,13 +53,15 @@ export class StratumV1Service implements OnModuleInit {
     constructor(
         private readonly bitcoinRpcService: BitcoinRpcService,
         private readonly clientService: ClientService,
-        private readonly clientStatisticsService: ClientStatisticsService,
         private readonly notificationService: NotificationService,
         private readonly blocksService: BlocksService,
         private readonly configService: ConfigService,
         private readonly stratumV1JobsService: StratumV1JobsService,
         private readonly addressSettingsService: AddressSettingsService,
-        private readonly stratumV2Service: StratumV2Service
+        private readonly stratumV2Service: StratumV2Service,
+        private readonly userAgentReportService: UserAgentReportService,
+        private readonly shareAccountingService?: ShareAccountingService,
+        private readonly redisMessagingService?: RedisMessagingService
     ) {
 
     }
@@ -66,6 +70,8 @@ export class StratumV1Service implements OnModuleInit {
 
         if (process.env.MASTER == 'true') {
             await this.clientService.deleteAll();
+            await this.redisMessagingService?.clearClientPresence();
+            await this.userAgentReportService.refreshReport();
             console.log('Master process skipping Stratum socket listeners');
             return;
         }
@@ -191,11 +197,12 @@ export class StratumV1Service implements OnModuleInit {
             this.stratumV1JobsService,
             this.bitcoinRpcService,
             this.clientService,
-            this.clientStatisticsService,
             this.notificationService,
             this.blocksService,
             this.configService,
-            this.addressSettingsService
+            this.addressSettingsService,
+            this.shareAccountingService,
+            this.redisMessagingService
         );
     }
 

@@ -1,264 +1,129 @@
 import { Injectable } from '@nestjs/common';
-import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
-import { ClientStatisticsEntity } from './client-statistics.entity';
-
+const HASHES_PER_DIFFICULTY = 4294967296;
+const CHART_BUCKET_SECONDS = 600;
+const CHART_WINDOW = '24 hours';
+const SITE_CHART_WINDOW = '7 days';
+const REALTIME_WINDOW = '20 minutes';
 
 @Injectable()
 export class ClientStatisticsService {
 
-    private bulkAsyncUpdates: {
-        [key: string]: Partial<ClientStatisticsEntity>
-    } = {};
-
     constructor(
-
         @InjectDataSource()
         private dataSource: DataSource,
-        @InjectRepository(ClientStatisticsEntity)
-        private clientStatisticsRepository: Repository<ClientStatisticsEntity>,
     ) {
 
     }
 
-    // public async update(clientStatistic: Partial<ClientStatisticsEntity>) {
-
-    //     await this.clientStatisticsRepository.update({ clientId: clientStatistic.clientId, time: clientStatistic.time },
-    //     {
-    //         shares: clientStatistic.shares,
-    //         acceptedCount: clientStatistic.acceptedCount,
-    //         updatedAt: new Date()
-    //     });
-    // }
-
-    public updateBulkAsync(clientStatistic: Partial<ClientStatisticsEntity>) {
-        const key = clientStatistic.clientId + clientStatistic.time.toString();
-        if(this.bulkAsyncUpdates[key] != null){
-            this.bulkAsyncUpdates[key].shares = clientStatistic.shares;
-            this.bulkAsyncUpdates[key].acceptedCount = clientStatistic.acceptedCount;
-            return;
-        }
-
-        this.bulkAsyncUpdates[clientStatistic.clientId + clientStatistic.time.toString()] = clientStatistic;
+    public async getChartDataForSite(limit: number = 144 * 7) {
+        return this.getAcceptedShareChartData('', [], limit, SITE_CHART_WINDOW);
     }
-
-    public async doBulkAsyncUpdate(){
-        if(Object.keys(this.bulkAsyncUpdates).length < 1){
-            console.log('No client stats to update.')
-            return;
-        }
-
-        // Step 1: Prepare data for bulk update
-        const values = Object.entries(this.bulkAsyncUpdates).map(([key, value]) => {
-            return  `('${value.clientId}', ${value.time}, ${value.shares}, ${value.acceptedCount}, NOW())`
-        }).join(',');
-        
-    
-        const query = `
-            DO $$
-            BEGIN
-                CREATE TEMP TABLE temp_stats (
-                    "clientId" UUID,
-                    time BIGINT,
-                    shares NUMERIC,
-                    "acceptedCount" INT,
-                    "updatedAt" TIMESTAMP
-                ) ON COMMIT DROP;
-    
-                INSERT INTO temp_stats ("clientId", time, shares, "acceptedCount", "updatedAt")
-                VALUES ${values};
-    
-                UPDATE "client_statistics_entity" cse
-                SET shares = ts.shares,
-                    "acceptedCount" = ts."acceptedCount",
-                    "updatedAt" = ts."updatedAt"
-                FROM temp_stats ts
-                WHERE cse."clientId" = ts."clientId" AND cse.time = ts.time;
-            END;
-            $$;
-        `;
-    
-        try {
-            await this.clientStatisticsRepository.query(query);
-            //console.log(`Bulk updated ${Object.keys(this.bulkAsyncUpdates).length} statistics`)
-        } catch (error) {
-            console.error('Bulk update failed:', error.message, query);
-            throw error;
-        }
-
-        this.bulkAsyncUpdates = {};
-    }
-
-    public async insert(clientStatistic: Partial<ClientStatisticsEntity>) {
-        await this.clientStatisticsRepository.insert(clientStatistic);
-    }
-
-    public async deleteOldStatistics() {
-        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-        return await this.clientStatisticsRepository
-            .createQueryBuilder()
-            .delete()
-            .from(ClientStatisticsEntity)
-            .where('time < :time', { time: oneDayAgo.getTime() })
-            .execute();
-    }
-
-
 
     public async getChartDataForAddress(address: string) {
-
-        var yesterday = new Date(new Date().getTime() - (24 * 60 * 60 * 1000));
-
-        const query = `
-                SELECT
-                    time AS label,
-                    (SUM(shares) * 4294967296) / 600 AS data
-                FROM
-                    client_statistics_entity AS entry
-                WHERE
-                    entry.address = $1 AND entry.time > $2
-                GROUP BY
-                    time
-                ORDER BY
-                    time
-                LIMIT 144;
-
-        `;
-
-        const result = await this.clientStatisticsRepository.query(query, [address, yesterday.getTime()]);
-
-        return result.map(res => {
-            res.label = new Date(parseInt(res.label)).toISOString();
-            return res;
-        }).slice(0, result.length - 1);
-
-
+        return this.getAcceptedShareChartData(
+            'AND "address" = $1',
+            [address],
+            144,
+            CHART_WINDOW,
+        );
     }
 
-
     public async getHashRateForGroup(address: string, clientName: string) {
-
-        var oneHour = new Date(new Date().getTime() - (60 * 60 * 1000));
-
-        const query = `
+        const result = await this.dataSource.query(`
             SELECT
-            SUM(entry.shares) AS difficultySum
-            FROM
-                client_statistics_entity AS entry
-            WHERE
-                entry.address = $1 AND entry.clientName = $2 AND entry.time > ${oneHour.getTime()}
-        `;
+                COALESCE((SUM("creditedDifficulty") * ${HASHES_PER_DIFFICULTY}) / ${CHART_BUCKET_SECONDS}, 0) AS "hashRate"
+            FROM "accepted_share_entity"
+            WHERE "address" = $1
+                AND "clientName" = $2
+                AND "acceptedAt" > NOW() - INTERVAL '1 hour'
+        `, [address, clientName]);
 
-        const result = await this.clientStatisticsRepository.query(query, [address, clientName]);
-
-
-        const difficultySum = result[0].difficultySum;
-
-        return (difficultySum * 4294967296) / (600);
-
+        return parseFloat(result[0]?.hashRate ?? '0');
     }
 
     public async getChartDataForGroup(address: string, clientName: string) {
-        var yesterday = new Date(new Date().getTime() - (24 * 60 * 60 * 1000));
-
-        const query = `
-            SELECT
-                time AS label,
-                (SUM(shares) * 4294967296) / 600 AS data
-            FROM
-                client_statistics_entity AS entry
-            WHERE
-                entry.address = $1 AND entry."clientName" = $2 AND entry.time > ${yesterday.getTime()}
-            GROUP BY
-                time
-            ORDER BY
-                time
-            LIMIT 144;
-        `;
-
-        const result = await this.clientStatisticsRepository.query(query, [address, clientName]);
-
-        return result.map(res => {
-            res.label = new Date(parseInt(res.label)).toISOString();
-            return res;
-        }).slice(0, result.length - 1);
-
-
+        return this.getAcceptedShareChartData(
+            'AND "address" = $1 AND "clientName" = $2',
+            [address, clientName],
+            144,
+            CHART_WINDOW,
+        );
     }
-
-
-    // public async getHashRateForSession(clientId: string) {
-
-    //     const query = `
-    //         SELECT
-    //             "createdAt",
-    //             "updatedAt",
-    //             shares
-    //         FROM
-    //             client_statistics_entity AS entry
-    //         WHERE
-    //             entry."clientId" = $1
-    //         ORDER BY time DESC
-    //         LIMIT 2;
-    //     `;
-
-    //     const result = await this.clientStatisticsRepository.query(query, [clientId]);
-
-    //     if (result.length < 1) {
-    //         return 0;
-    //     }
-
-    //     const latestStat = result[0];
-
-    //     if (result.length < 2) {
-    //         const time = new Date(latestStat.updatedAt).getTime() - new Date(latestStat.createdAt).getTime();
-    //         // 1min
-    //         if (time < 1000 * 60) {
-    //             return 0;
-    //         }
-    //         return (parseFloat(latestStat.shares) * 4294967296) / (time / 1000);
-    //     } else {
-    //         const secondLatestStat = result[1];
-    //         const time = new Date(latestStat.updatedAt).getTime() - new Date(secondLatestStat.createdAt).getTime();
-    //         // 1min
-    //         if (time < 1000 * 60) {
-    //             return 0;
-    //         }
-    //         return ((parseFloat(latestStat.shares) + parseFloat(secondLatestStat.shares)) * 4294967296) / (time / 1000);
-    //     }
-
-    // }
 
     public async getChartDataForSession(clientId: string) {
-        var yesterday = new Date(new Date().getTime() - (24 * 60 * 60 * 1000));
-
-        const query = `
-            SELECT
-                time AS label,
-                (SUM(shares) * 4294967296) / 600 AS data
-            FROM
-                client_statistics_entity AS entry
-            WHERE
-                entry."clientId" = $1 AND entry.time > ${yesterday.getTime()}
-            GROUP BY
-                time
-            ORDER BY
-                time
-            LIMIT 144;
-        `;
-
-        const result = await this.clientStatisticsRepository.query(query, [clientId]);
-
-        return result.map(res => {
-            res.label = new Date(parseInt(res.label)).toISOString();
-            return res;
-        }).slice(0, result.length - 1);
-
+        return this.getAcceptedShareChartData(
+            'AND "clientId" = $1',
+            [clientId],
+            144,
+            CHART_WINDOW,
+        );
     }
 
-    public async deleteAll() {
-        return await this.clientStatisticsRepository.clear()
+    private async getAcceptedShareChartData(filterSql: string, params: unknown[], limit: number, windowSql: string) {
+        const query = `
+            WITH bounds AS (
+                SELECT
+                    NOW() - INTERVAL '${windowSql}' AS since,
+                    time_bucket(INTERVAL '10 minutes', NOW() - INTERVAL '${REALTIME_WINDOW}') AS realtime_start
+            ),
+            aggregate_rows AS (
+                SELECT
+                    "bucket",
+                    SUM("shares") AS "shares",
+                    SUM("acceptedCount") AS "acceptedCount"
+                FROM "accepted_share_10m", bounds
+                WHERE "bucket" > bounds.since
+                    AND "bucket" < bounds.realtime_start
+                    ${filterSql}
+                GROUP BY "bucket"
+            ),
+            realtime_rows AS (
+                SELECT
+                    time_bucket(INTERVAL '10 minutes', "acceptedAt") AS "bucket",
+                    SUM("creditedDifficulty") AS "shares",
+                    COUNT(*) AS "acceptedCount"
+                FROM "accepted_share_entity", bounds
+                WHERE "acceptedAt" > bounds.since
+                    AND "acceptedAt" >= bounds.realtime_start
+                    ${filterSql}
+                GROUP BY "bucket"
+            ),
+            combined_rows AS (
+                SELECT * FROM aggregate_rows
+                UNION ALL
+                SELECT * FROM realtime_rows
+            )
+            SELECT
+                "label",
+                "data",
+                "shares",
+                "acceptedCount"
+            FROM (
+                SELECT
+                    "bucket" AS "label",
+                    ROUND((SUM("shares") * ${HASHES_PER_DIFFICULTY}) / ${CHART_BUCKET_SECONDS}) AS "data",
+                    SUM("shares") AS "shares",
+                    SUM("acceptedCount") AS "acceptedCount"
+                FROM combined_rows
+                GROUP BY "bucket"
+                ORDER BY "bucket" DESC
+                LIMIT ${limit}
+            ) AS limited_rows
+            ORDER BY "label"
+        `;
+
+        const result = await this.dataSource.query(query, params);
+
+        return result.map(res => {
+            return {
+                label: new Date(res.label).toISOString(),
+                data: res.data,
+                shares: Number(res.shares ?? 0),
+                acceptedCount: Number(res.acceptedCount ?? 0),
+            };
+        });
     }
 }

@@ -7,6 +7,7 @@ module.exports = {
         instances: 1,
         env: {
           MASTER: 'true',
+          NODE_CLUSTER_SCHED_POLICY: 'none',
         },
         time: true
       },
@@ -14,10 +15,11 @@ module.exports = {
       {
         name: 'workers',
         script: './dist/main.js',
-        instances: 2,
+        instances: parseInt(process.env.STRATUM_WORKERS || '2', 10),
         exec_mode: "cluster",
         env: {
           MASTER: 'false',
+          NODE_CLUSTER_SCHED_POLICY: 'none',
         },
         time: true
       },

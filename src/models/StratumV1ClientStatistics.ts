@@ -1,4 +1,3 @@
-import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientEntity } from '../ORM/client/client.entity';
 
 const CACHE_SIZE = 30;
@@ -8,31 +7,16 @@ export class StratumV1ClientStatistics {
     public targetSubmitShareEveryNSeconds: number = 30;
     public hashRate = 0;
 
-    private shares: number = 0;
-    private acceptedCount: number = 0;
-
     private submissionCacheStart: Date;
     private submissionCache: { time: Date, difficulty: number }[] = [];
     private submissionCacheDifficultySum = 0;
 
-    private currentTimeSlot: number = null;
-
-    constructor(
-        private readonly clientStatisticsService: ClientStatisticsService,
-    ) {
+    constructor() {
         this.submissionCacheStart = new Date();
     }
 
-
-
-    // We don't want to save them here because it can be DB intensive, instead do it every once in
-    // awhile with saveShares()
-    public async addShares(client: ClientEntity, targetDifficulty: number) {
-
-        // 10 min
-        var coeff = 1000 * 60 * 10;
+    public async addShares(_client: ClientEntity, targetDifficulty: number) {
         var date = new Date();
-        var timeSlot = new Date(Math.floor(date.getTime() / coeff) * coeff).getTime();
 
         if (this.submissionCache.length > CACHE_SIZE) {
             this.submissionCacheDifficultySum -= this.submissionCache[0].difficulty;
@@ -43,55 +27,6 @@ export class StratumV1ClientStatistics {
             difficulty: targetDifficulty,
         });
         this.submissionCacheDifficultySum += targetDifficulty;
-
-        if (this.currentTimeSlot == null) {
-            // First record, insert it
-            this.currentTimeSlot = timeSlot;
-            this.shares += targetDifficulty;
-            this.acceptedCount++;
-            await this.clientStatisticsService.insert({
-                time: this.currentTimeSlot,
-                clientId: client.id,
-                shares: this.shares,
-                acceptedCount: this.acceptedCount,
-                address: client.address,
-                clientName: client.clientName,
-                sessionId: client.sessionId
-            });
-        } else if (this.currentTimeSlot != timeSlot) {
-            // Transitioning to a new time slot,
-            // First update the old time slot with the latest data
-            this.clientStatisticsService.updateBulkAsync({
-                time: this.currentTimeSlot,
-                clientId: client.id,
-                shares: this.shares,
-                acceptedCount: this.acceptedCount,
-            });
-            // Set the new time slot and add incoming shares then insert it
-            this.currentTimeSlot = timeSlot;
-            this.shares = targetDifficulty;
-            this.acceptedCount = 1
-            await this.clientStatisticsService.insert({
-                time: this.currentTimeSlot,
-                clientId: client.id,
-                shares: this.shares,
-                acceptedCount: this.acceptedCount,
-                address: client.address,
-                clientName: client.clientName,
-                sessionId: client.sessionId
-            });
-        } else {
-            // Accept the shares if none of the prior conditions are met,
-            // saving to memory for storing later
-            this.shares += targetDifficulty;
-            this.acceptedCount++;
-            this.clientStatisticsService.updateBulkAsync({
-                time: this.currentTimeSlot,
-                clientId: client.id,
-                shares: this.shares,
-                acceptedCount: this.acceptedCount,
-            });
-        }
 
         const time = new Date().getTime() - this.submissionCache[0].time.getTime();
         if(time > 60000 && this.submissionCache.length > 2) { 

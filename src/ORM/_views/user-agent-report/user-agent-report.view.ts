@@ -12,6 +12,7 @@ import { ClientEntity } from '../../client/client.entity';
             .addSelect('MAX(client.bestDifficulty)', 'bestDifficulty')
             .addSelect('SUM(client.hashRate)', 'totalHashRate')
             .from(ClientEntity, 'client')
+            .where('client.deletedAt IS NULL')
             .groupBy('client.userAgent')
             .orderBy('"totalHashRate"', 'DESC')
 })

@@ -1,6 +1,7 @@
 # Full Setup for public pool
 
-This setup provides a docker-compose setup consisting of Bitcoin Core Node and Public-Pool running in Mainnet or Testnet.
+This setup provides Docker Compose stacks for Bitcoin Core, Public Pool,
+TimescaleDB, and Redis on mainnet, testnet, and regtest.
 
 It exposes following ports:
 
@@ -8,6 +9,7 @@ It exposes following ports:
 - `8333/18333` Bitcoin peering on `0.0.0.0`
 - `3333/13333` Public-Pool Stratum port on `0.0.0.0`
 - `3334/13334` Public-Pool API port on `localhost`
+- TimescaleDB and Redis only on the internal compose network
 
 The docker-compose setups for Mainnet and Testnet can be run in parallel without any problems.
 
@@ -42,6 +44,9 @@ There are 4 config files for Mainnet and Testnet
 - `bitcoin-testnet.conf`
 
 **note: pruning (`prune=550`) is enabled by default in the config**
+**note: Bitcoin ZMQ raw block publishing is enabled on the internal compose
+network so the Public Pool master can refresh templates immediately after new
+blocks.**
 # Running the setup
 
 To start the setup in foreground mode:
@@ -63,6 +68,25 @@ To stop the setup use:
 
 ```
 docker compose -f docker-compose-mainnet.yml down
+```
+
+Database and Redis data are stored under `full-setup/data/<network>/`. To remove
+all runtime data, stop the stack and delete the relevant `bitcoin`,
+`timescaledb`, and `redis` directories.
+
+# Migrations and backups
+
+The Public Pool container waits for TimescaleDB and Redis, runs migrations, and
+then starts PM2. To run migrations manually:
+
+```bash
+docker compose -f docker-compose-mainnet.yml run --rm public-pool npm run migration:run:prod
+```
+
+To back up mainnet accounting data:
+
+```bash
+docker compose -f docker-compose-mainnet.yml exec timescaledb pg_dump -U public_pool public_pool_mainnet > public-pool-mainnet.sql
 ```
 
 # Regtest

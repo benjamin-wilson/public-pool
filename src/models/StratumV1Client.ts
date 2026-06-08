@@ -9,11 +9,12 @@ import { clearInterval } from 'timers';
 
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
-import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientEntity } from '../ORM/client/client.entity';
 import { ClientService } from '../ORM/client/client.service';
+import { ShareAccountingService } from '../ORM/share-accounting/share-accounting.service';
 import { BitcoinRpcService } from '../services/bitcoin-rpc.service';
 import { NotificationService } from '../services/notification.service';
+import { RedisMessagingService } from '../services/redis-messaging.service';
 import { IJobTemplate, StratumV1JobsService } from '../services/stratum-v1-jobs.service';
 import { eRequestMethod } from './enums/eRequestMethod';
 import { eResponseMethod } from './enums/eResponseMethod';
@@ -67,11 +68,12 @@ export class StratumV1Client {
         private readonly stratumV1JobsService: StratumV1JobsService,
         private readonly bitcoinRpcService: BitcoinRpcService,
         private readonly clientService: ClientService,
-        private readonly clientStatisticsService: ClientStatisticsService,
         private readonly notificationService: NotificationService,
         private readonly blocksService: BlocksService,
         private readonly configService: ConfigService,
-        private readonly addressSettingsService: AddressSettingsService
+        private readonly addressSettingsService: AddressSettingsService,
+        private readonly shareAccountingService?: ShareAccountingService,
+        private readonly redisMessagingService?: RedisMessagingService
     ) {
 
         this.socket.on('data', (data: Buffer) => {
@@ -100,6 +102,7 @@ export class StratumV1Client {
     public async destroy() {
 
         if (this.clientEntity?.id) {
+            await this.redisMessagingService?.removeClientPresence(this.clientEntity.id, this.clientEntity.address);
             await this.clientService.delete(this.clientEntity.id);
         }
 
@@ -156,7 +159,7 @@ export class StratumV1Client {
 
                     if (this.sessionStart == null) {
                         this.sessionStart = new Date();
-                        this.statistics = new StratumV1ClientStatistics(this.clientStatisticsService);
+                        this.statistics = new StratumV1ClientStatistics();
                         this.extraNonceAndSessionId = this.getRandomHexString();
                         //console.log(`New client ID: : ${this.extraNonceAndSessionId}, ${this.socket.remoteAddress}:${this.socket.remotePort}`);
                     }
@@ -422,7 +425,6 @@ export class StratumV1Client {
         // //50Th/s
         // this.noFee = false;
         // if (this.clientEntity) {
-        //     this.hashRate = await this.clientStatisticsService.getHashRateForSession(this.clientEntity.id);
         //     // 250Gh/s
         //     if(this.hashRate < 250000000000){
         //         this.statistics.targetSubmitShareEveryNSeconds = 10;
@@ -491,10 +493,33 @@ export class StratumV1Client {
                     startTime: new Date(),
                     bestDifficulty: 0
                 });
+                await this.updateClientPresence(new Date());
             })();
         }
 
         await this.creatingEntity;
+    }
+
+    private async updateClientPresence(lastSeen: Date): Promise<void> {
+        if (this.clientEntity == null) {
+            return;
+        }
+
+        try {
+            await this.redisMessagingService?.setClientPresence({
+                clientId: this.clientEntity.id,
+                address: this.clientEntity.address,
+                clientName: this.clientEntity.clientName,
+                sessionId: this.clientEntity.sessionId,
+                userAgent: this.clientEntity.userAgent,
+                startTime: new Date(this.clientEntity.startTime).toISOString(),
+                lastSeen: lastSeen.toISOString(),
+                hashRate: this.statistics?.hashRate ?? 0,
+                bestDifficulty: Number(this.clientEntity.bestDifficulty ?? 0),
+            });
+        } catch (error) {
+            console.error(`Failed to update SV1 client presence: ${error.message}`);
+        }
     }
 
     private async handleMiningSubmission(submission: MiningSubmitMessage) {
@@ -574,6 +599,7 @@ export class StratumV1Client {
                 return false;
             }
 
+            let blockSubmissionResult: string = null;
             if (submissionDifficulty >= jobTemplate.blockData.networkDifficulty) {
                 console.log('!!! BLOCK FOUND !!!');
                 const updatedJobBlock = job.copyAndUpdateBlock(
@@ -585,7 +611,7 @@ export class StratumV1Client {
                     timestamp
                 );
                 const blockHex = updatedJobBlock.toHex(false);
-                const result = await this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
+                blockSubmissionResult = await this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
                 await this.blocksService.save({
                     height: jobTemplate.blockData.height,
                     minerAddress: this.clientAuthorization.address,
@@ -594,21 +620,40 @@ export class StratumV1Client {
                     blockData: blockHex
                 });
 
-                await this.notificationService.notifySubscribersBlockFound(this.clientAuthorization.address, jobTemplate.blockData.height, updatedJobBlock, result);
+                await this.notificationService.notifySubscribersBlockFound(this.clientAuthorization.address, jobTemplate.blockData.height, updatedJobBlock, blockSubmissionResult);
                 //success
-                if (result == null) {
+                if (blockSubmissionResult == null) {
                     await this.addressSettingsService.resetBestDifficultyAndShares();
                 }
             }
             await this.ensureClientEntity();
             try {
+                await this.shareAccountingService?.recordAcceptedShare({
+                    protocol: 'sv1',
+                    address: this.clientAuthorization.address,
+                    clientName: this.clientAuthorization.worker,
+                    sessionId: this.extraNonceAndSessionId,
+                    clientId: this.clientEntity.id,
+                    jobId: job.jobId,
+                    jobTemplateId: job.jobTemplateId,
+                    blockHeight: jobTemplate.blockData.height,
+                    creditedDifficulty: this.sessionDifficulty,
+                    submissionDifficulty,
+                    networkDifficulty: jobTemplate.blockData.networkDifficulty,
+                    nonce: submission.nonce,
+                    ntime: submission.ntime,
+                    version: Number.isFinite(versionMask)
+                        ? (jobTemplate.block.version ^ versionMask).toString(16)
+                        : jobTemplate.block.version.toString(16),
+                    extraNonce2: submission.extraNonce2,
+                    isBlockCandidate: submissionDifficulty >= jobTemplate.blockData.networkDifficulty,
+                    blockSubmissionResult,
+                });
                 await this.statistics.addShares(this.clientEntity, this.sessionDifficulty);
                 const now = new Date();
-                // only update every minute
-                //if (this.clientEntity.updatedAt == null || now.getTime() - this.clientEntity.updatedAt.getTime() > 1000 * 60) {
-                this.clientService.heartbeatBulkAsync(this.clientEntity.id, this.statistics.hashRate, now);
                 this.clientEntity.updatedAt = now;
-                //}
+                this.clientEntity.hashRate = this.statistics.hashRate;
+                await this.updateClientPresence(now);
 
             } catch (e) {
                 console.log(e);
@@ -618,6 +663,7 @@ export class StratumV1Client {
                 await this.clientService.updateBestDifficultyIfHigher(this.clientEntity.id, submissionDifficulty);
                 this.clientEntity.bestDifficulty = submissionDifficulty;
                 await this.addressSettingsService.updateBestDifficultyIfHigher(this.clientAuthorization.address, submissionDifficulty, this.clientEntity.userAgent);
+                await this.updateClientPresence(new Date());
             }
 
 

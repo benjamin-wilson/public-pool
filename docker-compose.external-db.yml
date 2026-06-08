@@ -1,34 +1,4 @@
 services:
-  timescaledb:
-    image: timescale/timescaledb:latest-pg17
-    container_name: public-pool-timescaledb
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${DB_DATABASE:-public_pool}
-      POSTGRES_USER: ${DB_USERNAME:-public_pool}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-public_pool}
-    command:
-      - postgres
-      - -c
-      - max_wal_size=16GB
-      - -c
-      - min_wal_size=2GB
-      - -c
-      - checkpoint_timeout=15min
-      - -c
-      - checkpoint_completion_target=0.9
-      - -c
-      - wal_compression=on
-    ports:
-      - "127.0.0.1:${DB_PORT:-5432}:5432/tcp"
-    volumes:
-      - timescaledb-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-public_pool} -d ${DB_DATABASE:-public_pool}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
   redis:
     image: redis:8-alpine
     container_name: public-pool-redis
@@ -50,8 +20,6 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
-      timescaledb:
-        condition: service_healthy
       redis:
         condition: service_healthy
     extra_hosts:
@@ -71,12 +39,15 @@ services:
       - "./secrets:/public-pool/secrets:ro"
     environment:
       NODE_ENV: production
-      DB_HOST: timescaledb
-      DB_PORT: 5432
+      DB_HOST: ${DB_HOST:?set DB_HOST to your external TimescaleDB/Postgres host}
+      DB_PORT: ${DB_PORT:-5432}
       DB_USERNAME: ${DB_USERNAME:-public_pool}
-      DB_PASSWORD: ${DB_PASSWORD:-public_pool}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD for your external database}
       DB_DATABASE: ${DB_DATABASE:-public_pool}
-      REDIS_URL: redis://redis:6379
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_SSL: ${DB_SSL:-false}
+      DB_SSL_REJECT_UNAUTHORIZED: ${DB_SSL_REJECT_UNAUTHORIZED:-true}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       API_PORT: ${API_PORT:-3334}
       API_SECURE: ${API_SECURE:-false}
       PM2_ENABLED: ${PM2_ENABLED:-true}
@@ -87,6 +58,11 @@ services:
       STRATUM_MAX_CONNECTIONS_PER_LISTENER: ${STRATUM_MAX_CONNECTIONS_PER_LISTENER:-10000}
       STRATUM_TLS_HANDSHAKE_TIMEOUT_MS: ${STRATUM_TLS_HANDSHAKE_TIMEOUT_MS:-10000}
       STRATUM_V2_PORTS: ${STRATUM_V2_PORTS:-}
+      SHARE_ACCOUNTING_BATCH_SIZE: ${SHARE_ACCOUNTING_BATCH_SIZE:-500}
+      SHARE_ACCOUNTING_FLUSH_INTERVAL_MS: ${SHARE_ACCOUNTING_FLUSH_INTERVAL_MS:-25}
+      SHARE_ACCOUNTING_MAX_QUEUE_SIZE: ${SHARE_ACCOUNTING_MAX_QUEUE_SIZE:-50000}
+      SHARE_ACCOUNTING_SUMMARY_CACHE_MS: ${SHARE_ACCOUNTING_SUMMARY_CACHE_MS:-2500}
+      SHARE_ACCOUNTING_SUMMARY_CACHE_MAX: ${SHARE_ACCOUNTING_SUMMARY_CACHE_MAX:-10000}
     healthcheck:
       test: ["CMD-SHELL", "node -e \"const http=require('http'); const https=require('https'); const secure=process.env.API_SECURE==='true'; const client=secure?https:http; const req=client.get({hostname:'127.0.0.1',port:process.env.API_PORT||3334,path:'/api/network',rejectUnauthorized:false},res=>process.exit(res.statusCode<500?0:1)); req.on('error',()=>process.exit(1)); req.setTimeout(5000,()=>{req.destroy(); process.exit(1);});\""]
       interval: 30s
@@ -94,5 +70,4 @@ services:
       retries: 10
 
 volumes:
-  timescaledb-data:
   redis-data:

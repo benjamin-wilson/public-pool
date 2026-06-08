@@ -11,6 +11,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         python3 \
         build-essential \
         cmake \
+        curl \
+        ca-certificates \
     && apt clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 WORKDIR /build
@@ -18,7 +20,7 @@ WORKDIR /build
 COPY . .
 
 # Build Public Pool using NPM
-RUN npm i && npm run build
+RUN npm ci && npm run build && npm prune --omit=dev
 
 ############################
 # Docker final environment #
@@ -35,4 +37,4 @@ WORKDIR /public-pool
 COPY --from=build /build .
 #COPY .env.example .env
 
-CMD ["/usr/local/bin/node", "dist/main"]
+CMD ["npm", "run", "start:docker"]

@@ -39,9 +39,13 @@ See [public-pool-ui](https://github.com/benjamin-wilson/public-pool-ui)
 
 ## Deployment
 
-Install pm2 (https://pm2.keymetrics.io/)
+The production Docker image runs database migrations and then starts PM2
+automatically. For a manual host deployment, install pm2
+(https://pm2.keymetrics.io/), run migrations, then start the app.
 
 ```bash
+$ npm run build
+$ npm run migration:run:prod
 $ pm2 start dist/main.js
 ```
 
@@ -61,43 +65,101 @@ with the default limit of `10000` allow up to `280000` connections on one port.
 
 ## Docker
 
-Build container:
+The default compose stack includes Public Pool, TimescaleDB, and Redis. TimescaleDB
+stores normal Postgres tables plus immutable accepted-share rows in a hypertable.
+Chart and hashrate APIs read from Timescale continuous aggregates plus recent raw
+shares for realtime buckets. Redis is used only for process messaging and latest
+mining-template replay.
+
+Start the stack:
 
 ```bash
-$ docker build -t public-pool .
+$ docker compose up --build -d
 ```
 
-Run container:
+Use an external TimescaleDB/Postgres server:
 
 ```bash
-$ docker container run --name public-pool --rm -p 3333:3333 -p 3334:3334 -p 8332:8332 -v .env:/public-pool/.env public-pool
+$ DB_HOST=postgres.example.com \
+  DB_PORT=5432 \
+  DB_USERNAME=public_pool \
+  DB_PASSWORD='change-me' \
+  DB_DATABASE=public_pool \
+  DB_SSL=false \
+  docker compose -f docker-compose.external-db.yml up --build -d
 ```
 
-### Docker Compose
+The external database must be TimescaleDB-compatible and reachable from the
+Public Pool container. The startup script waits for the remote `DB_HOST:DB_PORT`,
+runs migrations, then starts PM2. Redis still runs locally in this compose file
+unless `REDIS_URL` is pointed at an external Redis instance.
 
-Build container:
+Set `DB_SSL=true` if the external database requires TLS. For private CA or
+self-signed test deployments, `DB_SSL_REJECT_UNAUTHORIZED=false` disables
+certificate verification; do not use that setting for normal internet-facing
+production databases.
+
+For a fresh external database, create the role/database first:
+
+```sql
+CREATE USER public_pool WITH PASSWORD 'change-me';
+CREATE DATABASE public_pool OWNER public_pool;
+\c public_pool
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+```
+
+If TimescaleDB is managed by another operator, make sure the `public_pool` role
+can create tables, indexes, continuous aggregates, and Timescale policies in the
+target database.
+
+Run only the database migrations:
+
 ```bash
-$ docker compose build
+$ docker compose run --rm public-pool npm run migration:run:prod
 ```
 
-Run container:
+Watch logs:
+
 ```bash
-$ docker compose up -d
+$ docker compose logs --tail 100 -f public-pool
 ```
 
-The docker-compose binds to `127.0.0.1` by default. To expose the Stratum services on your server change:
-```diff
-    ports:
--      - "127.0.0.1:3333:3333/tcp"
--      - "127.0.0.1:3334:3334/tcp"
-+      - "3333"
-+      - "3334"
+Back up TimescaleDB:
+
+```bash
+$ docker compose exec timescaledb pg_dump -U public_pool public_pool > public-pool.sql
 ```
+
+Redis does not hold durable accounting data. Losing Redis requires workers to
+replay the latest template from Redis after reconnect or fall back to the saved
+RPC block template table.
 
 **note**: To successfully connect to the bitcoin RPC you will need to add
 
 ```
 rpcallowip=172.16.0.0/12
+zmqpubrawblock=tcp://0.0.0.0:3000
 ```
 
 to your bitcoin.conf.
+
+## Testing
+
+Baseline unit regression capture:
+
+```bash
+$ npm run test:baseline
+```
+
+Unit tests:
+
+```bash
+$ npm test
+```
+
+Integration tests against real TimescaleDB and Redis:
+
+```bash
+$ docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
+```

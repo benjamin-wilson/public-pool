@@ -7,7 +7,7 @@ import * as zmq from 'zeromq';
 
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { IMiningInfo } from '../models/bitcoin-rpc/IMiningInfo';
-import * as PGPubsub from 'pg-pubsub';
+import { RedisMessagingService } from './redis-messaging.service';
 
 @Injectable()
 export class BitcoinRpcService implements OnModuleInit {
@@ -15,7 +15,6 @@ export class BitcoinRpcService implements OnModuleInit {
     
     private client: AxiosInstance;
     private _newBlockTemplate$: BehaviorSubject<IBlockTemplate> = new BehaviorSubject(undefined);
-    private pubsubInstance: PGPubsub;
     private resetTemplateInterval$ = new Subject<void>();
     private rpcRequestId = 0;
 
@@ -24,15 +23,13 @@ export class BitcoinRpcService implements OnModuleInit {
 
     constructor(
         private readonly configService: ConfigService,
-        private rpcBlockService: RpcBlockService
+        private rpcBlockService: RpcBlockService,
+        private readonly redisMessagingService: RedisMessagingService
     ) {
 
     }
 
     async onModuleInit() {
-
-        this.pubsubInstance = new PGPubsub('postgres://' + this.configService.get('DB_USERNAME') + ':' + this.configService.get('DB_PASSWORD') + '@' + this.configService.get('DB_HOST') + ':' + this.configService.get('DB_PORT') + '/' + this.configService.get('DB_DATABASE'))
-
 
         const url = this.configService.get('BITCOIN_RPC_URL');
         const user = this.configService.get('BITCOIN_RPC_USER');
@@ -60,11 +57,10 @@ export class BitcoinRpcService implements OnModuleInit {
 
         console.log(`MASTER? ${process.env.MASTER}`)
         if (process.env.MASTER != 'true') {
-            this.pubsubInstance.addChannel('miningInfo', async (miningInfo: IMiningInfo) => {
-                //console.log('PG Sub. new template');
+            await this.loadLatestTemplateForWorker();
+            await this.redisMessagingService.subscribeMiningInfoUpdates(async (miningInfo: IMiningInfo) => {
                 this.miningInfo = miningInfo;
-                const savedBlockTemplate = await this.rpcBlockService.getSavedBlockTemplate(miningInfo.blocks);
-                this._newBlockTemplate$.next(JSON.parse(savedBlockTemplate.data));
+                await this.loadTemplateForWorker(miningInfo.blocks);
             });
         } else {
             console.log('Using ZMQ');
@@ -109,7 +105,36 @@ export class BitcoinRpcService implements OnModuleInit {
     public async getAndBroadcastLatestTemplate() {
         const blockTemplate = await this.loadBlockTemplate(this.miningInfo.blocks);
         this._newBlockTemplate$.next(blockTemplate);
-        await this.pubsubInstance.publish('miningInfo', this.miningInfo);
+        await this.redisMessagingService.setLatestMiningInfo(this.miningInfo);
+        await this.redisMessagingService.setBlockTemplate(this.miningInfo.blocks, blockTemplate);
+        await this.redisMessagingService.publishMiningInfoUpdate(this.miningInfo);
+    }
+
+    private async loadLatestTemplateForWorker() {
+        const latestMiningInfo = await this.redisMessagingService.getLatestMiningInfo();
+        if (latestMiningInfo != null) {
+            this.miningInfo = latestMiningInfo;
+            await this.loadTemplateForWorker(latestMiningInfo.blocks);
+            return;
+        }
+
+        const latestBlockTemplate = await this.redisMessagingService.getLatestBlockTemplate();
+        if (latestBlockTemplate != null) {
+            this._newBlockTemplate$.next(latestBlockTemplate);
+        }
+    }
+
+    private async loadTemplateForWorker(blockHeight: number) {
+        const redisBlockTemplate = await this.redisMessagingService.getBlockTemplate(blockHeight);
+        if (redisBlockTemplate != null) {
+            this._newBlockTemplate$.next(redisBlockTemplate);
+            return;
+        }
+
+        const savedBlockTemplate = await this.rpcBlockService.getSavedBlockTemplate(blockHeight);
+        if (savedBlockTemplate?.data != null) {
+            this._newBlockTemplate$.next(JSON.parse(savedBlockTemplate.data));
+        }
     }
 
     private async loadBlockTemplate(blockHeight: number) {

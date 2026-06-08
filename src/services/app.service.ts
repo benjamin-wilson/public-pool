@@ -1,21 +1,15 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { DataSource } from 'typeorm';
 
 import { UserAgentReportService } from '../ORM/_views/user-agent-report/user-agent-report.service';
-import { ClientStatisticsService } from '../ORM/client-statistics/client-statistics.service';
 import { ClientService } from '../ORM/client/client.service';
-import { HomeGraphService } from '../ORM/home-graph/home-graph.service';
 import { RpcBlockService } from '../ORM/rpc-block/rpc-block.service';
 
 @Injectable()
 export class AppService implements OnModuleInit {
 
     constructor(
-        private readonly clientStatisticsService: ClientStatisticsService,
         private readonly clientService: ClientService,
         private readonly rpcBlockService: RpcBlockService,
-        private readonly homeGraphService: HomeGraphService,
-        private readonly dataSource: DataSource,
         private readonly userAgentReportService: UserAgentReportService
     ) {
 
@@ -25,25 +19,13 @@ export class AppService implements OnModuleInit {
         if (process.env.MASTER == 'true') {
 
             setInterval(async () => {
-                await this.deleteOldStatistics();
+                await this.deleteOldClients();
             }, 1000 * 60 * 60);
-
-            setInterval(async () => {
-                console.log('Killing dead clients');
-                while (await this.clientService.killDeadClients()) {
-
-                }
-                console.log('Finished killing clients');
-            }, 1000 * 60 * 5);
 
             setInterval(async () => {
                 console.log('Deleting Old Blocks');
                 await this.rpcBlockService.deleteOldBlocks();
             }, 1000 * 60 * 60 * 24);
-
-            setInterval(async () => {
-                await this.updateChart();
-            }, 1000 * 60 * 10);
 
             setInterval(async () => {
                 console.log('Refreshing user agent report view')
@@ -52,61 +34,13 @@ export class AppService implements OnModuleInit {
             }, 1000 * 60 * 5);
 
         }
-
-        setInterval(async () => {
-            //console.log('Bulk update client stats');
-            await this.clientStatisticsService.doBulkAsyncUpdate();
-        }, 1000 * 30);
-
-        setInterval(async () => {
-            //console.log('Bulk update client stats');
-            await this.clientService.doBulkHeartbeatUpdate();
-        }, 1000 * 30);
-
-
     }
 
-    private async deleteOldStatistics() {
-        console.log('Deleting statistics');
+    private async deleteOldClients() {
+        console.log('Deleting old clients');
 
-        const deletedStatistics = await this.clientStatisticsService.deleteOldStatistics();
-        console.log(`Deleted ${deletedStatistics.affected} old statistics`);
         const deletedClients = await this.clientService.deleteOldClients();
         console.log(`Deleted ${deletedClients.affected} old clients`);
-
-    }
-
-
-    private async updateChart() {
-        console.log('Updating Chart');
-
-        const latestGraphUpdate = await this.homeGraphService.getLatestTime();
-
-
-        const data = await this.dataSource.query(`
-            SELECT
-                time AS label,
-                ROUND(((SUM(shares) * 4294967296) / 600)) AS data
-            FROM
-                client_statistics_entity AS entry
-            WHERE
-                entry.time > ${latestGraphUpdate.getTime()}
-            GROUP BY
-                time
-            ORDER BY
-                time
-            LIMIT 144;
-        `)
-
-        console.log(`Fetched ${data.length} rows`);
-
-        if (data.length < 2) {
-            return;
-        }
-
-        const result = data.slice(0, data.length - 1);
-
-        this.homeGraphService.save(result);
 
     }
 }

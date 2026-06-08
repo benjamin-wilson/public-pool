@@ -107,7 +107,51 @@ describe('StratumV2Client extended channels', () => {
         expect(error.errorCode).toBe('invalid-extranonce-size');
     });
 
-    async function createClient(): Promise<{ client: StratumV2Client; sentFrames: any[] }> {
+    it('records accepted SV2 shares before presence updates', async () => {
+        const { client, shareAccountingService, redisMessagingService, jobTemplate } = await createClient();
+        (client as any).address = 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4';
+        (client as any).workerName = 'worker';
+        (client as any).sessionId = 'sv2-session';
+        (client as any).userAgent = 'test/sv2';
+
+        await (client as any).recordAcceptedShare(
+            2048,
+            1024,
+            jobTemplate,
+            null,
+            {
+                jobId: '1',
+                nonce: 123,
+                ntime: parseInt(MockRecording1.TIME, 16),
+                version: jobTemplate.block.version,
+                extraNonce2: 'c708000000000000',
+            },
+        );
+
+        expect(shareAccountingService.recordAcceptedShare).toHaveBeenCalledWith(expect.objectContaining({
+            protocol: 'sv2',
+            address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
+            clientName: 'worker',
+            sessionId: 'sv2-session',
+            jobId: '1',
+            creditedDifficulty: 1024,
+            submissionDifficulty: 2048,
+            nonce: 123,
+            extraNonce2: 'c708000000000000',
+        }));
+        const accountingCallOrder = shareAccountingService.recordAcceptedShare.mock.invocationCallOrder[0];
+        const postAccountingPresenceUpdates = redisMessagingService.setClientPresence.mock.invocationCallOrder
+            .filter(callOrder => callOrder > accountingCallOrder);
+        expect(postAccountingPresenceUpdates.length).toBeGreaterThan(0);
+    });
+
+    async function createClient(): Promise<{
+        client: StratumV2Client;
+        sentFrames: any[];
+        shareAccountingService: { recordAcceptedShare: jest.Mock };
+        redisMessagingService: { setClientPresence: jest.Mock; removeClientPresence: jest.Mock };
+        jobTemplate: any;
+    }> {
         const blockTemplate$ = new BehaviorSubject(MockRecording1.BLOCK_TEMPLATE);
         const bitcoinRpcService = {
             newBlockTemplate$: blockTemplate$.asObservable(),
@@ -115,7 +159,7 @@ describe('StratumV2Client extended channels', () => {
             SUBMIT_BLOCK: jest.fn().mockResolvedValue(null),
         };
         const stratumV1JobsService = new StratumV1JobsService(bitcoinRpcService as any);
-        await firstValueFrom(stratumV1JobsService.newMiningJob$);
+        const jobTemplate = await firstValueFrom(stratumV1JobsService.newMiningJob$);
 
         const mockSocket: any = {
             destroyed: false,
@@ -138,11 +182,24 @@ describe('StratumV2Client extended channels', () => {
             address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
             clientName: 'worker',
             userAgent: 'test/sv2',
+            startTime: new Date(),
             bestDifficulty: 0,
         } as unknown as ClientEntity;
 
         let nextChannelId = 1;
         const sentFrames: any[] = [];
+        const clientService = {
+            insert: jest.fn().mockResolvedValue(clientEntity),
+            delete: jest.fn().mockResolvedValue(undefined),
+            updateBestDifficultyIfHigher: jest.fn().mockResolvedValue(undefined),
+        };
+        const shareAccountingService = {
+            recordAcceptedShare: jest.fn().mockResolvedValue(undefined),
+        };
+        const redisMessagingService = {
+            setClientPresence: jest.fn().mockResolvedValue(undefined),
+            removeClientPresence: jest.fn().mockResolvedValue(undefined),
+        };
         const client = new StratumV2Client(
             socket,
             Buffer.alloc(0),
@@ -167,16 +224,7 @@ describe('StratumV2Client extended channels', () => {
             } as any,
             stratumV1JobsService,
             bitcoinRpcService as any,
-            {
-                insert: jest.fn().mockResolvedValue(clientEntity),
-                delete: jest.fn().mockResolvedValue(undefined),
-                heartbeatBulkAsync: jest.fn(),
-                updateBestDifficultyIfHigher: jest.fn().mockResolvedValue(undefined),
-            } as any,
-            {
-                insert: jest.fn().mockResolvedValue(undefined),
-                updateBulkAsync: jest.fn(),
-            } as any,
+            clientService as any,
             { notifySubscribersBlockFound: jest.fn().mockResolvedValue(undefined) } as any,
             { save: jest.fn().mockResolvedValue(undefined) } as any,
             {
@@ -195,12 +243,14 @@ describe('StratumV2Client extended channels', () => {
                 resetBestDifficultyAndShares: jest.fn().mockResolvedValue(undefined),
                 updateBestDifficultyIfHigher: jest.fn().mockResolvedValue(undefined),
             } as any,
+            shareAccountingService as any,
+            redisMessagingService as any,
         );
         (client as any).sendFrame = jest.fn((msgType: number, payload: Buffer, extensionType = 0) => {
             sentFrames.push({ msgType, payload, extensionType });
             return Promise.resolve();
         });
 
-        return { client, sentFrames };
+        return { client, sentFrames, shareAccountingService, redisMessagingService, jobTemplate };
     }
 });
