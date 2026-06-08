@@ -121,7 +121,7 @@ describe('ShareAccountingService', () => {
         await expect(queued).resolves.toEqual(expect.objectContaining({ jobId: 'queued' }));
     });
 
-    it('should return numeric accounting summaries with protocol breakdown', async () => {
+    it('should return numeric accounting summaries from the share rollup', async () => {
         const repository = {
             query: jest.fn()
                 .mockResolvedValueOnce([{
@@ -135,14 +135,7 @@ describe('ShareAccountingService', () => {
                     creditedDifficultyLastDay: '96',
                     hashRateLast10Minutes: '458129844.9',
                     hashRateLastHour: '114532461.2',
-                    bestSubmissionDifficulty: '2048',
-                    blockCandidateCount: '1',
                     latestShareAt: new Date('2026-06-07T12:10:00Z'),
-                }])
-                .mockResolvedValueOnce([{
-                    protocol: 'sv1',
-                    acceptedShares: '3',
-                    creditedDifficulty: '96',
                 }]),
         };
         const service = new ShareAccountingService(repository as any);
@@ -158,25 +151,17 @@ describe('ShareAccountingService', () => {
             creditedDifficultyLastDay: 96,
             hashRateLast10Minutes: 458129844.9,
             hashRateLastHour: 114532461.2,
-            bestSubmissionDifficulty: 2048,
-            blockCandidateCount: 1,
+            bestSubmissionDifficulty: 0,
+            blockCandidateCount: 0,
             latestShareAt: '2026-06-07T12:10:00.000Z',
-            protocolBreakdown: [{
-                protocol: 'sv1',
-                acceptedShares: 3,
-                creditedDifficulty: 96,
-            }],
+            protocolBreakdown: [],
         });
         expect(repository.query).toHaveBeenNthCalledWith(
             1,
-            expect.stringContaining('"address" = $1'),
+            expect.stringContaining('"accepted_share_10m"'),
             ['bc1qtest'],
         );
-        expect(repository.query).toHaveBeenNthCalledWith(
-            2,
-            expect.stringContaining('GROUP BY "protocol"'),
-            ['bc1qtest'],
-        );
+        expect(repository.query).toHaveBeenCalledTimes(1);
     });
 
     it('should cache accounting summaries briefly to protect hot dashboard endpoints', async () => {
@@ -194,18 +179,15 @@ describe('ShareAccountingService', () => {
                     creditedDifficultyLastDay: '32',
                     hashRateLast10Minutes: '1',
                     hashRateLastHour: '1',
-                    bestSubmissionDifficulty: '32',
-                    blockCandidateCount: '0',
                     latestShareAt: null,
-                }])
-                .mockResolvedValueOnce([{ protocol: 'sv1', acceptedShares: '1', creditedDifficulty: '32' }]),
+                }]),
         };
         const service = new ShareAccountingService(repository as any);
 
         await service.getPoolSummary();
         await service.getPoolSummary();
 
-        expect(repository.query).toHaveBeenCalledTimes(2);
+        expect(repository.query).toHaveBeenCalledTimes(1);
     });
 });
 

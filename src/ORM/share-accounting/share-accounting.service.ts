@@ -62,6 +62,7 @@ interface AccountingFilter {
 }
 
 const HASHES_PER_DIFFICULTY = 4294967296;
+const ROLLUP_BUCKET_SECONDS = 600;
 const DEFAULT_BATCH_SIZE = 500;
 const DEFAULT_FLUSH_INTERVAL_MS = 25;
 const DEFAULT_MAX_QUEUE_SIZE = 50000;
@@ -199,10 +200,9 @@ export class ShareAccountingService implements OnModuleDestroy {
         const rows = await timeAsync('share accounting session summaries query', () => this.acceptedShareRepository.query(`
             SELECT
                 "clientId",
-                MAX("acceptedAt") AS "latestShareAt",
-                COALESCE((SUM("creditedDifficulty") FILTER (WHERE "acceptedAt" > NOW() - INTERVAL '10 minutes') * ${HASHES_PER_DIFFICULTY}) / 600, 0)::float AS "hashRateLast10Minutes",
-                COALESCE(MAX("submissionDifficulty"), 0)::float AS "bestSubmissionDifficulty"
-            FROM "accepted_share_entity"
+                MAX("bucket") AS "latestShareAt",
+                COALESCE((SUM("shares") FILTER (WHERE "bucket" > NOW() - INTERVAL '10 minutes') * ${HASHES_PER_DIFFICULTY}) / ${ROLLUP_BUCKET_SECONDS}, 0)::float AS "hashRateLast10Minutes"
+            FROM "accepted_share_10m"
             WHERE "clientId" = ANY($1::uuid[])
             GROUP BY "clientId"
         `, [uniqueClientIds]), { clientIds: uniqueClientIds.length });
@@ -214,7 +214,7 @@ export class ShareAccountingService implements OnModuleDestroy {
                     ? null
                     : new Date(row.latestShareAt).toISOString(),
                 hashRateLast10Minutes: this.toNumber(row.hashRateLast10Minutes),
-                bestSubmissionDifficulty: this.toNumber(row.bestSubmissionDifficulty),
+                bestSubmissionDifficulty: 0,
             });
         });
 
@@ -250,32 +250,19 @@ export class ShareAccountingService implements OnModuleDestroy {
         const { whereSql, params } = this.buildWhereClause(filter);
         const [summary] = await timeAsync('share accounting summary query', () => this.acceptedShareRepository.query(`
             SELECT
-                COUNT(*)::int AS "totalAcceptedShares",
-                COALESCE(SUM("creditedDifficulty"), 0)::float AS "totalCreditedDifficulty",
-                COUNT(*) FILTER (WHERE "acceptedAt" > NOW() - INTERVAL '10 minutes')::int AS "acceptedSharesLast10Minutes",
-                COALESCE(SUM("creditedDifficulty") FILTER (WHERE "acceptedAt" > NOW() - INTERVAL '10 minutes'), 0)::float AS "creditedDifficultyLast10Minutes",
-                COUNT(*) FILTER (WHERE "acceptedAt" > NOW() - INTERVAL '1 hour')::int AS "acceptedSharesLastHour",
-                COALESCE(SUM("creditedDifficulty") FILTER (WHERE "acceptedAt" > NOW() - INTERVAL '1 hour'), 0)::float AS "creditedDifficultyLastHour",
-                COUNT(*) FILTER (WHERE "acceptedAt" > NOW() - INTERVAL '1 day')::int AS "acceptedSharesLastDay",
-                COALESCE(SUM("creditedDifficulty") FILTER (WHERE "acceptedAt" > NOW() - INTERVAL '1 day'), 0)::float AS "creditedDifficultyLastDay",
-                COALESCE((SUM("creditedDifficulty") FILTER (WHERE "acceptedAt" > NOW() - INTERVAL '10 minutes') * ${HASHES_PER_DIFFICULTY}) / 600, 0)::float AS "hashRateLast10Minutes",
-                COALESCE((SUM("creditedDifficulty") FILTER (WHERE "acceptedAt" > NOW() - INTERVAL '1 hour') * ${HASHES_PER_DIFFICULTY}) / 3600, 0)::float AS "hashRateLastHour",
-                COALESCE(MAX("submissionDifficulty"), 0)::float AS "bestSubmissionDifficulty",
-                COUNT(*) FILTER (WHERE "isBlockCandidate" = TRUE)::int AS "blockCandidateCount",
-                MAX("acceptedAt") AS "latestShareAt"
-            FROM "accepted_share_entity"
+                COALESCE(SUM("acceptedCount"), 0)::int AS "totalAcceptedShares",
+                COALESCE(SUM("shares"), 0)::float AS "totalCreditedDifficulty",
+                COALESCE(SUM("acceptedCount") FILTER (WHERE "bucket" > NOW() - INTERVAL '10 minutes'), 0)::int AS "acceptedSharesLast10Minutes",
+                COALESCE(SUM("shares") FILTER (WHERE "bucket" > NOW() - INTERVAL '10 minutes'), 0)::float AS "creditedDifficultyLast10Minutes",
+                COALESCE(SUM("acceptedCount") FILTER (WHERE "bucket" > NOW() - INTERVAL '1 hour'), 0)::int AS "acceptedSharesLastHour",
+                COALESCE(SUM("shares") FILTER (WHERE "bucket" > NOW() - INTERVAL '1 hour'), 0)::float AS "creditedDifficultyLastHour",
+                COALESCE(SUM("acceptedCount") FILTER (WHERE "bucket" > NOW() - INTERVAL '1 day'), 0)::int AS "acceptedSharesLastDay",
+                COALESCE(SUM("shares") FILTER (WHERE "bucket" > NOW() - INTERVAL '1 day'), 0)::float AS "creditedDifficultyLastDay",
+                COALESCE((SUM("shares") FILTER (WHERE "bucket" > NOW() - INTERVAL '10 minutes') * ${HASHES_PER_DIFFICULTY}) / ${ROLLUP_BUCKET_SECONDS}, 0)::float AS "hashRateLast10Minutes",
+                COALESCE((SUM("shares") FILTER (WHERE "bucket" > NOW() - INTERVAL '1 hour') * ${HASHES_PER_DIFFICULTY}) / 3600, 0)::float AS "hashRateLastHour",
+                MAX("bucket") AS "latestShareAt"
+            FROM "accepted_share_10m"
             ${whereSql}
-        `, params), { filter, params: params.length });
-
-        const protocolRows = await timeAsync('share accounting protocol breakdown query', () => this.acceptedShareRepository.query(`
-            SELECT
-                "protocol",
-                COUNT(*)::int AS "acceptedShares",
-                COALESCE(SUM("creditedDifficulty"), 0)::float AS "creditedDifficulty"
-            FROM "accepted_share_entity"
-            ${whereSql}
-            GROUP BY "protocol"
-            ORDER BY "protocol"
         `, params), { filter, params: params.length });
 
         return {
@@ -289,16 +276,12 @@ export class ShareAccountingService implements OnModuleDestroy {
             creditedDifficultyLastDay: this.toNumber(summary?.creditedDifficultyLastDay),
             hashRateLast10Minutes: this.toNumber(summary?.hashRateLast10Minutes),
             hashRateLastHour: this.toNumber(summary?.hashRateLastHour),
-            bestSubmissionDifficulty: this.toNumber(summary?.bestSubmissionDifficulty),
-            blockCandidateCount: this.toNumber(summary?.blockCandidateCount),
+            bestSubmissionDifficulty: 0,
+            blockCandidateCount: 0,
             latestShareAt: summary?.latestShareAt == null
                 ? null
                 : new Date(summary.latestShareAt).toISOString(),
-            protocolBreakdown: protocolRows.map(row => ({
-                protocol: row.protocol,
-                acceptedShares: this.toNumber(row.acceptedShares),
-                creditedDifficulty: this.toNumber(row.creditedDifficulty),
-            })),
+            protocolBreakdown: [],
         };
     }
 

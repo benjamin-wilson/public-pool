@@ -5,6 +5,7 @@ import { InitialTimescaleSchema1780859300000 } from './ORM/_migrations/InitialTi
 import { ActiveOnlyUserAgentReport1780860200000 } from './ORM/_migrations/ActiveOnlyUserAgentReport1780860200000';
 import { TimescaleOperationalHardening1780861200000 } from './ORM/_migrations/TimescaleOperationalHardening1780861200000';
 import { AcceptedShareIndex1780862400000 } from './ORM/_migrations/AcceptedShareIndex1780862400000';
+import { AcceptedShareRollupIndexes1780865400000 } from './ORM/_migrations/AcceptedShareRollupIndexes1780865400000';
 import { UserAgentReportView } from './ORM/_views/user-agent-report/user-agent-report.view';
 import { AcceptedShareEntity } from './ORM/accepted-share/accepted-share.entity';
 import { AddressSettingsEntity } from './ORM/address-settings/address-settings.entity';
@@ -28,6 +29,7 @@ export const databaseMigrations = [
     ActiveOnlyUserAgentReport1780860200000,
     TimescaleOperationalHardening1780861200000,
     AcceptedShareIndex1780862400000,
+    AcceptedShareRollupIndexes1780865400000,
 ];
 
 export function createDatabaseOptions(env: NodeJS.ProcessEnv): TypeOrmModuleOptions & DataSourceOptions {
