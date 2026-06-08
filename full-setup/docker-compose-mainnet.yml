@@ -97,6 +97,7 @@ services:
       DB_PASSWORD: public_pool
       DB_DATABASE: public_pool_mainnet
       REDIS_URL: redis://redis:6379
+      API_WORKERS: ${API_WORKERS:-4}
       PM2_ENABLED: "true"
       STRATUM_WORKERS: ${STRATUM_WORKERS:-2}
 

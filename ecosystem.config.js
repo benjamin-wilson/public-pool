@@ -4,8 +4,8 @@ module.exports = {
       {
         name: 'api',
         script: './dist/main.js',
-        instances: 1,
-        exec_mode: 'fork',
+        instances: parseInt(process.env.API_WORKERS || '4', 10),
+        exec_mode: 'cluster',
         env: {
           MASTER: 'false',
           API_ONLY: 'true',
