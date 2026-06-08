@@ -91,6 +91,15 @@ describe('TimescaleDB and Redis integration', () => {
       expect.objectContaining({ proc_name: 'policy_retention' }),
       expect.objectContaining({ proc_name: 'policy_refresh_continuous_aggregate' }),
     ]));
+
+    const shareOrderObjects = await dataSource.query(`
+      SELECT to_regclass('public.accepted_share_index_seq') AS sequence_name,
+        to_regclass('public."IDX_accepted_share_order"') AS index_name
+    `);
+    expect(shareOrderObjects[0]).toEqual({
+      sequence_name: 'accepted_share_index_seq',
+      index_name: '"IDX_accepted_share_order"',
+    });
   });
 
   it('should persist accepted shares and refresh the 10 minute aggregate', async () => {
@@ -126,9 +135,33 @@ describe('TimescaleDB and Redis integration', () => {
       isBlockCandidate: false,
       blockSubmissionResult: null,
     });
+    await service.recordAcceptedShare({
+      protocol: 'sv1',
+      acceptedAt: new Date(acceptedAt.getTime() + 1),
+      address: client.address,
+      clientName: client.clientName,
+      sessionId: client.sessionId,
+      clientId: client.id,
+      jobId: '2',
+      jobTemplateId: '1',
+      blockHeight: 900000,
+      creditedDifficulty: 32,
+      submissionDifficulty: 64,
+      networkDifficulty: 100000,
+      nonce: 'ed460d92',
+      ntime: '64b3f3ec',
+      version: '20000000',
+      extraNonce2: 'c708000000000001',
+      isBlockCandidate: false,
+      blockSubmissionResult: null,
+    });
 
-    const rows = await dataSource.query(`SELECT COUNT(*)::int AS count FROM accepted_share_entity`);
+    const rows = await dataSource.query(`
+      SELECT COUNT(*)::int AS count, MIN("shareIndex")::bigint AS first, MAX("shareIndex")::bigint AS last
+      FROM accepted_share_entity
+    `);
     expect(rows[0].count).toBeGreaterThanOrEqual(1);
+    expect(Number(rows[0].last)).toBeGreaterThan(Number(rows[0].first));
 
     await dataSource.query(`CALL refresh_continuous_aggregate('accepted_share_10m', NULL, NULL)`);
     const aggregateRows = await dataSource.query(`
@@ -138,7 +171,7 @@ describe('TimescaleDB and Redis integration', () => {
     `, [client.address, client.clientName]);
 
     expect(aggregateRows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ shares: 64, acceptedCount: 1 }),
+      expect.objectContaining({ shares: 96, acceptedCount: 2 }),
     ]));
   });
 

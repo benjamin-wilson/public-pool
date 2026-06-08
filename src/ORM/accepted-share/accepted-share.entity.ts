@@ -3,6 +3,7 @@ import { Column, Entity, Index, PrimaryColumn, PrimaryGeneratedColumn } from 'ty
 @Entity()
 @Index('IDX_accepted_share_accounting_lookup', ['address', 'clientName', 'acceptedAt'])
 @Index('IDX_accepted_share_client_lookup', ['clientId', 'acceptedAt'])
+@Index('IDX_accepted_share_order', ['shareIndex'])
 @Index('IDX_accepted_share_unique_submission', ['acceptedAt', 'protocol', 'sessionId', 'jobId', 'nonce', 'ntime', 'version', 'extraNonce2'], { unique: true })
 export class AcceptedShareEntity {
     @PrimaryGeneratedColumn('uuid')
@@ -10,6 +11,9 @@ export class AcceptedShareEntity {
 
     @PrimaryColumn({ type: 'timestamptz' })
     acceptedAt: Date;
+
+    @Column({ type: 'bigint', default: () => `nextval('accepted_share_index_seq')` })
+    shareIndex: number;
 
     @Column({ length: 8, type: 'varchar' })
     protocol: 'sv1' | 'sv2';
