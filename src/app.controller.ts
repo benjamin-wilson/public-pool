@@ -43,7 +43,6 @@ export class AppController {
       return cachedResult;
     }
 
-
     const blockData = await this.blocksService.getFoundBlocks();
     const highScores = await this.addressSettingsService.getHighScores();
     const poolAuthority = await this.stratumV2Service.getPoolAuthorityPublicKey();
@@ -79,7 +78,6 @@ export class AppController {
       blockData,
       userAgents,
       highScores,
-      accounting: await this.shareAccountingService.getPoolSummary(),
       sv2: {
         poolAuthorityPublicKey: poolAuthority.publicKey,
         authorityKeyConfigured: poolAuthority.configured
@@ -87,8 +85,8 @@ export class AppController {
       uptime: this.uptime
     };
 
-    // Keep online miner counts responsive after reconnect cleanup.
-    await this.setCached(CACHE_KEY, data, 15 * 1000);
+    // Match the pre-Timescale dashboard cache behavior; live accounting is exposed separately.
+    await this.setCached(CACHE_KEY, data, 5 * 60 * 1000);
 
     return data;
 
