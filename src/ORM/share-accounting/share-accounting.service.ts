@@ -258,19 +258,22 @@ export class ShareAccountingService implements OnModuleDestroy {
         }
 
         const rows = await this.acceptedShareRepository.query(`
-            WITH clock AS (
+            WITH clock AS MATERIALIZED (
                 SELECT
                     time_bucket(INTERVAL '10 minutes', NOW()) AS "currentBucket"
             ),
-            bounds AS (
+            latest_bucket AS MATERIALIZED (
+                SELECT "bucket"
+                FROM "accepted_share_10m", clock
+                WHERE "bucket" < clock."currentBucket"
+                ORDER BY "bucket" DESC
+                LIMIT 1
+            ),
+            bounds AS MATERIALIZED (
                 SELECT
                     "currentBucket",
                     COALESCE(
-                        (
-                            SELECT MAX("bucket")
-                            FROM "accepted_share_10m", clock
-                            WHERE "bucket" < clock."currentBucket"
-                        ),
+                        (SELECT "bucket" FROM latest_bucket),
                         "currentBucket" - INTERVAL '10 minutes'
                     ) AS "latestCompletedBucket"
                 FROM clock
@@ -353,19 +356,22 @@ export class ShareAccountingService implements OnModuleDestroy {
     private async loadSummary(filter: AccountingFilter): Promise<ShareAccountingSummary> {
         const { whereSql, params } = this.buildWhereClause(filter);
         const [summary] = await this.acceptedShareRepository.query(`
-            WITH clock AS (
+            WITH clock AS MATERIALIZED (
                 SELECT
                     time_bucket(INTERVAL '10 minutes', NOW()) AS "currentBucket"
             ),
-            bounds AS (
+            latest_bucket AS MATERIALIZED (
+                SELECT "bucket"
+                FROM "accepted_share_10m", clock
+                WHERE "bucket" < clock."currentBucket"
+                ORDER BY "bucket" DESC
+                LIMIT 1
+            ),
+            bounds AS MATERIALIZED (
                 SELECT
                     "currentBucket",
                     COALESCE(
-                        (
-                            SELECT MAX("bucket")
-                            FROM "accepted_share_10m", clock
-                            WHERE "bucket" < clock."currentBucket"
-                        ),
+                        (SELECT "bucket" FROM latest_bucket),
                         "currentBucket" - INTERVAL '10 minutes'
                     ) AS "latestCompletedBucket"
                 FROM clock
