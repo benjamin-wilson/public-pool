@@ -1,3 +1,10 @@
+const apiNodeArgs = (process.env.API_NODE_ARGS || '--max-old-space-size=512')
+  .split(/\s+/)
+  .filter(arg => arg.length > 0);
+const apiMaxMemoryRestart = process.env.API_MAX_MEMORY_RESTART || '768M';
+const apiKillTimeout = parseInt(process.env.API_KILL_TIMEOUT_MS || '5000', 10);
+const apiRestartDelay = parseInt(process.env.API_RESTART_DELAY_MS || '2000', 10);
+
 module.exports = {
     apps: [
       // API instance
@@ -6,6 +13,14 @@ module.exports = {
         script: './dist/main.js',
         instances: 1,
         exec_mode: 'fork',
+        node_args: apiNodeArgs,
+        max_memory_restart: apiMaxMemoryRestart,
+        kill_timeout: apiKillTimeout,
+        restart_delay: apiRestartDelay,
+        min_uptime: '10s',
+        max_restarts: 10,
+        pmx: false,
+        vizion: false,
         env: {
           MASTER: 'false',
           API_ONLY: 'true',
