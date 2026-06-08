@@ -33,7 +33,7 @@ services:
       - "0.0.0.0:4332:4332/tcp"
       - "0.0.0.0:4331:4331/tcp"
       - "0.0.0.0:4330:4330/tcp"
-      - "127.0.0.1:${API_PORT:-3334}:3334/tcp"
+      - "${API_BIND_HOST:-127.0.0.1}:${API_PUBLIC_PORT:-3334}:3334/tcp"
     volumes:
       - "./.env:/public-pool/.env:ro"
       - "./secrets:/public-pool/secrets:ro"
