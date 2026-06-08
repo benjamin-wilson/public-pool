@@ -27,10 +27,13 @@ export class ClientController {
         const addressSettings = process.env.API_ONLY === 'true'
             ? null
             : await this.addressSettingsService.getSettings(address, false);
-        const accounting = await this.shareAccountingService.getAddressSummary(address);
         const bestDifficulty = addressSettings?.bestDifficulty ?? workers.reduce((best, worker) => {
             return Math.max(best, Number(worker.bestDifficulty ?? 0));
         }, 0);
+        const accounting = this.withBestSubmissionDifficulty(
+            await this.shareAccountingService.getAddressSummary(address),
+            bestDifficulty,
+        );
 
         const response = {
             bestDifficulty,
@@ -76,7 +79,10 @@ export class ClientController {
         }, 0);
 
         const chartData = await this.clientStatisticsService.getChartDataForGroup(address, workerName);
-        const accounting = await this.shareAccountingService.getWorkerGroupSummary(address, workerName);
+        const accounting = this.withBestSubmissionDifficulty(
+            await this.shareAccountingService.getWorkerGroupSummary(address, workerName),
+            bestDifficulty,
+        );
         const response = {
 
             name: workerName,
@@ -106,7 +112,10 @@ export class ClientController {
             return new NotFoundException();
         }
         const chartData = await this.clientStatisticsService.getChartDataForSession(worker.id);
-        const accounting = await this.shareAccountingService.getSessionSummary(worker.id);
+        const accounting = this.withBestSubmissionDifficulty(
+            await this.shareAccountingService.getSessionSummary(worker.id),
+            worker.bestDifficulty,
+        );
 
         const response = {
             sessionId: worker.sessionId,
@@ -117,5 +126,22 @@ export class ClientController {
             startTime: worker.startTime
         }
         return response;
+    }
+
+    private withBestSubmissionDifficulty<T extends { bestSubmissionDifficulty?: number }>(
+        accounting: T,
+        fallbackBestDifficulty: unknown,
+    ): T {
+        const existing = Number(accounting?.bestSubmissionDifficulty ?? 0);
+        const fallback = Number(fallbackBestDifficulty ?? 0);
+
+        if (!Number.isFinite(fallback) || fallback <= existing) {
+            return accounting;
+        }
+
+        return {
+            ...accounting,
+            bestSubmissionDifficulty: fallback,
+        };
     }
 }
