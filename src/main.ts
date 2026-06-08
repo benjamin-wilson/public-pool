@@ -9,14 +9,6 @@ import * as ecc from 'tiny-secp256k1';
 
 import { AppModule } from './app.module';
 
-const DEFAULT_API_MAX_CONNECTIONS = 512;
-const DEFAULT_API_REQUEST_TIMEOUT_MS = 15000;
-const DEFAULT_API_HEADERS_TIMEOUT_MS = 10000;
-const DEFAULT_API_KEEP_ALIVE_TIMEOUT_MS = 5000;
-const DEFAULT_API_SOCKET_TIMEOUT_MS = 15000;
-const DEFAULT_API_TLS_HANDSHAKE_TIMEOUT_MS = 3000;
-const DEFAULT_API_LISTEN_BACKLOG = 1024;
-
 async function bootstrap() {
   if (process.env.API_PORT == null) {
     console.error('It appears your environment is not configured, create and populate an .env file.');
@@ -36,7 +28,6 @@ async function bootstrap() {
       https: {
         key: readFileSync(keyPath),
         cert: readFileSync(certPath),
-        handshakeTimeout: getPositiveIntegerEnv('API_TLS_HANDSHAKE_TIMEOUT_MS', DEFAULT_API_TLS_HANDSHAKE_TIMEOUT_MS),
       }
     };
   }
@@ -74,20 +65,13 @@ async function bootstrap() {
     return;
   }
 
-  configureApiServer(app.getHttpServer());
-
-  try {
-    const address = await app.listen({
-      port: parseInt(process.env.API_PORT, 10),
-      host: '0.0.0.0',
-      backlog: getPositiveIntegerEnv('API_LISTEN_BACKLOG', DEFAULT_API_LISTEN_BACKLOG),
-    });
+  await app.listen(process.env.API_PORT, '0.0.0.0', (err, address) => {
+    if (err) {
+      console.error(err);
+      process.exit(1);
+    }
     console.log(`API listening on ${address}`);
-  } catch (error) {
-    console.error('API listen failed:', error);
-    await app.close().catch(() => undefined);
-    process.exit(1);
-  }
+  });
 
   // --- Live-reload TLS certs/keys when they change on disk ---
   if (secure) {
@@ -125,28 +109,6 @@ async function bootstrap() {
       console.warn('[TLS] Dynamic cert reload not available (non-HTTPS server?)');
     }
   }
-}
-
-function configureApiServer(server: any) {
-  const socketTimeoutMs = getPositiveIntegerEnv('API_SOCKET_TIMEOUT_MS', DEFAULT_API_SOCKET_TIMEOUT_MS);
-
-  server.maxConnections = getPositiveIntegerEnv('API_MAX_CONNECTIONS', DEFAULT_API_MAX_CONNECTIONS);
-  server.requestTimeout = getPositiveIntegerEnv('API_REQUEST_TIMEOUT_MS', DEFAULT_API_REQUEST_TIMEOUT_MS);
-  server.headersTimeout = getPositiveIntegerEnv('API_HEADERS_TIMEOUT_MS', DEFAULT_API_HEADERS_TIMEOUT_MS);
-  server.keepAliveTimeout = getPositiveIntegerEnv('API_KEEP_ALIVE_TIMEOUT_MS', DEFAULT_API_KEEP_ALIVE_TIMEOUT_MS);
-  server.timeout = socketTimeoutMs;
-
-  server.on('connection', (socket: NodeJS.ReadWriteStream & { setTimeout?: (ms: number) => void; destroy?: () => void }) => {
-    socket.setTimeout?.(socketTimeoutMs);
-    socket.once?.('timeout', () => {
-      socket.destroy?.();
-    });
-  });
-}
-
-function getPositiveIntegerEnv(name: string, fallback: number) {
-  const value = Number(process.env[name]);
-  return Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
 bootstrap();
