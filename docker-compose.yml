@@ -1,8 +1,15 @@
+x-log-limits: &log-limits
+  driver: json-file
+  options:
+    max-size: ${DOCKER_LOG_MAX_SIZE:-100m}
+    max-file: "${DOCKER_LOG_MAX_FILES:-5}"
+
 services:
   timescaledb:
     image: timescale/timescaledb:latest-pg17
     container_name: public-pool-timescaledb
     restart: unless-stopped
+    logging: *log-limits
     environment:
       POSTGRES_DB: ${DB_DATABASE:-public_pool}
       POSTGRES_USER: ${DB_USERNAME:-public_pool}
@@ -33,6 +40,7 @@ services:
     image: redis:8-alpine
     container_name: public-pool-redis
     restart: unless-stopped
+    logging: *log-limits
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379/tcp"
     volumes:
@@ -49,6 +57,7 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    logging: *log-limits
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -83,6 +92,9 @@ services:
       PM2_ENABLED: ${PM2_ENABLED:-true}
       STRATUM_WORKERS: ${STRATUM_WORKERS:-2}
       STRATUM_PORTS: ${STRATUM_PORTS:-3333,3332,3331,3330}
+      STRATUM_MIN_DIFFICULTY: ${STRATUM_MIN_DIFFICULTY:-1}
+      STRATUM_SOCKET_TIMEOUT_MS: ${STRATUM_SOCKET_TIMEOUT_MS:-3600000}
+      STRATUM_TCP_KEEPALIVE_INITIAL_DELAY_MS: ${STRATUM_TCP_KEEPALIVE_INITIAL_DELAY_MS:-60000}
       STRATUM_SECURE: ${STRATUM_SECURE:-true}
       SECURE_STRATUM_PORTS: ${SECURE_STRATUM_PORTS:-4333,4332,4331,4330}
       STRATUM_MAX_CONNECTIONS_PER_LISTENER: ${STRATUM_MAX_CONNECTIONS_PER_LISTENER:-10000}

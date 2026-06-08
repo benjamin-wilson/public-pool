@@ -22,6 +22,9 @@ import { NotificationService } from './notification.service';
 import { RedisMessagingService } from './redis-messaging.service';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
 
+const DEFAULT_SOCKET_TIMEOUT_MS = 1000 * 60 * 60;
+const DEFAULT_TCP_KEEPALIVE_INITIAL_DELAY_MS = 1000 * 60;
+
 @Injectable()
 export class StratumV2Service implements OnModuleInit {
     private readonly servers: Server[] = [];
@@ -171,6 +174,7 @@ export class StratumV2Service implements OnModuleInit {
     private startSocketServer(port: number): void {
         const server = new Server((socket: Socket) => {
             socket.setTimeout(this.getSocketTimeoutMs());
+            socket.setKeepAlive(true, this.getTcpKeepAliveInitialDelayMs());
             socket.setNoDelay(true);
 
             let client: StratumV2Client = null;
@@ -213,7 +217,21 @@ export class StratumV2Service implements OnModuleInit {
     }
 
     private getSocketTimeoutMs(): number {
-        const configured = parseInt(this.configService.get<string>('STRATUM_V2_SOCKET_TIMEOUT_MS') ?? '', 10);
-        return Number.isFinite(configured) && configured > 0 ? configured : 1000 * 60 * 15;
+        const configured = parseInt(
+            this.configService.get<string>('STRATUM_V2_SOCKET_TIMEOUT_MS')
+            ?? this.configService.get<string>('STRATUM_SOCKET_TIMEOUT_MS')
+            ?? '',
+            10,
+        );
+        return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_SOCKET_TIMEOUT_MS;
+    }
+
+    private getTcpKeepAliveInitialDelayMs(): number {
+        const configured = parseInt(
+            this.configService.get<string>('STRATUM_TCP_KEEPALIVE_INITIAL_DELAY_MS')
+            ?? '',
+            10,
+        );
+        return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_TCP_KEEPALIVE_INITIAL_DELAY_MS;
     }
 }

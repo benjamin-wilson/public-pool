@@ -8,6 +8,8 @@ describe('StratumV1Service', () => {
     const originalBackpressureEnabled = process.env.STRATUM_BACKPRESSURE_ENABLED;
     const originalMaxConnectionsPerListener = process.env.STRATUM_MAX_CONNECTIONS_PER_LISTENER;
     const originalTlsHandshakeTimeoutMs = process.env.STRATUM_TLS_HANDSHAKE_TIMEOUT_MS;
+    const originalSocketTimeoutMs = process.env.STRATUM_SOCKET_TIMEOUT_MS;
+    const originalTcpKeepAliveInitialDelayMs = process.env.STRATUM_TCP_KEEPALIVE_INITIAL_DELAY_MS;
 
     let service: StratumV1Service;
     let clientService;
@@ -57,6 +59,8 @@ describe('StratumV1Service', () => {
         restoreEnv('STRATUM_BACKPRESSURE_ENABLED', originalBackpressureEnabled);
         restoreEnv('STRATUM_MAX_CONNECTIONS_PER_LISTENER', originalMaxConnectionsPerListener);
         restoreEnv('STRATUM_TLS_HANDSHAKE_TIMEOUT_MS', originalTlsHandshakeTimeoutMs);
+        restoreEnv('STRATUM_SOCKET_TIMEOUT_MS', originalSocketTimeoutMs);
+        restoreEnv('STRATUM_TCP_KEEPALIVE_INITIAL_DELAY_MS', originalTcpKeepAliveInitialDelayMs);
         consoleLogSpy.mockRestore();
         consoleWarnSpy.mockRestore();
         jest.useRealTimers();
@@ -162,6 +166,30 @@ describe('StratumV1Service', () => {
         process.env.STRATUM_TLS_HANDSHAKE_TIMEOUT_MS = '5000';
 
         expect((service as any).getTlsHandshakeTimeoutMs()).toBe(5000);
+    });
+
+    it('should keep quiet miners connected for one hour by default', () => {
+        delete process.env.STRATUM_SOCKET_TIMEOUT_MS;
+
+        expect((service as any).getSocketTimeoutMs()).toBe(1000 * 60 * 60);
+    });
+
+    it('should allow configuring Stratum socket idle timeout', () => {
+        process.env.STRATUM_SOCKET_TIMEOUT_MS = '7200000';
+
+        expect((service as any).getSocketTimeoutMs()).toBe(7200000);
+    });
+
+    it('should enable TCP keepalive quickly by default', () => {
+        delete process.env.STRATUM_TCP_KEEPALIVE_INITIAL_DELAY_MS;
+
+        expect((service as any).getTcpKeepAliveInitialDelayMs()).toBe(60000);
+    });
+
+    it('should allow configuring TCP keepalive initial delay', () => {
+        process.env.STRATUM_TCP_KEEPALIVE_INITIAL_DELAY_MS = '30000';
+
+        expect((service as any).getTcpKeepAliveInitialDelayMs()).toBe(30000);
     });
 
     it('should detect JSON-RPC as Stratum V1', () => {

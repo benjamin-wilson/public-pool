@@ -58,6 +58,7 @@ import {
 import { Sv2NoiseSession } from './sv2/sv2-noise';
 
 const DEFAULT_START_DIFFICULTY = 100000;
+const DEFAULT_MIN_DIFFICULTY = 0.001;
 const DEFAULT_TARGET_SHARES_PER_MINUTE = 2;
 const DEFAULT_DIFFICULTY_CHECK_INTERVAL_MS = 60 * 1000;
 const FIXED_STANDARD_EXTRANONCE2 = '0000000000000000';
@@ -141,7 +142,7 @@ export class StratumV2Client {
         this.sessionDifficulty = this.getInitialDifficulty();
         this.targetSharesPerMinute = this.getTargetSharesPerMinute();
         this.difficultyCheckIntervalMs = this.getDifficultyCheckIntervalMs();
-        this.statistics = new StratumV1ClientStatistics();
+        this.statistics = new StratumV1ClientStatistics(this.getMinimumDifficulty());
         this.statistics.targetSubmitShareEveryNSeconds = 60 / this.targetSharesPerMinute;
         this.network = this.getNetwork();
 
@@ -357,10 +358,10 @@ export class StratumV2Client {
                 this.targetSharesPerMinute,
             );
             if (Number.isFinite(calculatedDifficulty) && calculatedDifficulty > 0) {
-                channelDifficulty = calculatedDifficulty;
+                channelDifficulty = this.clampDifficulty(calculatedDifficulty);
             }
         }
-        channelDifficulty = DifficultyUtils.clampDifficultyToMaxTarget(channelDifficulty, message.maxTarget);
+        channelDifficulty = this.clampDifficulty(DifficultyUtils.clampDifficultyToMaxTarget(channelDifficulty, message.maxTarget));
         this.sessionDifficulty = channelDifficulty;
 
         const channel: ChannelState = {
@@ -385,6 +386,7 @@ export class StratumV2Client {
         }
 
         await this.ensureClientEntity();
+        this.disableApplicationIdleTimeout();
         await this.sendFrame(
             Sv2MsgType.OPEN_STANDARD_MINING_CHANNEL_SUCCESS,
             serializeOpenStandardMiningChannelSuccess({
@@ -449,10 +451,10 @@ export class StratumV2Client {
                 this.targetSharesPerMinute,
             );
             if (Number.isFinite(calculatedDifficulty) && calculatedDifficulty > 0) {
-                channelDifficulty = calculatedDifficulty;
+                channelDifficulty = this.clampDifficulty(calculatedDifficulty);
             }
         }
-        channelDifficulty = DifficultyUtils.clampDifficultyToMaxTarget(channelDifficulty, message.maxTarget);
+        channelDifficulty = this.clampDifficulty(DifficultyUtils.clampDifficultyToMaxTarget(channelDifficulty, message.maxTarget));
         this.sessionDifficulty = channelDifficulty;
 
         const channel: ChannelState = {
@@ -477,6 +479,7 @@ export class StratumV2Client {
         }
 
         await this.ensureClientEntity();
+        this.disableApplicationIdleTimeout();
         await this.sendFrame(
             Sv2MsgType.OPEN_EXTENDED_MINING_CHANNEL_SUCCESS,
             serializeOpenExtendedMiningChannelSuccess({
@@ -797,10 +800,10 @@ export class StratumV2Client {
                 this.targetSharesPerMinute,
             );
             if (Number.isFinite(nextDifficulty) && nextDifficulty > 0) {
-                channel.sessionDifficulty = DifficultyUtils.clampDifficultyToMaxTarget(
+                channel.sessionDifficulty = this.clampDifficulty(DifficultyUtils.clampDifficultyToMaxTarget(
                     nextDifficulty,
                     channel.declaredMaxTarget,
-                );
+                ));
                 await this.sendSetTarget(channel);
             }
         }
@@ -876,17 +879,17 @@ export class StratumV2Client {
     }
 
     private async checkDifficulty(): Promise<void> {
-        const targetDiff = this.statistics.getSuggestedDifficulty(this.sessionDifficulty);
+        const targetDiff = this.clampDifficulty(this.statistics.getSuggestedDifficulty(this.sessionDifficulty));
         if (targetDiff == null || targetDiff === this.sessionDifficulty || !Number.isFinite(targetDiff)) {
             return;
         }
 
         this.sessionDifficulty = targetDiff;
         for (const channel of this.channels.values()) {
-            channel.sessionDifficulty = DifficultyUtils.clampDifficultyToMaxTarget(
+            channel.sessionDifficulty = this.clampDifficulty(DifficultyUtils.clampDifficultyToMaxTarget(
                 targetDiff,
                 channel.declaredMaxTarget,
-            );
+            ));
             await this.sendSetTarget(channel);
         }
 
@@ -1191,7 +1194,35 @@ export class StratumV2Client {
             ?? this.configService.get<string>('STRATUM_START_DIFFICULTY')
             ?? '',
         );
-        return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_START_DIFFICULTY;
+        const difficulty = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_START_DIFFICULTY;
+        return this.clampDifficulty(difficulty);
+    }
+
+    private getMinimumDifficulty(): number {
+        return this.getConfiguredMinimumDifficulty() ?? DEFAULT_MIN_DIFFICULTY;
+    }
+
+    private getConfiguredMinimumDifficulty(): number | null {
+        const configured = parseFloat(
+            this.configService.get<string>('STRATUM_MIN_DIFFICULTY')
+            ?? process.env.STRATUM_MIN_DIFFICULTY
+            ?? '',
+        );
+        return Number.isFinite(configured) && configured > 0 ? configured : null;
+    }
+
+    private clampDifficulty(difficulty: number | null): number | null {
+        if (difficulty == null || !Number.isFinite(difficulty)) {
+            return null;
+        }
+        const configuredMinimum = this.getConfiguredMinimumDifficulty();
+        return configuredMinimum == null ? difficulty : Math.max(difficulty, configuredMinimum);
+    }
+
+    private disableApplicationIdleTimeout(): void {
+        if (typeof this.socket.setTimeout === 'function') {
+            this.socket.setTimeout(0);
+        }
     }
 
     private getTargetSharesPerMinute(): number {

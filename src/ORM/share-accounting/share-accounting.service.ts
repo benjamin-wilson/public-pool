@@ -4,7 +4,6 @@ import { Repository } from 'typeorm';
 
 import { AcceptedShareEntity } from '../accepted-share/accepted-share.entity';
 import { RedisMessagingService } from '../../services/redis-messaging.service';
-import { timeAsync } from '../../utils/timing.utils';
 
 export interface AcceptedShareRecord {
     protocol: 'sv1' | 'sv2';
@@ -40,6 +39,10 @@ export interface ShareAccountingSummary {
     hashRateLastHour: number;
     bestSubmissionDifficulty: number;
     bestSubmissionDifficultyAt: string | null;
+    workSinceLastBlock: number;
+    currentRoundAcceptedShares: number;
+    currentRoundNetworkDifficulty: number;
+    networkDifficultyPercent: number;
     blockCandidateCount: number;
     latestShareAt: string | null;
     protocolBreakdown: {
@@ -167,8 +170,8 @@ export class ShareAccountingService implements OnModuleDestroy {
             return summary;
         }
 
-        const [[liveWindow], [bestDifficultyRow]] = await Promise.all([
-            timeAsync('share accounting live 10m pool query', () => this.acceptedShareRepository.query(`
+        const [[liveWindow], [bestDifficultyRow], [currentRoundRow]] = await Promise.all([
+            this.acceptedShareRepository.query(`
                 SELECT
                     COUNT(*)::int AS "acceptedSharesLast10Minutes",
                     COALESCE(SUM("creditedDifficulty"), 0)::float AS "creditedDifficultyLast10Minutes",
@@ -176,8 +179,8 @@ export class ShareAccountingService implements OnModuleDestroy {
                     MAX("acceptedAt") AS "latestShareAt"
                     FROM "accepted_share_entity"
                     WHERE "acceptedAt" > NOW() - INTERVAL '10 minutes'
-                `)),
-            timeAsync('share accounting current round best share query', () => this.acceptedShareRepository.query(`
+                `),
+            this.acceptedShareRepository.query(`
                 WITH latest_found_block AS (
                     SELECT COALESCE(MAX("height"), 0) AS "height"
                     FROM "blocks_entity"
@@ -189,8 +192,22 @@ export class ShareAccountingService implements OnModuleDestroy {
                 WHERE "blockHeight" > latest_found_block."height"
                 ORDER BY "submissionDifficulty" DESC, "acceptedAt" DESC
                 LIMIT 1
-            `)),
+            `),
+            this.acceptedShareRepository.query(`
+                WITH latest_found_block AS (
+                    SELECT COALESCE(MAX("height"), 0) AS "height"
+                    FROM "blocks_entity"
+                )
+                SELECT
+                    COALESCE(SUM("acceptedCount"), 0)::int AS "currentRoundAcceptedShares",
+                    COALESCE(SUM("shares"), 0)::float AS "workSinceLastBlock",
+                    COALESCE(MAX("networkDifficulty"), 0)::float AS "currentRoundNetworkDifficulty"
+                FROM "accepted_share_block_10m", latest_found_block
+                WHERE "blockHeight" > latest_found_block."height"
+            `),
         ]);
+        const currentRoundNetworkDifficulty = this.toNumber(currentRoundRow?.currentRoundNetworkDifficulty);
+        const workSinceLastBlock = this.toNumber(currentRoundRow?.workSinceLastBlock);
 
         return {
             ...summary,
@@ -201,6 +218,12 @@ export class ShareAccountingService implements OnModuleDestroy {
             bestSubmissionDifficultyAt: bestDifficultyRow?.bestSubmissionDifficultyAt == null
                 ? null
                 : new Date(bestDifficultyRow.bestSubmissionDifficultyAt).toISOString(),
+            workSinceLastBlock,
+            currentRoundAcceptedShares: this.toNumber(currentRoundRow?.currentRoundAcceptedShares),
+            currentRoundNetworkDifficulty,
+            networkDifficultyPercent: currentRoundNetworkDifficulty > 0
+                ? this.roundPercent((workSinceLastBlock / currentRoundNetworkDifficulty) * 100)
+                : 0,
             latestShareAt: liveWindow?.latestShareAt == null
                 ? summary.latestShareAt
                 : new Date(liveWindow.latestShareAt).toISOString(),
@@ -221,6 +244,10 @@ export class ShareAccountingService implements OnModuleDestroy {
             hashRateLastHour: 0,
             bestSubmissionDifficulty: 0,
             bestSubmissionDifficultyAt: null,
+            workSinceLastBlock: 0,
+            currentRoundAcceptedShares: 0,
+            currentRoundNetworkDifficulty: 0,
+            networkDifficultyPercent: 0,
             blockCandidateCount: 0,
             latestShareAt: null,
             protocolBreakdown: [],
@@ -246,7 +273,7 @@ export class ShareAccountingService implements OnModuleDestroy {
             return summaries;
         }
 
-        const rows = await timeAsync('share accounting session summaries query', () => this.acceptedShareRepository.query(`
+        const rows = await this.acceptedShareRepository.query(`
             SELECT
                 "clientId",
                 MAX("bucket") AS "latestShareAt",
@@ -254,7 +281,7 @@ export class ShareAccountingService implements OnModuleDestroy {
             FROM "accepted_share_10m"
             WHERE "clientId" = ANY($1::uuid[])
             GROUP BY "clientId"
-        `, [uniqueClientIds]), { clientIds: uniqueClientIds.length });
+        `, [uniqueClientIds]);
 
         rows.forEach(row => {
             summaries.set(row.clientId, {
@@ -320,7 +347,7 @@ export class ShareAccountingService implements OnModuleDestroy {
 
     private async loadSummary(filter: AccountingFilter): Promise<ShareAccountingSummary> {
         const { whereSql, params } = this.buildWhereClause(filter);
-        const [summary] = await timeAsync('share accounting summary query', () => this.acceptedShareRepository.query(`
+        const [summary] = await this.acceptedShareRepository.query(`
             SELECT
                 COALESCE(SUM("acceptedCount"), 0)::int AS "totalAcceptedShares",
                 COALESCE(SUM("shares"), 0)::float AS "totalCreditedDifficulty",
@@ -335,7 +362,7 @@ export class ShareAccountingService implements OnModuleDestroy {
                 MAX("bucket") AS "latestShareAt"
             FROM "accepted_share_10m"
             ${whereSql}
-        `, params), { filter, params: params.length });
+        `, params);
 
         return {
             totalAcceptedShares: this.toNumber(summary?.totalAcceptedShares),
@@ -350,6 +377,10 @@ export class ShareAccountingService implements OnModuleDestroy {
             hashRateLastHour: this.toNumber(summary?.hashRateLastHour),
             bestSubmissionDifficulty: 0,
             bestSubmissionDifficultyAt: null,
+            workSinceLastBlock: 0,
+            currentRoundAcceptedShares: 0,
+            currentRoundNetworkDifficulty: 0,
+            networkDifficultyPercent: 0,
             blockCandidateCount: 0,
             latestShareAt: summary?.latestShareAt == null
                 ? null
@@ -434,6 +465,10 @@ export class ShareAccountingService implements OnModuleDestroy {
     private toNumber(value: unknown): number {
         const parsed = Number(value ?? 0);
         return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    private roundPercent(value: number): number {
+        return Math.round(value * 1_000_000) / 1_000_000;
     }
 
     private getSummaryCacheKey(filter: AccountingFilter): string {

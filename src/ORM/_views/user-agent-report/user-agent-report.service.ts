@@ -5,7 +5,6 @@ import { Repository } from 'typeorm';
 import { ClientEntity } from '../../client/client.entity';
 import { UserAgentReportView } from './user-agent-report.view';
 import { RedisMessagingService } from '../../../services/redis-messaging.service';
-import { logTiming, timeAsync, timingStart } from '../../../utils/timing.utils';
 
 @Injectable()
 export class UserAgentReportService {
@@ -23,27 +22,21 @@ export class UserAgentReportService {
     }
 
     public async getReport() {
-        const start = timingStart();
-        const cachedReport = await timeAsync('user agent report shared cache read', () => this.redisMessagingService
+        const cachedReport = await this.redisMessagingService
             .getJsonCache<UserAgentReportView[]>(this.liveReportCacheKey)
             .catch(error => {
                 console.error(`Live user-agent report cache read failed: ${error.message}`);
                 return null;
-            }));
+            });
         if (cachedReport != null) {
-            logTiming('user agent report getReport', start, { cache: 'hit', rows: cachedReport.length });
             return cachedReport;
         }
 
         if (process.env.API_ONLY == 'true') {
-            const rows = await timeAsync('user agent report materialized view read', () => this.userAgentReport.find());
-            logTiming('user agent report getReport', start, { cache: 'miss', source: 'materialized-view', rows: rows.length });
-            return rows;
+            return await this.userAgentReport.find();
         }
 
-        const rows = await this.refreshLiveReport();
-        logTiming('user agent report getReport', start, { cache: 'miss', source: 'live-presence', rows: rows.length });
-        return rows;
+        return await this.refreshLiveReport();
     }
 
     public async refreshLiveReport() {
@@ -60,8 +53,7 @@ export class UserAgentReportService {
     }
 
     private async buildLiveReport() {
-        const start = timingStart();
-        const presences = await timeAsync('user agent report all presence load', () => this.redisMessagingService.getAllClientPresence());
+        const presences = await this.redisMessagingService.getAllClientPresence();
         const rows = new Map<string, {
             userAgent: string;
             count: number;
@@ -103,7 +95,6 @@ export class UserAgentReportService {
                 console.error(`Live user-agent report cache write failed: ${error.message}`);
             });
 
-        logTiming('user agent report buildLiveReport', start, { presences: presences.length, rows: report.length });
         return report;
     }
 

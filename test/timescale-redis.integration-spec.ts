@@ -64,13 +64,14 @@ describe('TimescaleDB and Redis integration', () => {
     const aggregates = await dataSource.query(`
       SELECT view_name
       FROM timescaledb_information.continuous_aggregates
-      WHERE view_name IN ('accepted_share_10m', 'accepted_share_1h', 'accepted_share_1d')
+      WHERE view_name IN ('accepted_share_10m', 'accepted_share_1h', 'accepted_share_1d', 'accepted_share_block_10m')
       ORDER BY view_name
     `);
     expect(aggregates.map(row => row.view_name)).toEqual([
       'accepted_share_10m',
       'accepted_share_1d',
       'accepted_share_1h',
+      'accepted_share_block_10m',
     ]);
 
     const legacyTables = await dataSource.query(`
@@ -166,6 +167,7 @@ describe('TimescaleDB and Redis integration', () => {
     expect(Number(rows[0].last)).toBeGreaterThan(Number(rows[0].first));
 
     await dataSource.query(`CALL refresh_continuous_aggregate('accepted_share_10m', NULL, NULL)`);
+    await dataSource.query(`CALL refresh_continuous_aggregate('accepted_share_block_10m', NULL, NULL)`);
     const aggregateRows = await dataSource.query(`
       SELECT "shares"::float AS shares, "acceptedCount"::int AS "acceptedCount"
       FROM accepted_share_10m
@@ -174,6 +176,19 @@ describe('TimescaleDB and Redis integration', () => {
 
     expect(aggregateRows).toEqual(expect.arrayContaining([
       expect.objectContaining({ shares: 96, acceptedCount: 2 }),
+    ]));
+
+    const blockAggregateRows = await dataSource.query(`
+      SELECT
+        "shares"::float AS shares,
+        "acceptedCount"::int AS "acceptedCount",
+        "networkDifficulty"::float AS "networkDifficulty"
+      FROM accepted_share_block_10m
+      WHERE "blockHeight" = $1
+    `, [900000]);
+
+    expect(blockAggregateRows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ shares: 96, acceptedCount: 2, networkDifficulty: 100000 }),
     ]));
   });
 

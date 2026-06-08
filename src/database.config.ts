@@ -8,6 +8,7 @@ import { AcceptedShareIndex1780862400000 } from './ORM/_migrations/AcceptedShare
 import { AcceptedShareRollupIndexes1780865400000 } from './ORM/_migrations/AcceptedShareRollupIndexes1780865400000';
 import { PoolAccountingDashboardIndexes1780867200000 } from './ORM/_migrations/PoolAccountingDashboardIndexes1780867200000';
 import { CurrentRoundBestShareIndex1780897600000 } from './ORM/_migrations/CurrentRoundBestShareIndex1780897600000';
+import { CurrentRoundWorkRollup1780899000000 } from './ORM/_migrations/CurrentRoundWorkRollup1780899000000';
 import { UserAgentReportView } from './ORM/_views/user-agent-report/user-agent-report.view';
 import { AcceptedShareEntity } from './ORM/accepted-share/accepted-share.entity';
 import { AddressSettingsEntity } from './ORM/address-settings/address-settings.entity';
@@ -34,6 +35,7 @@ export const databaseMigrations = [
     AcceptedShareRollupIndexes1780865400000,
     PoolAccountingDashboardIndexes1780867200000,
     CurrentRoundBestShareIndex1780897600000,
+    CurrentRoundWorkRollup1780899000000,
 ];
 
 export function createDatabaseOptions(env: NodeJS.ProcessEnv): TypeOrmModuleOptions & DataSourceOptions {

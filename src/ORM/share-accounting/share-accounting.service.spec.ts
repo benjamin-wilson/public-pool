@@ -153,6 +153,10 @@ describe('ShareAccountingService', () => {
             hashRateLastHour: 114532461.2,
             bestSubmissionDifficulty: 0,
             bestSubmissionDifficultyAt: null,
+            workSinceLastBlock: 0,
+            currentRoundAcceptedShares: 0,
+            currentRoundNetworkDifficulty: 0,
+            networkDifficultyPercent: 0,
             blockCandidateCount: 0,
             latestShareAt: '2026-06-07T12:10:00.000Z',
             protocolBreakdown: [],
@@ -274,6 +278,11 @@ describe('ShareAccountingService', () => {
                 .mockResolvedValueOnce([{
                     bestSubmissionDifficulty: '4096',
                     bestSubmissionDifficultyAt: new Date('2026-06-07T12:19:00Z'),
+                }])
+                .mockResolvedValueOnce([{
+                    currentRoundAcceptedShares: '11',
+                    workSinceLastBlock: '352',
+                    currentRoundNetworkDifficulty: '1000',
                 }]),
         };
         const service = new ShareAccountingService(repository as any, redis as any);
@@ -284,11 +293,19 @@ describe('ShareAccountingService', () => {
             hashRateLast10Minutes: 1603451170.77,
             bestSubmissionDifficulty: 4096,
             bestSubmissionDifficultyAt: '2026-06-07T12:19:00.000Z',
+            workSinceLastBlock: 352,
+            currentRoundAcceptedShares: 11,
+            currentRoundNetworkDifficulty: 1000,
+            networkDifficultyPercent: 35.2,
             latestShareAt: '2026-06-07T12:20:00.000Z',
         }));
         expect(repository.query).toHaveBeenNthCalledWith(
             3,
             expect.stringContaining('WHERE "blockHeight" > latest_found_block."height"'),
+        );
+        expect(repository.query).toHaveBeenNthCalledWith(
+            4,
+            expect.stringContaining('FROM "accepted_share_block_10m"'),
         );
     });
 

@@ -35,6 +35,8 @@ const DEFAULT_BACKPRESSURE_RESUME_RSS_MB = 2000;
 const DEFAULT_BACKPRESSURE_HEALTHY_CHECKS = 3;
 const DEFAULT_MAX_CONNECTIONS_PER_LISTENER = 10000;
 const DEFAULT_TLS_HANDSHAKE_TIMEOUT_MS = 10000;
+const DEFAULT_SOCKET_TIMEOUT_MS = 1000 * 60 * 60;
+const DEFAULT_TCP_KEEPALIVE_INITIAL_DELAY_MS = 1000 * 60;
 
 
 
@@ -118,8 +120,8 @@ export class StratumV1Service implements OnModuleInit {
 
     private createSocketServer(): Server {
         const server = new Server(async (socket: Socket) => {
-            // Set 15-minute timeout
-            socket.setTimeout(1000 * 60 * 15);
+            socket.setTimeout(this.getSocketTimeoutMs());
+            socket.setKeepAlive(true, this.getTcpKeepAliveInitialDelayMs());
 
             let client: StratumV1Client | StratumV2Client = null;
             let protocol: 'v1' | 'v2' | null = null;
@@ -235,8 +237,8 @@ export class StratumV1Service implements OnModuleInit {
         };
 
         const server = createServer(tlsOptions, async (socket: TLSSocket) => {
-            // Set 15-minute timeout
-            socket.setTimeout(1000 * 60 * 15);
+            socket.setTimeout(this.getSocketTimeoutMs());
+            socket.setKeepAlive(true, this.getTcpKeepAliveInitialDelayMs());
 
             const client = this.createV1Client(socket);
 
@@ -419,6 +421,14 @@ export class StratumV1Service implements OnModuleInit {
 
     private getTlsHandshakeTimeoutMs() {
         return this.getPositiveIntegerEnv('STRATUM_TLS_HANDSHAKE_TIMEOUT_MS', DEFAULT_TLS_HANDSHAKE_TIMEOUT_MS);
+    }
+
+    private getSocketTimeoutMs() {
+        return this.getPositiveIntegerEnv('STRATUM_SOCKET_TIMEOUT_MS', DEFAULT_SOCKET_TIMEOUT_MS);
+    }
+
+    private getTcpKeepAliveInitialDelayMs() {
+        return this.getPositiveIntegerEnv('STRATUM_TCP_KEEPALIVE_INITIAL_DELAY_MS', DEFAULT_TCP_KEEPALIVE_INITIAL_DELAY_MS);
     }
 
     private detectProtocol(firstChunk: Buffer): 'v1' | 'v2' | null {

@@ -1,8 +1,15 @@
 name: public-pool-test
 
+x-log-limits: &log-limits
+  driver: json-file
+  options:
+    max-size: ${DOCKER_LOG_MAX_SIZE:-100m}
+    max-file: "${DOCKER_LOG_MAX_FILES:-5}"
+
 services:
   timescaledb:
     image: timescale/timescaledb:latest-pg17
+    logging: *log-limits
     environment:
       POSTGRES_DB: public_pool_test
       POSTGRES_USER: public_pool
@@ -29,6 +36,7 @@ services:
 
   redis:
     image: redis:8-alpine
+    logging: *log-limits
     ports:
       - "127.0.0.1:16379:6379/tcp"
     healthcheck:
@@ -41,6 +49,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.test
+    logging: *log-limits
     depends_on:
       timescaledb:
         condition: service_healthy

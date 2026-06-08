@@ -13,7 +13,6 @@ import { UserAgentReportView } from './ORM/_views/user-agent-report/user-agent-r
 import { StratumV2Service } from './services/stratum-v2.service';
 import { ShareAccountingService } from './ORM/share-accounting/share-accounting.service';
 import { RedisMessagingService } from './services/redis-messaging.service';
-import { logTiming, timeAsync, timingStart } from './utils/timing.utils';
 
 @Controller()
 export class AppController {
@@ -36,28 +35,21 @@ export class AppController {
 
   @Get('info')
   public async info() {
-    const start = timingStart();
-
-
     const CACHE_KEY = 'SITE_INFO';
     const STALE_CACHE_KEY = 'SITE_INFO_STALE';
     const cachedResult = await this.getCached(CACHE_KEY, 5 * 60 * 1000);
 
     if (cachedResult != null) {
-      logTiming('GET /api/info', start, { cache: 'fresh' });
       return cachedResult;
     }
 
     const staleResult = await this.getCached<SiteInfoResponse>(STALE_CACHE_KEY, 60 * 60 * 1000);
     if (staleResult != null) {
       void this.refreshSiteInfo(staleResult);
-      logTiming('GET /api/info', start, { cache: 'stale' });
       return staleResult;
     }
 
-    const response = await this.refreshSiteInfo(null);
-    logTiming('GET /api/info', start, { cache: 'miss' });
-    return response;
+    return await this.refreshSiteInfo(null);
 
   }
 
@@ -82,13 +74,13 @@ export class AppController {
     };
 
     const [blockData, highScores, poolAuthority, userAgentReport] = await Promise.all([
-      withInfoTimeout('found blocks', timeAsync('/api/info found blocks', () => this.blocksService.getFoundBlocks()), staleInfo?.blockData ?? []),
-      withInfoTimeout('high scores', timeAsync('/api/info high scores', () => this.addressSettingsService.getHighScores()), staleInfo?.highScores ?? []),
-      withInfoTimeout('SV2 authority', timeAsync('/api/info SV2 authority', () => this.stratumV2Service.getPoolAuthorityPublicKey()), {
+      withInfoTimeout('found blocks', this.blocksService.getFoundBlocks(), staleInfo?.blockData ?? []),
+      withInfoTimeout('high scores', this.addressSettingsService.getHighScores(), staleInfo?.highScores ?? []),
+      withInfoTimeout('SV2 authority', this.stratumV2Service.getPoolAuthorityPublicKey(), {
         publicKey: staleInfo?.sv2?.poolAuthorityPublicKey ?? '',
         configured: staleInfo?.sv2?.authorityKeyConfigured ?? false
       }),
-      withInfoTimeout<UserAgentReportView[]>('user agent report', timeAsync('/api/info user agent report', () => this.userAgentReportService.getReport()), staleInfo?.userAgents ?? []),
+      withInfoTimeout<UserAgentReportView[]>('user agent report', this.userAgentReportService.getReport(), staleInfo?.userAgents ?? []),
     ]);
 
     const other: {
@@ -139,42 +131,36 @@ export class AppController {
 
   @Get('info/accounting')
   public async infoAccounting() {
-    const start = timingStart();
     const CACHE_KEY = 'SITE_ACCOUNTING';
     const cachedResult = await this.getCached(CACHE_KEY, 15 * 1000);
 
     if (cachedResult != null) {
-      logTiming('GET /api/info/accounting', start, { cache: 'hit' });
       return cachedResult;
     }
 
-    const data = await timeAsync('/api/info/accounting getPoolSummary', () => this.shareAccountingService.getPoolSummary());
+    const data = await this.shareAccountingService.getPoolSummary();
 
     //15 sec
     await this.setCached(CACHE_KEY, data, 15 * 1000);
 
-    logTiming('GET /api/info/accounting', start, { cache: 'miss' });
     return data;
   }
 
   @Get('pool')
   public async pool() {
-    const start = timingStart();
-
     const CACHE_KEY = 'POOL_INFO';
     const cachedResult = await this.getCached(CACHE_KEY, 15 * 1000);
 
     if (cachedResult != null) {
-      logTiming('GET /api/pool', start, { cache: 'hit' });
       return cachedResult;
     }
 
-    const userAgents = await timeAsync('/api/pool user agent report', () => this.userAgentReportService.getReport());
+    const userAgents = await this.userAgentReportService.getReport();
 
     const totalHashRate = userAgents.reduce((acc, userAgent) => acc + parseFloat(userAgent.totalHashRate), 0);
     const totalMiners = userAgents.reduce((acc, userAgent) => acc + parseFloat(userAgent.count), 0);
     const blockHeight = this.bitcoinRpcService.miningInfo.blocks;
-    const blocksFound = await timeAsync('/api/pool found blocks', () => this.blocksService.getFoundBlocks());
+    const blocksFound = await this.blocksService.getFoundBlocks();
 
     const data = {
       totalHashRate,
@@ -187,36 +173,28 @@ export class AppController {
     // Keep online miner counts responsive after reconnect cleanup.
     await this.setCached(CACHE_KEY, data, 15 * 1000);
 
-    logTiming('GET /api/pool', start, { cache: 'miss', userAgentCount: userAgents.length });
     return data;
   }
 
   @Get('network')
   public async network() {
-    const start = timingStart();
-    logTiming('GET /api/network', start);
     return this.bitcoinRpcService.miningInfo ?? {};
   }
 
   @Get('info/chart')
   public async infoChart() {
-    const start = timingStart();
-
-
     const CACHE_KEY = 'SITE_HASHRATE_GRAPH';
     const cachedResult = await this.getCached(CACHE_KEY, 10 * 60 * 1000);
 
     if (cachedResult != null) {
-      logTiming('GET /api/info/chart', start, { cache: 'hit' });
       return cachedResult;
     }
 
-    const chartData = await timeAsync('/api/info/chart query', () => this.clientStatisticsService.getChartDataForSite());
+    const chartData = await this.clientStatisticsService.getChartDataForSite();
 
     //10 min
     await this.setCached(CACHE_KEY, chartData, 10 * 60 * 1000);
 
-    logTiming('GET /api/info/chart', start, { cache: 'miss', points: chartData.length });
     return chartData;
 
 

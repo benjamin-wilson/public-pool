@@ -186,6 +186,17 @@ describe('StratumV1Client', () => {
 
     });
 
+    it('should disable application idle timeout after Stratum initialization', async () => {
+        const setTimeoutSpy = jest.spyOn(socket, 'setTimeout').mockImplementation(() => socket);
+        jest.spyOn(client as any, 'write').mockImplementation(() => Promise.resolve(true));
+
+        emitMessage(MockRecording1.MINING_SUBSCRIBE);
+        emitMessage(MockRecording1.MINING_AUTHORIZE);
+        await new Promise((r) => setTimeout(r, 100));
+
+        expect(setTimeoutSpy).toHaveBeenCalledWith(0);
+    });
+
     it('should block non-compliant user agents on subscribe without allocating a session', async () => {
         (configService.get as jest.Mock).mockImplementation((key: string) => {
             switch (key) {
@@ -280,6 +291,26 @@ describe('StratumV1Client', () => {
         emitMessage(MockRecording1.MINING_SUGGEST_DIFFICULTY);
         await new Promise((r) => setTimeout(r, 1));
         expect(socket.write).toHaveBeenCalledWith(`{"id":null,"method":"mining.set_difficulty","params":[512]}\n`, expect.any(Function));
+    });
+
+    it('should clamp suggested difficulty to the configured minimum', async () => {
+        (configService.get as jest.Mock).mockImplementation((key: string) => {
+            switch (key) {
+                case 'STRATUM_MIN_DIFFICULTY':
+                    return '1';
+                case 'DEV_FEE_ADDRESS':
+                    return 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4';
+                case 'NETWORK':
+                    return 'testnet';
+            }
+            return null;
+        });
+        jest.spyOn(socket, 'write').mockImplementation((data) => true);
+
+        emitMessage(`{"id":4,"method":"mining.suggest_difficulty","params":[0]}`);
+        await new Promise((r) => setTimeout(r, 1));
+
+        expect(socket.write).toHaveBeenCalledWith(`{"id":null,"method":"mining.set_difficulty","params":[1]}\n`, expect.any(Function));
     });
 
     it('should set difficulty', async () => {

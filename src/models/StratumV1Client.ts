@@ -32,6 +32,7 @@ import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
 const TRUE_DIFF_ONE = 2.695953529101131e67;
 const BLOCKED_USER_AGENT_LOG_INTERVAL_MS = 60 * 1000;
 const VALIDATION_ERROR_LOG_INTERVAL_MS = 60 * 1000;
+const DEFAULT_MIN_DIFFICULTY = 0.001;
 
 export class StratumV1Client {
     private static blockedUserAgentLogState = new Map<string, { nextLogAt: number, suppressed: number }>();
@@ -159,7 +160,7 @@ export class StratumV1Client {
 
                     if (this.sessionStart == null) {
                         this.sessionStart = new Date();
-                        this.statistics = new StratumV1ClientStatistics();
+                        this.statistics = new StratumV1ClientStatistics(this.getMinimumDifficulty());
                         this.extraNonceAndSessionId = this.getRandomHexString();
                         //console.log(`New client ID: : ${this.extraNonceAndSessionId}, ${this.socket.remoteAddress}:${this.socket.remotePort}`);
                     }
@@ -281,7 +282,7 @@ export class StratumV1Client {
                 if (errors.length === 0) {
 
                     this.clientSuggestedDifficulty = suggestDifficultyMessage;
-                    this.sessionDifficulty = suggestDifficultyMessage.suggestedDifficulty;
+                    this.sessionDifficulty = this.clampDifficulty(suggestDifficultyMessage.suggestedDifficulty);
                     const success = await this.write(JSON.stringify(this.clientSuggestedDifficulty.response(this.sessionDifficulty)) + '\n');
                     if (!success) {
                         return;
@@ -369,17 +370,12 @@ export class StratumV1Client {
 
     private async initStratum() {
         this.stratumInitialized = true;
+        this.socket.setTimeout(0);
 
         if (this.isBlockedUserAgent(this.clientSubscription.userAgent)) {
             this.logBlockedUserAgent(this.clientSubscription.userAgent);
             this.closeSocket();
             return;
-        }
-
-        switch (this.clientSubscription.userAgent) {
-            case 'cpuminer': {
-                this.sessionDifficulty = 0.1;
-            }
         }
 
         if (this.clientSuggestedDifficulty == null) {
@@ -688,7 +684,7 @@ export class StratumV1Client {
     }
 
     private async checkDifficulty() {
-        const targetDiff = this.statistics.getSuggestedDifficulty(this.sessionDifficulty);
+        const targetDiff = this.clampDifficulty(this.statistics.getSuggestedDifficulty(this.sessionDifficulty));
         if (targetDiff == null) {
             return;
         }
@@ -822,6 +818,27 @@ export class StratumV1Client {
         }
 
         return ` sample=${values.join(',')}`;
+    }
+
+    private clampDifficulty(difficulty: number | null): number | null {
+        if (difficulty == null || !Number.isFinite(difficulty)) {
+            return null;
+        }
+        const configuredMinimum = this.getConfiguredMinimumDifficulty();
+        return configuredMinimum == null ? difficulty : Math.max(difficulty, configuredMinimum);
+    }
+
+    private getMinimumDifficulty(): number {
+        return this.getConfiguredMinimumDifficulty() ?? DEFAULT_MIN_DIFFICULTY;
+    }
+
+    private getConfiguredMinimumDifficulty(): number | null {
+        const configured = parseFloat(
+            this.configService.get<string>('STRATUM_MIN_DIFFICULTY')
+            ?? process.env.STRATUM_MIN_DIFFICULTY
+            ?? '',
+        );
+        return Number.isFinite(configured) && configured > 0 ? configured : null;
     }
 
     private closeSocket() {

@@ -4,7 +4,6 @@ import { createClient, RedisClientType } from 'redis';
 
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { IMiningInfo } from '../models/bitcoin-rpc/IMiningInfo';
-import { logTiming, timingStart } from '../utils/timing.utils';
 
 const MINING_INFO_CHANNEL = 'mining-info.updated';
 const MINING_INFO_KEY = 'mining-info:latest';
@@ -264,10 +263,8 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     private async getPresenceFromSet(setKey: string): Promise<ClientPresence[]> {
-        const start = timingStart();
         const clientIds = await this.publisher.sMembers(setKey);
         if (clientIds.length === 0) {
-            logTiming('redis presence set load', start, { setKey, clientIds: 0, presences: 0, staleClientIds: 0 });
             return [];
         }
 
@@ -297,12 +294,6 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
             }
         }
 
-        logTiming('redis presence set load', start, {
-            setKey,
-            clientIds: clientIds.length,
-            presences: presences.length,
-            staleClientIds: staleClientIds.length,
-        });
         return presences;
     }
 

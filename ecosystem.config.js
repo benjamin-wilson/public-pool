@@ -1,7 +1,14 @@
+const dockerLogConfig = {
+  out_file: '/dev/stdout',
+  error_file: '/dev/stderr',
+  merge_logs: true,
+};
+
 module.exports = {
     apps: [
       // API instance
       {
+        ...dockerLogConfig,
         name: 'api',
         script: './dist/main.js',
         instances: parseInt(process.env.API_WORKERS || '4', 10),
@@ -16,6 +23,7 @@ module.exports = {
       },
       // Master instance
       {
+        ...dockerLogConfig,
         name: 'master',
         script: './dist/main.js',
         instances: 1,
@@ -29,6 +37,7 @@ module.exports = {
       },
       // Worker instances
       {
+        ...dockerLogConfig,
         name: 'workers',
         script: './dist/main.js',
         instances: parseInt(process.env.STRATUM_WORKERS || '2', 10),

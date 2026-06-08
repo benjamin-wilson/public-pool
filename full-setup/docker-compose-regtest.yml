@@ -1,3 +1,9 @@
+x-log-limits: &log-limits
+  driver: json-file
+  options:
+    max-size: ${DOCKER_LOG_MAX_SIZE:-100m}
+    max-file: "${DOCKER_LOG_MAX_FILES:-5}"
+
 services:
   bitcoin-regtest:
     container_name: bitcoin-regtest
@@ -6,6 +12,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     stop_grace_period: 30s
+    logging: *log-limits
     networks:
       - bitcoin-regtest
     ports:
@@ -24,6 +31,7 @@ services:
     image: timescale/timescaledb:latest-pg17
     container_name: public-pool-regtest-timescaledb
     restart: unless-stopped
+    logging: *log-limits
     networks:
       - bitcoin-regtest
     environment:
@@ -54,6 +62,7 @@ services:
     image: redis:8-alpine
     container_name: public-pool-regtest-redis
     restart: unless-stopped
+    logging: *log-limits
     networks:
       - bitcoin-regtest
     volumes:
@@ -71,6 +80,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     stop_grace_period: 30s
+    logging: *log-limits
     depends_on:
       timescaledb-regtest:
         condition: service_healthy
@@ -97,6 +107,9 @@ services:
       REDIS_URL: redis://redis-regtest:6379
       PM2_ENABLED: "true"
       STRATUM_WORKERS: ${STRATUM_WORKERS:-2}
+      STRATUM_MIN_DIFFICULTY: ${STRATUM_MIN_DIFFICULTY:-1}
+      STRATUM_SOCKET_TIMEOUT_MS: ${STRATUM_SOCKET_TIMEOUT_MS:-3600000}
+      STRATUM_TCP_KEEPALIVE_INITIAL_DELAY_MS: ${STRATUM_TCP_KEEPALIVE_INITIAL_DELAY_MS:-60000}
 
 networks:
   bitcoin-regtest:

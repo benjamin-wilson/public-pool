@@ -62,4 +62,11 @@ describe('StratumV1ClientStatistics', () => {
 
         expect(statistics.getSuggestedDifficulty(128)).toBe(16);
     });
+
+    it('should not suggest a difficulty below the configured minimum', () => {
+        statistics = new StratumV1ClientStatistics(1);
+        jest.setSystemTime(new Date('2026-05-06T12:06:00Z'));
+
+        expect(statistics.getSuggestedDifficulty(1)).toBe(1);
+    });
 });
