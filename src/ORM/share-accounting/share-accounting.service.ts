@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { AcceptedShareEntity } from '../accepted-share/accepted-share.entity';
+import { RedisMessagingService } from '../../services/redis-messaging.service';
 
 export interface AcceptedShareRecord {
     protocol: 'sv1' | 'sv2';
@@ -72,6 +73,7 @@ export class ShareAccountingService implements OnModuleDestroy {
     private flushTimer: NodeJS.Timeout | null = null;
     private activeFlush: Promise<void> | null = null;
     private summaryCache = new Map<string, SummaryCacheEntry>();
+    private readonly poolSummaryCacheKey = 'accounting:pool-summary';
     private readonly batchSize = this.readPositiveInt('SHARE_ACCOUNTING_BATCH_SIZE', DEFAULT_BATCH_SIZE);
     private readonly flushIntervalMs = this.readPositiveInt('SHARE_ACCOUNTING_FLUSH_INTERVAL_MS', DEFAULT_FLUSH_INTERVAL_MS);
     private readonly maxQueueSize = this.readPositiveInt('SHARE_ACCOUNTING_MAX_QUEUE_SIZE', DEFAULT_MAX_QUEUE_SIZE);
@@ -81,6 +83,7 @@ export class ShareAccountingService implements OnModuleDestroy {
     constructor(
         @InjectRepository(AcceptedShareEntity)
         private readonly acceptedShareRepository: Repository<AcceptedShareEntity>,
+        private readonly redisMessagingService?: RedisMessagingService,
     ) { }
 
     public async recordAcceptedShare(record: AcceptedShareRecord): Promise<AcceptedShareEntity> {
@@ -127,7 +130,27 @@ export class ShareAccountingService implements OnModuleDestroy {
     }
 
     public async getPoolSummary(): Promise<ShareAccountingSummary> {
+        const cached = await this.redisMessagingService
+            ?.getJsonCache<ShareAccountingSummary>(this.poolSummaryCacheKey)
+            .catch(error => {
+                console.error(`Pool accounting summary cache read failed: ${error.message}`);
+                return null;
+            });
+        if (cached != null) {
+            return cached;
+        }
+
         return this.getSummary({});
+    }
+
+    public async refreshPoolSummary(): Promise<ShareAccountingSummary> {
+        const summary = await this.getSummary({});
+        await this.redisMessagingService
+            ?.setJsonCache(this.poolSummaryCacheKey, summary, 60 * 1000)
+            .catch(error => {
+                console.error(`Pool accounting summary cache write failed: ${error.message}`);
+            });
+        return summary;
     }
 
     public async getAddressSummary(address: string): Promise<ShareAccountingSummary> {
