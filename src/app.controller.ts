@@ -43,9 +43,22 @@ export class AppController {
       return cachedResult;
     }
 
-    const blockData = await this.blocksService.getFoundBlocks();
-    const highScores = await this.addressSettingsService.getHighScores();
-    const poolAuthority = await this.stratumV2Service.getPoolAuthorityPublicKey();
+    let usedFallback = false;
+    const withInfoTimeout = async <T>(label: string, promise: Promise<T>, fallback: T): Promise<T> => {
+      return await this.withTimeout(label, promise, fallback, () => {
+        usedFallback = true;
+      });
+    };
+
+    const [blockData, highScores, poolAuthority, userAgentReport] = await Promise.all([
+      withInfoTimeout('found blocks', this.blocksService.getFoundBlocks(), []),
+      withInfoTimeout('high scores', this.addressSettingsService.getHighScores(), []),
+      withInfoTimeout('SV2 authority', this.stratumV2Service.getPoolAuthorityPublicKey(), {
+        publicKey: '',
+        configured: false
+      }),
+      withInfoTimeout<UserAgentReportView[]>('user agent report', this.userAgentReportService.getReport(), []),
+    ]);
 
     const other: {
       count: number,
@@ -56,7 +69,7 @@ export class AppController {
       bestDifficulty: 0,
       totalHashRate: 0
     };
-    const userAgents: UserAgentReportView[] = (await this.userAgentReportService.getReport()).reduce((pre, cur, idx, arr) => {
+    const userAgents: UserAgentReportView[] = userAgentReport.reduce((pre, cur, idx, arr) => {
       // If less than 10Th/s and less than 100 devices, add to 'other'
       if (parseInt(cur.totalHashRate) < 10000000000000 && parseInt(cur.count) < 200) {
         other.totalHashRate += parseFloat(cur.totalHashRate);
@@ -86,7 +99,7 @@ export class AppController {
     };
 
     // Match the pre-Timescale dashboard cache behavior; live accounting is exposed separately.
-    await this.setCached(CACHE_KEY, data, 5 * 60 * 1000);
+    await this.setCached(CACHE_KEY, data, usedFallback ? 15 * 1000 : 5 * 60 * 1000);
 
     return data;
 
@@ -185,6 +198,30 @@ export class AppController {
         console.error(`Shared API cache write failed for ${key}: ${error.message}`);
       }),
     ]);
+  }
+
+  private async withTimeout<T>(
+    label: string,
+    promise: Promise<T>,
+    fallback: T,
+    onTimeout: () => void,
+    timeoutMs = 1500
+  ): Promise<T> {
+    let timeout: NodeJS.Timeout;
+    const timeoutPromise = new Promise<T>(resolve => {
+      timeout = setTimeout(() => {
+        onTimeout();
+        console.error(`/api/info ${label} timed out after ${timeoutMs}ms`);
+        resolve(fallback);
+      }, timeoutMs);
+      timeout.unref?.();
+    });
+
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
 }
