@@ -93,7 +93,9 @@ export class ClientService {
     public async deleteAll() {
         return await this.clientRepository
             .createQueryBuilder()
-            .softDelete()
+            .delete()
+            .from(ClientEntity)
+            .where('"deletedAt" IS NULL')
             .execute();
     }
 

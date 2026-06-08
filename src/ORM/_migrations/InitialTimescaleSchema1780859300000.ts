@@ -38,7 +38,7 @@ export class InitialTimescaleSchema1780859300000 implements MigrationInterface {
         `);
         await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_client_entity_address" ON "client_entity" ("address")`);
         await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_client_cleanup" ON "client_entity" ("id") WHERE "deletedAt" IS NULL`);
-        await queryRunner.query(`CREATE UNIQUE INDEX IF NOT EXISTS "IDX_unique_nonce" ON "client_entity" ("sessionId") WHERE "deletedAt" IS NOT NULL`);
+        await queryRunner.query(`CREATE UNIQUE INDEX IF NOT EXISTS "IDX_unique_nonce" ON "client_entity" ("sessionId") WHERE "deletedAt" IS NULL`);
 
         await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "accepted_share_entity" (
