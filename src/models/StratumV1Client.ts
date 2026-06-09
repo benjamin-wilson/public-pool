@@ -115,7 +115,6 @@ export class StratumV1Client {
         if (this.clientEntity?.id) {
             const clientId = this.clientEntity.id;
             const address = this.clientEntity.address;
-            this.clientEntity = null;
             await this.redisMessagingService?.removeClientPresence(clientId, address);
             await this.clientService.delete(clientId);
         }
