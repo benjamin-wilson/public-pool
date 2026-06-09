@@ -168,6 +168,36 @@ describe('StratumV1Client', () => {
         expect(socket.on).toHaveBeenCalled();
     });
 
+    it('should clean up socket state only once when destroyed repeatedly', async () => {
+        const unsubscribe = jest.fn();
+        const timer = setInterval(() => undefined, 1000);
+        const removeListenerSpy = jest.spyOn(socket, 'removeListener');
+
+        (client as any).clientEntity = {
+            id: '00000000-0000-4000-8000-000000000001',
+            address: 'tb1qcleanup',
+        };
+        (client as any).stratumSubscription = { unsubscribe };
+        (client as any).backgroundWork = [timer];
+        (client as any).miningSubmissionHashes.add('submitted-share');
+        (client as any).buffer = 'partial-message';
+
+        await Promise.all([client.destroy(), client.destroy()]);
+
+        expect(redisMessagingService.removeClientPresence).toHaveBeenCalledTimes(1);
+        expect(redisMessagingService.removeClientPresence).toHaveBeenCalledWith(
+            '00000000-0000-4000-8000-000000000001',
+            'tb1qcleanup',
+        );
+        expect(clientService.delete).toHaveBeenCalledTimes(1);
+        expect(clientService.delete).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000001');
+        expect(unsubscribe).toHaveBeenCalledTimes(1);
+        expect(removeListenerSpy).toHaveBeenCalledWith('data', expect.any(Function));
+        expect((client as any).backgroundWork).toEqual([]);
+        expect((client as any).miningSubmissionHashes.size).toBe(0);
+        expect((client as any).buffer).toBe('');
+    });
+
     it('should close socket on invalid JSON', () => {
         emitMessage('INVALID');
         jest.spyOn(socket, 'destroy');

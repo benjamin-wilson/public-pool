@@ -42,6 +42,7 @@ module.exports = {
         script: './dist/main.js',
         instances: parseInt(process.env.STRATUM_WORKERS || '2', 10),
         exec_mode: "cluster",
+        max_memory_restart: process.env.STRATUM_WORKER_MAX_MEMORY_RESTART || '4096M',
         env: {
           MASTER: 'false',
           API_ENABLED: 'false',

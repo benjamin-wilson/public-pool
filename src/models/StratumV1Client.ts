@@ -44,6 +44,8 @@ export class StratumV1Client {
     private clientSuggestedDifficulty: SuggestDifficulty;
     private stratumSubscription: Subscription;
     private backgroundWork: NodeJS.Timeout[] = [];
+    private readonly socketDataHandler: (data: Buffer) => void;
+    private destroyPromise: Promise<void> | null = null;
 
     private statistics: StratumV1ClientStatistics;
     private stratumInitialized = false;
@@ -77,43 +79,68 @@ export class StratumV1Client {
         private readonly redisMessagingService?: RedisMessagingService
     ) {
 
-        this.socket.on('data', (data: Buffer) => {
-            this.buffer += data.toString();
-            let lines = this.buffer.split('\n');
-            this.buffer = lines.pop() || ''; // Save the last part of the data (incomplete line) to the buffer
-
-            (async () => {
-                for (const m of lines.filter(l => l.length > 0)) {
-                    if (this.connectionClosed || this.socket.destroyed || this.socket.writableEnded) {
-                        break;
-                    }
-                    try {
-                        await this.handleMessage(m);
-                    } catch (e) {
-                        await this.socket.end();
-                        console.error(e);
-                    }
-                }
-            })();
-        });
+        this.socketDataHandler = (data: Buffer) => {
+            void this.handleSocketData(data);
+        };
+        this.socket.on('data', this.socketDataHandler);
 
 
     }
 
-    public async destroy() {
-
-        if (this.clientEntity?.id) {
-            await this.redisMessagingService?.removeClientPresence(this.clientEntity.id, this.clientEntity.address);
-            await this.clientService.delete(this.clientEntity.id);
+    public async destroy(): Promise<void> {
+        if (this.destroyPromise != null) {
+            return this.destroyPromise;
         }
+
+        this.destroyPromise = this.destroyInternal();
+        return this.destroyPromise;
+    }
+
+    private async destroyInternal(): Promise<void> {
+        this.connectionClosed = true;
+        this.socket.removeListener('data', this.socketDataHandler);
+        this.buffer = '';
 
         if (this.stratumSubscription != null) {
             this.stratumSubscription.unsubscribe();
+            this.stratumSubscription = null;
         }
 
-        this.backgroundWork.forEach(work => {
+        for (const work of this.backgroundWork) {
             clearInterval(work);
-        });
+        }
+        this.backgroundWork = [];
+        this.miningSubmissionHashes.clear();
+
+        if (this.clientEntity?.id) {
+            const clientId = this.clientEntity.id;
+            const address = this.clientEntity.address;
+            this.clientEntity = null;
+            await this.redisMessagingService?.removeClientPresence(clientId, address);
+            await this.clientService.delete(clientId);
+        }
+    }
+
+    private async handleSocketData(data: Buffer): Promise<void> {
+        if (this.connectionClosed || this.socket.destroyed || this.socket.writableEnded) {
+            return;
+        }
+
+        this.buffer += data.toString();
+        const lines = this.buffer.split('\n');
+        this.buffer = lines.pop() || ''; // Save the last part of the data (incomplete line) to the buffer
+
+        for (const m of lines.filter(l => l.length > 0)) {
+            if (this.connectionClosed || this.socket.destroyed || this.socket.writableEnded) {
+                break;
+            }
+            try {
+                await this.handleMessage(m);
+            } catch (e) {
+                await this.socket.end();
+                console.error(e);
+            }
+        }
     }
 
     private getRandomHexString() {

@@ -125,20 +125,40 @@ export class StratumV1Service implements OnModuleInit {
 
             let client: StratumV1Client | StratumV2Client = null;
             let protocol: 'v1' | 'v2' | null = null;
+            let cleanedUp = false;
 
             // Unified cleanup function
             const cleanup = async (reason: string) => {
-                if (client != null && (protocol === 'v2' || (client as StratumV1Client).extraNonceAndSessionId != null)) {
-                    await client.destroy();
-                    if (reason == 'Error') {
-                        this.errorClosure++;
-                    } else {
-                        this.normalClosure++;
-                    }
+                if (cleanedUp) {
+                    return;
                 }
-                if (!socket.destroyed) {
-                    socket.end();
-                    socket.destroy();
+                cleanedUp = true;
+
+                const currentClient = client;
+                client = null;
+
+                try {
+                    if (currentClient != null) {
+                        const initializedClient = protocol === 'v2'
+                            || (currentClient as StratumV1Client).extraNonceAndSessionId != null;
+                        await currentClient.destroy();
+                        if (initializedClient) {
+                            if (reason == 'Error') {
+                                this.errorClosure++;
+                            } else {
+                                this.normalClosure++;
+                            }
+                        }
+                    }
+                } finally {
+                    socket.removeAllListeners('close');
+                    socket.removeAllListeners('timeout');
+                    socket.removeAllListeners('error');
+                    socket.removeAllListeners('data');
+                    if (!socket.destroyed) {
+                        socket.end();
+                        socket.destroy();
+                    }
                 }
             };
 
@@ -241,19 +261,33 @@ export class StratumV1Service implements OnModuleInit {
             socket.setKeepAlive(true, this.getTcpKeepAliveInitialDelayMs());
 
             const client = this.createV1Client(socket);
+            let cleanedUp = false;
 
             const cleanup = async (reason: string) => {
-                if (client.extraNonceAndSessionId != null) {
-                    await client.destroy();
-                    if (reason === 'Error') {
-                        this.errorClosure++;
-                    } else {
-                        this.normalClosure++;
-                    }
+                if (cleanedUp) {
+                    return;
                 }
-                if (!socket.destroyed) {
-                    socket.end();
-                    socket.destroy();
+                cleanedUp = true;
+
+                try {
+                    const initializedClient = client.extraNonceAndSessionId != null;
+                    await client.destroy();
+                    if (initializedClient) {
+                        if (reason === 'Error') {
+                            this.errorClosure++;
+                        } else {
+                            this.normalClosure++;
+                        }
+                    }
+                } finally {
+                    socket.removeAllListeners('close');
+                    socket.removeAllListeners('timeout');
+                    socket.removeAllListeners('error');
+                    socket.removeAllListeners('data');
+                    if (!socket.destroyed) {
+                        socket.end();
+                        socket.destroy();
+                    }
                 }
             };
 
