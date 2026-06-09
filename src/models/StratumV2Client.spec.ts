@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import * as bitcoinjs from 'bitcoinjs-lib';
 import { Socket } from 'net';
 import { BehaviorSubject, firstValueFrom } from 'rxjs';
 
@@ -14,6 +15,7 @@ import {
     serializeSubmitSharesExtended,
 } from './sv2/sv2-extended-messages';
 import { deserializeSetNewPrevHash, deserializeSubmitSharesError } from './sv2/sv2-messages';
+import { MiningJob } from './MiningJob';
 import { StratumV2Client } from './StratumV2Client';
 
 describe('StratumV2Client extended channels', () => {
@@ -145,9 +147,87 @@ describe('StratumV2Client extended channels', () => {
         expect(postAccountingPresenceUpdates.length).toBeGreaterThan(0);
     });
 
+    it('does not submit a block when only the reported SV2 difficulty is huge', async () => {
+        const { client, shareAccountingService, bitcoinRpcService, blocksService, jobTemplate } = await createClient();
+        (client as any).address = 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4';
+        (client as any).workerName = 'worker';
+        (client as any).sessionId = 'sv2-session';
+        (client as any).userAgent = 'test/sv2';
+
+        const job = new MiningJob(
+            bitcoinjs.networks.testnet,
+            '1',
+            [{ address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4', percent: 100 }],
+            jobTemplate,
+        );
+
+        await (client as any).handleAcceptedShare(
+            {
+                nonce: 123,
+                ntime: parseInt(MockRecording1.TIME, 16),
+                version: jobTemplate.block.version,
+            },
+            { extranoncePrefix: Buffer.from(MockRecording1.EXTRA_NONCE, 'hex') },
+            job,
+            jobTemplate,
+            Number.MAX_SAFE_INTEGER,
+            1024,
+            Buffer.alloc(32, 0xff),
+        );
+
+        expect(bitcoinRpcService.SUBMIT_BLOCK).not.toHaveBeenCalled();
+        expect(blocksService.save).not.toHaveBeenCalled();
+        expect(shareAccountingService.recordAcceptedShare).toHaveBeenCalledWith(expect.objectContaining({
+            submissionDifficulty: Number.MAX_SAFE_INTEGER,
+            isBlockCandidate: false,
+        }));
+    });
+
+    it('submits a block when the SV2 hash target exactly meets network target', async () => {
+        const { client, bitcoinRpcService, blocksService, notificationService, jobTemplate } = await createClient();
+        (client as any).address = 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4';
+        (client as any).workerName = 'worker';
+        (client as any).sessionId = 'sv2-session';
+        (client as any).userAgent = 'test/sv2';
+
+        const job = new MiningJob(
+            bitcoinjs.networks.testnet,
+            '1',
+            [{ address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4', percent: 100 }],
+            jobTemplate,
+        );
+
+        await (client as any).handleAcceptedShare(
+            {
+                nonce: 123,
+                ntime: parseInt(MockRecording1.TIME, 16),
+                version: jobTemplate.block.version,
+            },
+            { extranoncePrefix: Buffer.from(MockRecording1.EXTRA_NONCE, 'hex') },
+            job,
+            jobTemplate,
+            1,
+            1024,
+            Buffer.alloc(32),
+        );
+
+        expect(bitcoinRpcService.SUBMIT_BLOCK).toHaveBeenCalledWith(expect.any(String));
+        expect(blocksService.save).toHaveBeenCalledWith(expect.objectContaining({
+            height: MockRecording1.BLOCK_TEMPLATE.height,
+            minerAddress: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
+            worker: 'worker',
+            sessionId: 'sv2-session',
+            blockData: expect.any(String),
+        }));
+        expect(notificationService.notifySubscribersBlockFound).toHaveBeenCalled();
+    });
+
     async function createClient(): Promise<{
         client: StratumV2Client;
         sentFrames: any[];
+        bitcoinRpcService: { SUBMIT_BLOCK: jest.Mock };
+        blocksService: { save: jest.Mock };
+        notificationService: { notifySubscribersBlockFound: jest.Mock };
         shareAccountingService: { recordAcceptedShare: jest.Mock };
         redisMessagingService: { setClientPresence: jest.Mock; removeClientPresence: jest.Mock };
         jobTemplate: any;
@@ -196,6 +276,12 @@ describe('StratumV2Client extended channels', () => {
         const shareAccountingService = {
             recordAcceptedShare: jest.fn().mockResolvedValue(undefined),
         };
+        const notificationService = {
+            notifySubscribersBlockFound: jest.fn().mockResolvedValue(undefined),
+        };
+        const blocksService = {
+            save: jest.fn().mockResolvedValue(undefined),
+        };
         const redisMessagingService = {
             setClientPresence: jest.fn().mockResolvedValue(undefined),
             removeClientPresence: jest.fn().mockResolvedValue(undefined),
@@ -225,8 +311,8 @@ describe('StratumV2Client extended channels', () => {
             stratumV1JobsService,
             bitcoinRpcService as any,
             clientService as any,
-            { notifySubscribersBlockFound: jest.fn().mockResolvedValue(undefined) } as any,
-            { save: jest.fn().mockResolvedValue(undefined) } as any,
+            notificationService as any,
+            blocksService as any,
             {
                 get: jest.fn((key: string) => {
                     switch (key) {
@@ -251,6 +337,15 @@ describe('StratumV2Client extended channels', () => {
             return Promise.resolve();
         });
 
-        return { client, sentFrames, shareAccountingService, redisMessagingService, jobTemplate };
+        return {
+            client,
+            sentFrames,
+            bitcoinRpcService,
+            blocksService,
+            notificationService,
+            shareAccountingService,
+            redisMessagingService,
+            jobTemplate,
+        };
     }
 });

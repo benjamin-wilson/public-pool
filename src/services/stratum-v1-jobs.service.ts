@@ -5,6 +5,7 @@ import * as merkleProof from 'merkle-lib/proof';
 import { combineLatest, delay, filter, from, interval, map, Observable, shareReplay, startWith, switchMap, tap } from 'rxjs';
 
 import { MiningJob } from '../models/MiningJob';
+import { hash256 } from '../utils/hash.utils';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 
 export interface IJobTemplate {
@@ -95,7 +96,7 @@ export class StratumV1JobsService {
 
                 const transactionBuffers = transactions.map(tx => tx.getHash(false));
 
-                const merkleTree = merkle(transactionBuffers, bitcoinjs.crypto.hash256);
+                const merkleTree = merkle(transactionBuffers, hash256);
                 const merkleBranches: Buffer[] = merkleProof(merkleTree, transactionBuffers[0]).filter(h => h != null);
                 block.merkleRoot = merkleBranches.pop();
 

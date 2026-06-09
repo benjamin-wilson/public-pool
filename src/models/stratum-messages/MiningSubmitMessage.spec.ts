@@ -37,6 +37,10 @@ describe('MiningSubmitMessage', () => {
             expect(errors).toEqual([]);
         });
 
+        it('should hash submissions deterministically', () => {
+            expect(message.hash()).toBe('t2bFzhZ6mketRxa5nOoKrNxG3RkFIZuOwY1WewFtv9k=');
+        });
+
         it('should reject short extranonce2 submissions', async () => {
             const shortMessage = plainToInstance(
                 MiningSubmitMessage,

@@ -16,6 +16,8 @@ import { BitcoinRpcService } from '../services/bitcoin-rpc.service';
 import { NotificationService } from '../services/notification.service';
 import { RedisMessagingService } from '../services/redis-messaging.service';
 import { IJobTemplate, StratumV1JobsService } from '../services/stratum-v1-jobs.service';
+import { DifficultyUtils } from '../utils/difficulty.utils';
+import { hash256 } from '../utils/hash.utils';
 import { eRequestMethod } from './enums/eRequestMethod';
 import { eResponseMethod } from './enums/eResponseMethod';
 import { eStratumErrorCode } from './enums/eStratumErrorCode';
@@ -51,6 +53,7 @@ export class StratumV1Client {
     private stratumInitialized = false;
     private usedSuggestedDifficulty = false;
     private sessionDifficulty: number = 100000;
+    private sessionDifficultyTarget: Buffer = DifficultyUtils.difficultyToTarget(this.sessionDifficulty);
 
     private clientEntity: ClientEntity;
     private creatingEntity: Promise<void>;
@@ -268,6 +271,7 @@ export class StratumV1Client {
                     this.clientAuthorization = authorizationMessage;
                     if (this.clientSuggestedDifficulty == null && this.clientAuthorization.startingDiff != null && this.clientAuthorization.startingDiff > this.sessionDifficulty) {
                         this.sessionDifficulty = this.clientAuthorization.startingDiff;
+                        this.sessionDifficultyTarget = DifficultyUtils.difficultyToTarget(this.sessionDifficulty);
                     }
                     const success = await this.write(JSON.stringify(this.clientAuthorization.response()) + '\n');
                     if (!success) {
@@ -309,6 +313,7 @@ export class StratumV1Client {
 
                     this.clientSuggestedDifficulty = suggestDifficultyMessage;
                     this.sessionDifficulty = this.clampDifficulty(suggestDifficultyMessage.suggestedDifficulty);
+                    this.sessionDifficultyTarget = DifficultyUtils.difficultyToTarget(this.sessionDifficulty);
                     const success = await this.write(JSON.stringify(this.clientSuggestedDifficulty.response(this.sessionDifficulty)) + '\n');
                     if (!success) {
                         return;
@@ -610,19 +615,23 @@ export class StratumV1Client {
             submission.extraNonce2,
             timestamp
         );
-        const { submissionDifficulty } = this.calculateDifficulty(header);
+        const { submissionDifficulty, hashBuffer } = this.calculateDifficulty(header);
 
         //console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonceAndSessionId}`);
 
 
-        if (submissionDifficulty >= this.sessionDifficulty) {
+        if (DifficultyUtils.meetsTarget(hashBuffer, this.sessionDifficultyTarget)) {
             const success = await this.write(JSON.stringify(submission.response()) + '\n');
             if (!success) {
                 return false;
             }
 
             let blockSubmissionResult: string = null;
-            if (submissionDifficulty >= jobTemplate.blockData.networkDifficulty) {
+            const isBlockCandidate = DifficultyUtils.meetsTarget(
+                hashBuffer,
+                DifficultyUtils.difficultyToTarget(jobTemplate.blockData.networkDifficulty),
+            );
+            if (isBlockCandidate) {
                 console.log('!!! BLOCK FOUND !!!');
                 const updatedJobBlock = job.copyAndUpdateBlock(
                     jobTemplate,
@@ -668,7 +677,7 @@ export class StratumV1Client {
                         ? (jobTemplate.block.version ^ versionMask).toString(16)
                         : jobTemplate.block.version.toString(16),
                     extraNonce2: submission.extraNonce2,
-                    isBlockCandidate: submissionDifficulty >= jobTemplate.blockData.networkDifficulty,
+                    isBlockCandidate,
                     blockSubmissionResult,
                 });
                 await this.statistics.addShares(this.clientEntity, this.sessionDifficulty);
@@ -718,6 +727,7 @@ export class StratumV1Client {
         if (targetDiff != this.sessionDifficulty) {
             //console.log(`Adjusting ${this.extraNonceAndSessionId} difficulty from ${this.sessionDifficulty} to ${targetDiff}`);
             this.sessionDifficulty = targetDiff;
+            this.sessionDifficultyTarget = DifficultyUtils.difficultyToTarget(this.sessionDifficulty);
 
             const data = JSON.stringify({
                 id: null,
@@ -748,13 +758,13 @@ export class StratumV1Client {
         }
     }
 
-    private calculateDifficulty(header: Buffer): { submissionDifficulty: number, submissionHash: string } {
+    private calculateDifficulty(header: Buffer): { submissionDifficulty: number, submissionHash: string, hashBuffer: Buffer } {
 
-        const hashResult = bitcoinjs.crypto.hash256(header);
+        const hashResult = hash256(header);
 
         const target = this.le256todouble(hashResult);
         const submissionDifficulty = target === 0 ? Number.POSITIVE_INFINITY : TRUE_DIFF_ONE / target;
-        return { submissionDifficulty, submissionHash: hashResult.toString('hex') };
+        return { submissionDifficulty, submissionHash: hashResult.toString('hex'), hashBuffer: hashResult };
     }
 
 

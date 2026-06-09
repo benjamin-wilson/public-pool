@@ -2,6 +2,7 @@ import { AddressType, getAddressInfo } from 'bitcoin-address-validation';
 import * as bitcoinjs from 'bitcoinjs-lib';
 
 import { IJobTemplate } from '../services/stratum-v1-jobs.service';
+import { hash256 } from '../utils/hash.utils';
 import { eResponseMethod } from './enums/eResponseMethod';
 import { IMiningNotify } from './stratum-messages/IMiningNotify';
 import { TOTAL_EXTRANONCE_SIZE_BYTES } from './stratum.constants';
@@ -96,7 +97,7 @@ export class MiningJob {
             Buffer.from(`${extraNonce}${extraNonce2}`, 'hex'),
             this.coinbasePart2Buffer,
         ]);
-        const coinbaseHash = bitcoinjs.crypto.hash256(coinbaseBuffer);
+        const coinbaseHash = hash256(coinbaseBuffer);
         const merkleRoot = this.calculateMerkleRootHash(coinbaseHash, this.merkleBranchBuffers);
 
         let version = jobTemplate.block.version;
@@ -154,7 +155,7 @@ export class MiningJob {
 
         for (let i = 0; i < merkleBranches.length; i++) {
             bothMerkles.set(merkleBranches[i], 32);
-            newRoot = bitcoinjs.crypto.hash256(bothMerkles);
+            newRoot = hash256(bothMerkles);
             bothMerkles.set(newRoot);
         }
 

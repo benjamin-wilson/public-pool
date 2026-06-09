@@ -17,6 +17,7 @@ import { StratumV2Service } from '../services/stratum-v2.service';
 import { IJobTemplate, StratumV1JobsService } from '../services/stratum-v1-jobs.service';
 import { patchCoinbasePrefixVarint } from '../utils/coinbase-prefix.utils';
 import { DifficultyUtils } from '../utils/difficulty.utils';
+import { hash256 } from '../utils/hash.utils';
 import { MiningJob } from './MiningJob';
 import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
 import { TOTAL_EXTRANONCE_SIZE_BYTES } from './stratum.constants';
@@ -560,7 +561,7 @@ export class StratumV2Client {
         );
 
         channel.acceptedShareCount++;
-        await this.handleAcceptedShare(submission, channel, job, jobTemplate, submissionDifficulty, jobDifficulty);
+        await this.handleAcceptedShare(submission, channel, job, jobTemplate, submissionDifficulty, jobDifficulty, hashBuffer);
     }
 
     private async handleSubmitSharesExtended(payload: Buffer): Promise<void> {
@@ -608,12 +609,12 @@ export class StratumV2Client {
             submission.extranonce,
             extendedJob.coinbaseSuffix,
         ]);
-        let merkleRoot = bitcoinjs.crypto.hash256(coinbaseTxBytes);
+        let merkleRoot = hash256(coinbaseTxBytes);
         const merklePair = Buffer.alloc(64);
         for (const sibling of extendedJob.merklePath) {
             merklePair.set(merkleRoot, 0);
             merklePair.set(sibling, 32);
-            merkleRoot = bitcoinjs.crypto.hash256(merklePair);
+            merkleRoot = hash256(merklePair);
         }
 
         const header = this.buildHeader(
@@ -650,7 +651,10 @@ export class StratumV2Client {
 
         channel.acceptedShareCount++;
         let updatedJobBlock: bitcoinjs.Block = null;
-        if (submissionDifficulty >= extendedJob.jobTemplate.blockData.networkDifficulty) {
+        if (DifficultyUtils.meetsTarget(
+            hashBuffer,
+            DifficultyUtils.difficultyToTarget(extendedJob.jobTemplate.blockData.networkDifficulty),
+        )) {
             updatedJobBlock = this.reconstructExtendedBlock(extendedJob, submission, merkleRoot, channel.extranoncePrefix);
         }
         await this.recordAcceptedShare(submissionDifficulty, jobDifficulty, extendedJob.jobTemplate, updatedJobBlock, {
@@ -669,9 +673,13 @@ export class StratumV2Client {
         jobTemplate: IJobTemplate,
         submissionDifficulty: number,
         jobDifficulty: number,
+        hashBuffer: Buffer,
     ): Promise<void> {
         let updatedJobBlock: bitcoinjs.Block = null;
-        if (submissionDifficulty >= jobTemplate.blockData.networkDifficulty) {
+        if (DifficultyUtils.meetsTarget(
+            hashBuffer,
+            DifficultyUtils.difficultyToTarget(jobTemplate.blockData.networkDifficulty),
+        )) {
             const versionMask = submission.version ^ jobTemplate.block.version;
             updatedJobBlock = job.copyAndUpdateBlock(
                 jobTemplate,

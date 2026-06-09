@@ -4,7 +4,7 @@ import { ArrayMaxSize, ArrayMinSize, IsArray, IsString, Length } from 'class-val
 import { eRequestMethod } from '../enums/eRequestMethod';
 import { EXTRANONCE2_SIZE_BYTES } from '../stratum.constants';
 import { StratumBaseMessage } from './StratumBaseMessage';
-import * as bitcoinjs from 'bitcoinjs-lib';
+import { hash256 } from '../../utils/hash.utils';
 
 
 export class MiningSubmitMessage extends StratumBaseMessage {
@@ -69,7 +69,7 @@ export class MiningSubmitMessage extends StratumBaseMessage {
 
     public hash(): string{
         const buffer = Buffer.from(this.versionMask + this.nonce + this.extraNonce2 + this.ntime + this.jobId);
-        return bitcoinjs.crypto.hash256(buffer).toString('base64');
+        return hash256(buffer).toString('base64');
     }
 
 

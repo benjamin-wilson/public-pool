@@ -1,35 +1,25 @@
-import * as bitcoinjs from 'bitcoinjs-lib';
+import { hash256 } from './hash.utils';
 
 const TRUE_DIFF_ONE_BIGINT = BigInt(
     '26959535291011309493156476344723991336010898738574164086137773096960',
 );
+const TRUE_DIFF_ONE_NUMBER = 2.695953529101131e67;
 const TWO_TO_256 = 1n << 256n;
-const FRACTION_SCALE = 1_000_000_000_000_000n;
-const FRACTION_SCALE_NUM = 1e15;
-
-function bigIntRatioToDifficulty(divisor: bigint): number {
-    if (divisor === 0n) {
-        return Number.POSITIVE_INFINITY;
-    }
-
-    const scaled = (TRUE_DIFF_ONE_BIGINT * FRACTION_SCALE) / divisor;
-    return Number(scaled) / FRACTION_SCALE_NUM;
-}
 
 export class DifficultyUtils {
     public static calculateDifficulty(header: Buffer): { submissionDifficulty: number; submissionHash: string; hashBuffer: Buffer } {
-        const hashResult = bitcoinjs.crypto.hash256(header);
-        const target = DifficultyUtils.le256ToBigInt(hashResult);
+        const hashResult = hash256(header);
+        const target = DifficultyUtils.le256ToDouble(hashResult);
 
         return {
-            submissionDifficulty: bigIntRatioToDifficulty(target),
+            submissionDifficulty: target === 0 ? Number.POSITIVE_INFINITY : TRUE_DIFF_ONE_NUMBER / target,
             submissionHash: hashResult.toString('hex'),
             hashBuffer: hashResult,
         };
     }
 
     public static meetsTarget(hashBuffer: Buffer, target: Buffer): boolean {
-        return DifficultyUtils.le256ToBigInt(hashBuffer) <= DifficultyUtils.le256ToBigInt(target);
+        return DifficultyUtils.compareLe256(hashBuffer, target) <= 0;
     }
 
     public static difficultyToTarget(difficulty: number): Buffer {
@@ -51,8 +41,8 @@ export class DifficultyUtils {
             throw new Error('Target must be 32 bytes');
         }
 
-        const targetBigInt = DifficultyUtils.le256ToBigInt(target);
-        return bigIntRatioToDifficulty(targetBigInt);
+        const targetNumber = DifficultyUtils.le256ToDouble(target);
+        return targetNumber === 0 ? Number.POSITIVE_INFINITY : TRUE_DIFF_ONE_NUMBER / targetNumber;
     }
 
     public static hashRateToDifficulty(hashRate: number, sharesPerMinute: number): number {
@@ -65,15 +55,11 @@ export class DifficultyUtils {
             return difficulty;
         }
 
-        const maxTargetBigInt = DifficultyUtils.le256ToBigInt(maxTarget);
-        if (maxTargetBigInt === 0n) {
+        if (DifficultyUtils.isZeroTarget(maxTarget)) {
             return difficulty;
         }
 
-        const computedTargetBigInt = DifficultyUtils.le256ToBigInt(
-            DifficultyUtils.difficultyToTarget(difficulty),
-        );
-        if (computedTargetBigInt > maxTargetBigInt) {
+        if (DifficultyUtils.compareLe256(DifficultyUtils.difficultyToTarget(difficulty), maxTarget) > 0) {
             const clamped = DifficultyUtils.targetToDifficulty(maxTarget);
             return Number.isFinite(clamped) && clamped > 0 ? clamped : difficulty;
         }
@@ -111,7 +97,30 @@ export class DifficultyUtils {
         return buf;
     }
 
-    private static le256ToBigInt(target: Buffer): bigint {
-        return target.reduceRight((acc, byte) => (acc << 8n) | BigInt(byte), 0n);
+    private static le256ToDouble(target: Buffer): number {
+        let value = 0;
+        for (let i = target.length - 1; i >= 0; i--) {
+            value = value * 256 + target[i];
+        }
+        return value;
+    }
+
+    private static compareLe256(left: Buffer, right: Buffer): number {
+        for (let i = 31; i >= 0; i--) {
+            const diff = left[i] - right[i];
+            if (diff !== 0) {
+                return diff;
+            }
+        }
+        return 0;
+    }
+
+    private static isZeroTarget(target: Buffer): boolean {
+        for (let i = 0; i < target.length; i++) {
+            if (target[i] !== 0) {
+                return false;
+            }
+        }
+        return true;
     }
 }

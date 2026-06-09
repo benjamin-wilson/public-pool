@@ -20,6 +20,7 @@ lerna-debug.log*
 /.nyc_output
 /.baseline-*.json
 /.test-artifacts
+/.profiles
 
 # IDEs and editors
 /.idea

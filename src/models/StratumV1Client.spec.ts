@@ -9,6 +9,7 @@ import { ClientService } from '../ORM/client/client.service';
 import { BitcoinRpcService as MockBitcoinRpcService } from '../services/bitcoin-rpc.service';
 import { NotificationService } from '../services/notification.service';
 import { StratumV1JobsService } from '../services/stratum-v1-jobs.service';
+import { DifficultyUtils } from '../utils/difficulty.utils';
 import { IBlockTemplate } from './bitcoin-rpc/IBlockTemplate';
 import { MiningJob } from './MiningJob';
 import { StratumV1Client } from './StratumV1Client';
@@ -471,7 +472,8 @@ describe('StratumV1Client', () => {
         jest.spyOn(client as any, 'write').mockImplementation((data) => Promise.resolve(true));
         jest.spyOn(client as any, 'calculateDifficulty').mockReturnValue({
             submissionDifficulty: 1024,
-            submissionHash: 'share'
+            submissionHash: 'share',
+            hashBuffer: DifficultyUtils.difficultyToTarget(1024),
         });
         const getSettingsSpy = jest.spyOn(addressSettings, 'getSettings');
         const updateIfHigherSpy = jest.spyOn(addressSettings as any, 'updateBestDifficultyIfHigher').mockResolvedValue({ affected: 1 });
@@ -493,6 +495,27 @@ describe('StratumV1Client', () => {
         );
         expect(clientUpdateIfHigherSpy).toHaveBeenCalledWith(expect.any(String), 1024);
         expect(getSettingsSpy).not.toHaveBeenCalled();
+    });
+
+    it('should reject shares by exact target even when reported difficulty is huge', async () => {
+        jest.spyOn(client as any, 'write').mockImplementation((data) => Promise.resolve(true));
+        jest.spyOn(client as any, 'calculateDifficulty').mockReturnValue({
+            submissionDifficulty: Number.MAX_SAFE_INTEGER,
+            submissionHash: 'too-easy',
+            hashBuffer: Buffer.alloc(32, 0xff),
+        });
+
+        emitMessage(MockRecording1.MINING_SUBSCRIBE);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1024]}`);
+        emitMessage(MockRecording1.MINING_AUTHORIZE);
+        await new Promise((r) => setTimeout(r, 100));
+
+        emitMessage(MockRecording1.MINING_SUBMIT);
+        jest.useRealTimers();
+        await new Promise((r) => setTimeout(r, 1000));
+
+        expect((client as any).write).lastCalledWith(`{"id":5,"result":null,"error":[23,"Difficulty too low",""]}\n`);
+        expect(shareAccountingService.recordAcceptedShare).not.toHaveBeenCalled();
     });
 
     it('should reject duplicate submissions', async () => {
@@ -626,7 +649,8 @@ describe('StratumV1Client', () => {
         jest.spyOn(client as any, 'write').mockImplementation((data) => Promise.resolve(true));
         jest.spyOn(client as any, 'calculateDifficulty').mockReturnValue({
             submissionDifficulty: Number.MAX_SAFE_INTEGER,
-            submissionHash: 'block-share'
+            submissionHash: 'block-share',
+            hashBuffer: Buffer.alloc(32),
         });
         jest.spyOn(addressSettings, 'resetBestDifficultyAndShares').mockResolvedValue(undefined);
 
