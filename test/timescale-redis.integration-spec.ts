@@ -42,6 +42,8 @@ describe('TimescaleDB and Redis integration', () => {
   });
 
   beforeEach(async () => {
+    await dataSource.query(`DELETE FROM share_rollup_batch_summary`);
+    await dataSource.query(`DELETE FROM share_rollup_batch`);
     await dataSource.query(`DELETE FROM accepted_share_entity`);
     await dataSource.query(`DELETE FROM client_entity`);
     await dataSource.query(`REFRESH MATERIALIZED VIEW user_agent_report_view`);
@@ -102,6 +104,18 @@ describe('TimescaleDB and Redis integration', () => {
     expect(shareOrderObjects[0]).toEqual({
       sequence_name: 'accepted_share_index_seq',
       index_name: '"IDX_accepted_share_order"',
+    });
+
+    const shareRollupObjects = await dataSource.query(`
+      SELECT
+        to_regclass('public.share_rollup_batch') AS batch_table,
+        to_regclass('public.share_rollup_batch_summary') AS summary_table,
+        to_regclass('public."IDX_share_rollup_batch_finalized_end"') AS finalized_index
+    `);
+    expect(shareRollupObjects[0]).toEqual({
+      batch_table: 'share_rollup_batch',
+      summary_table: 'share_rollup_batch_summary',
+      finalized_index: '"IDX_share_rollup_batch_finalized_end"',
     });
   });
 
@@ -190,6 +204,99 @@ describe('TimescaleDB and Redis integration', () => {
     expect(blockAggregateRows).toEqual(expect.arrayContaining([
       expect.objectContaining({ shares: 96, acceptedCount: 2, networkDifficulty: 100000 }),
     ]));
+  });
+
+  it('should finalize accepted shares into share rollup batches without mutating raw rows', async () => {
+    const client = await dataSource.getRepository(ClientEntity).save({
+      address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
+      clientName: 'rollup-worker',
+      sessionId: '47a6f098',
+      userAgent: 'integration-test',
+      startTime: new Date(),
+      bestDifficulty: 0,
+      hashRate: 0,
+    });
+    const service = new ShareAccountingService(dataSource.getRepository(AcceptedShareEntity));
+    const acceptedAt = new Date('2026-06-07T12:20:00Z');
+
+    await service.recordAcceptedShare({
+      protocol: 'sv1',
+      acceptedAt,
+      address: client.address,
+      clientName: client.clientName,
+      sessionId: client.sessionId,
+      clientId: client.id,
+      jobId: 'rollup-1',
+      jobTemplateId: 'rollup-template',
+      blockHeight: 900010,
+      creditedDifficulty: 64,
+      submissionDifficulty: 128,
+      networkDifficulty: 100000,
+      nonce: 'rollup-nonce-1',
+      ntime: '64b3f3ec',
+      version: '20000000',
+      extraNonce2: 'c708000000000001',
+      isBlockCandidate: false,
+      blockSubmissionResult: null,
+    });
+    await service.recordAcceptedShare({
+      protocol: 'sv2',
+      acceptedAt: new Date(acceptedAt.getTime() + 1),
+      address: client.address,
+      clientName: client.clientName,
+      sessionId: client.sessionId,
+      clientId: client.id,
+      jobId: 'rollup-2',
+      jobTemplateId: 'rollup-template',
+      blockHeight: 900010,
+      creditedDifficulty: 32,
+      submissionDifficulty: 64,
+      networkDifficulty: 100000,
+      nonce: 'rollup-nonce-2',
+      ntime: '64b3f3ec',
+      version: '20000000',
+      extraNonce2: 'c708000000000002',
+      isBlockCandidate: false,
+      blockSubmissionResult: null,
+    });
+
+    await expect(service.processPendingShareRollupBatch()).resolves.toEqual(expect.objectContaining({
+      processed: true,
+      acceptedShareCount: 2,
+      creditedDifficulty: 96,
+    }));
+    await expect(service.processPendingShareRollupBatch()).resolves.toEqual({
+      processed: false,
+      reason: 'no-shares',
+    });
+
+    const batches = await dataSource.query(`
+      SELECT "acceptedShareCount"::int AS "acceptedShareCount", "creditedDifficulty"::float AS "creditedDifficulty"
+      FROM share_rollup_batch
+    `);
+    expect(batches).toEqual([{
+      acceptedShareCount: 2,
+      creditedDifficulty: 96,
+    }]);
+
+    const summaries = await dataSource.query(`
+      SELECT
+        "protocol",
+        "blockHeight",
+        "acceptedShareCount"::int AS "acceptedShareCount",
+        "creditedDifficulty"::float AS "creditedDifficulty",
+        "bestSubmissionDifficulty"::float AS "bestSubmissionDifficulty"
+      FROM share_rollup_batch_summary
+      WHERE "address" = $1 AND "clientName" = $2
+      ORDER BY "protocol"
+    `, [client.address, client.clientName]);
+    expect(summaries).toEqual([
+      { protocol: 'sv1', blockHeight: 900010, acceptedShareCount: 1, creditedDifficulty: 64, bestSubmissionDifficulty: 128 },
+      { protocol: 'sv2', blockHeight: 900010, acceptedShareCount: 1, creditedDifficulty: 32, bestSubmissionDifficulty: 64 },
+    ]);
+
+    const rawRows = await dataSource.query(`SELECT COUNT(*)::int AS count FROM accepted_share_entity`);
+    expect(rawRows[0].count).toBe(2);
   });
 
   it('should exclude soft-deleted clients from the user-agent report', async () => {

@@ -325,6 +325,69 @@ describe('ShareAccountingService', () => {
 
         expect(repository.query).toHaveBeenCalledTimes(1);
     });
+
+    it('should finalize accepted shares into an append-only share rollup batch', async () => {
+        const manager = {
+            query: jest.fn()
+                .mockResolvedValueOnce([{ locked: true }])
+                .mockResolvedValueOnce([{ lastProcessedShareIndex: '10' }])
+                .mockResolvedValueOnce([{ startShareIndex: '11', endShareIndex: '20', acceptedShareCount: 10 }])
+                .mockResolvedValueOnce([{
+                    startAcceptedAt: new Date('2026-06-07T12:00:00Z'),
+                    endAcceptedAt: new Date('2026-06-07T12:00:30Z'),
+                    acceptedShareCount: '10',
+                    creditedDifficulty: '2048',
+                }])
+                .mockResolvedValueOnce([{ batchId: '7' }])
+                .mockResolvedValueOnce([]),
+        };
+        const repository = {
+            manager: {
+                transaction: jest.fn(callback => callback(manager)),
+            },
+        };
+        const service = new ShareAccountingService(repository as any);
+
+        await expect(service.processPendingShareRollupBatch()).resolves.toEqual({
+            processed: true,
+            batchId: '7',
+            startShareIndex: '11',
+            endShareIndex: '20',
+            acceptedShareCount: 10,
+            creditedDifficulty: 2048,
+        });
+
+        expect(repository.manager.transaction).toHaveBeenCalledTimes(1);
+        expect(manager.query).toHaveBeenNthCalledWith(
+            1,
+            expect.stringContaining('pg_try_advisory_xact_lock'),
+            ['1780962600'],
+        );
+        expect(manager.query).toHaveBeenNthCalledWith(
+            6,
+            expect.stringContaining('INSERT INTO "share_rollup_batch_summary"'),
+            ['7', '11', '20'],
+        );
+    });
+
+    it('should skip share rollup work when another process holds the advisory lock', async () => {
+        const manager = {
+            query: jest.fn().mockResolvedValueOnce([{ locked: false }]),
+        };
+        const repository = {
+            manager: {
+                transaction: jest.fn(callback => callback(manager)),
+            },
+        };
+        const service = new ShareAccountingService(repository as any);
+
+        await expect(service.processPendingShareRollupBatch()).resolves.toEqual({
+            processed: false,
+            reason: 'locked',
+        });
+
+        expect(manager.query).toHaveBeenCalledTimes(1);
+    });
 });
 
 function buildRecord(jobId: string) {

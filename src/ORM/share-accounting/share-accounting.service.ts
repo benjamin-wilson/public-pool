@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -59,6 +59,16 @@ export interface SessionShareSummary {
     bestSubmissionDifficulty: number;
 }
 
+export interface ShareRollupBatchResult {
+    processed: boolean;
+    reason?: 'disabled' | 'locked' | 'no-shares';
+    batchId?: string;
+    startShareIndex?: string;
+    endShareIndex?: string;
+    acceptedShareCount?: number;
+    creditedDifficulty?: number;
+}
+
 interface AccountingFilter {
     address?: string;
     clientName?: string;
@@ -73,12 +83,18 @@ const DEFAULT_MAX_QUEUE_SIZE = 50000;
 const DEFAULT_SUMMARY_CACHE_MS = 2500;
 const DEFAULT_SUMMARY_CACHE_MAX = 10000;
 const DEFAULT_REDIS_SUMMARY_CACHE_MS = 30000;
+const DEFAULT_ROLLUP_INTERVAL_MS = 60000;
+const DEFAULT_ROLLUP_SAFETY_LAG_SECONDS = 10;
+const DEFAULT_ROLLUP_MAX_SHARES_PER_BATCH = 5000000;
+const SHARE_ROLLUP_ADVISORY_LOCK = '1780962600';
 
 @Injectable()
-export class ShareAccountingService implements OnModuleDestroy {
+export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
     private pendingShares: PendingShare[] = [];
     private flushTimer: NodeJS.Timeout | null = null;
     private activeFlush: Promise<void> | null = null;
+    private rollupTimer: NodeJS.Timeout | null = null;
+    private activeRollup: Promise<void> | null = null;
     private summaryCache = new Map<string, SummaryCacheEntry>();
     private readonly poolSummaryCacheKey = 'accounting:pool-summary';
     private readonly batchSize = this.readPositiveInt('SHARE_ACCOUNTING_BATCH_SIZE', DEFAULT_BATCH_SIZE);
@@ -87,12 +103,20 @@ export class ShareAccountingService implements OnModuleDestroy {
     private readonly summaryCacheMs = this.readNonNegativeInt('SHARE_ACCOUNTING_SUMMARY_CACHE_MS', DEFAULT_SUMMARY_CACHE_MS);
     private readonly summaryCacheMax = this.readPositiveInt('SHARE_ACCOUNTING_SUMMARY_CACHE_MAX', DEFAULT_SUMMARY_CACHE_MAX);
     private readonly redisSummaryCacheMs = this.readNonNegativeInt('SHARE_ACCOUNTING_REDIS_SUMMARY_CACHE_MS', DEFAULT_REDIS_SUMMARY_CACHE_MS);
+    private readonly shareRollupEnabled = this.readBoolean('SHARE_ROLLUP_ENABLED', true);
+    private readonly shareRollupIntervalMs = this.readPositiveInt('SHARE_ROLLUP_INTERVAL_MS', DEFAULT_ROLLUP_INTERVAL_MS);
+    private readonly shareRollupSafetyLagSeconds = this.readNonNegativeInt('SHARE_ROLLUP_SAFETY_LAG_SECONDS', DEFAULT_ROLLUP_SAFETY_LAG_SECONDS);
+    private readonly shareRollupMaxSharesPerBatch = this.readPositiveInt('SHARE_ROLLUP_MAX_SHARES_PER_BATCH', DEFAULT_ROLLUP_MAX_SHARES_PER_BATCH);
 
     constructor(
         @InjectRepository(AcceptedShareEntity)
         private readonly acceptedShareRepository: Repository<AcceptedShareEntity>,
         private readonly redisMessagingService?: RedisMessagingService,
     ) { }
+
+    public onModuleInit(): void {
+        this.startShareRollupTimer();
+    }
 
     public async recordAcceptedShare(record: AcceptedShareRecord): Promise<AcceptedShareEntity> {
         const acceptedShare = this.acceptedShareRepository.create({
@@ -134,7 +158,169 @@ export class ShareAccountingService implements OnModuleDestroy {
     }
 
     public async onModuleDestroy(): Promise<void> {
+        if (this.rollupTimer != null) {
+            clearInterval(this.rollupTimer);
+            this.rollupTimer = null;
+        }
+        if (this.activeRollup != null) {
+            await this.activeRollup;
+        }
         await this.flushPendingShares();
+    }
+
+    public async processPendingShareRollupBatch(): Promise<ShareRollupBatchResult> {
+        if (!this.shareRollupEnabled) {
+            return { processed: false, reason: 'disabled' };
+        }
+
+        return this.acceptedShareRepository.manager.transaction(async manager => {
+            const [lockRow] = await manager.query(`
+                SELECT pg_try_advisory_xact_lock($1::bigint) AS "locked"
+            `, [SHARE_ROLLUP_ADVISORY_LOCK]);
+
+            if (lockRow?.locked !== true) {
+                return { processed: false, reason: 'locked' };
+            }
+
+            const [lastRow] = await manager.query(`
+                SELECT COALESCE(MAX("endShareIndex"), 0)::text AS "lastProcessedShareIndex"
+                FROM "share_rollup_batch"
+                WHERE "status" = 'finalized'
+            `);
+            const lastProcessedShareIndex = lastRow?.lastProcessedShareIndex ?? '0';
+
+            const [rangeRow] = await manager.query(`
+                WITH last_state AS MATERIALIZED (
+                    SELECT $1::bigint AS "lastProcessedShareIndex"
+                ),
+                first_unstable AS MATERIALIZED (
+                    SELECT MIN("shareIndex") AS "firstUnstableShareIndex"
+                    FROM "accepted_share_entity", last_state
+                    WHERE "shareIndex" > last_state."lastProcessedShareIndex"
+                      AND "acceptedAt" > NOW() - ($2::int * INTERVAL '1 second')
+                ),
+                stable_bound AS MATERIALIZED (
+                    SELECT
+                        CASE
+                            WHEN (SELECT "firstUnstableShareIndex" FROM first_unstable) IS NULL THEN (
+                                SELECT MAX("shareIndex")
+                                FROM "accepted_share_entity", last_state
+                                WHERE "shareIndex" > last_state."lastProcessedShareIndex"
+                            )
+                            ELSE (SELECT "firstUnstableShareIndex" FROM first_unstable) - 1
+                        END AS "maxStableShareIndex"
+                ),
+                bounded AS MATERIALIZED (
+                    SELECT "shareIndex"
+                    FROM "accepted_share_entity", last_state, stable_bound
+                    WHERE "shareIndex" > last_state."lastProcessedShareIndex"
+                      AND "shareIndex" <= stable_bound."maxStableShareIndex"
+                    ORDER BY "shareIndex" ASC
+                    LIMIT $3::int
+                )
+                SELECT
+                    MIN("shareIndex")::text AS "startShareIndex",
+                    MAX("shareIndex")::text AS "endShareIndex",
+                    COUNT(*)::int AS "acceptedShareCount"
+                FROM bounded
+            `, [
+                lastProcessedShareIndex,
+                this.shareRollupSafetyLagSeconds,
+                this.shareRollupMaxSharesPerBatch,
+            ]);
+
+            if (rangeRow?.startShareIndex == null || rangeRow?.endShareIndex == null || this.toNumber(rangeRow.acceptedShareCount) === 0) {
+                return { processed: false, reason: 'no-shares' };
+            }
+
+            const [statsRow] = await manager.query(`
+                SELECT
+                    MIN("acceptedAt") AS "startAcceptedAt",
+                    MAX("acceptedAt") AS "endAcceptedAt",
+                    COUNT(*)::bigint AS "acceptedShareCount",
+                    COALESCE(SUM("creditedDifficulty"), 0)::numeric AS "creditedDifficulty"
+                FROM "accepted_share_entity"
+                WHERE "shareIndex" >= $1::bigint
+                  AND "shareIndex" <= $2::bigint
+            `, [rangeRow.startShareIndex, rangeRow.endShareIndex]);
+
+            if (statsRow?.startAcceptedAt == null || this.toNumber(statsRow.acceptedShareCount) === 0) {
+                return { processed: false, reason: 'no-shares' };
+            }
+
+            const [batchRow] = await manager.query(`
+                INSERT INTO "share_rollup_batch" (
+                    "startShareIndex",
+                    "endShareIndex",
+                    "startAcceptedAt",
+                    "endAcceptedAt",
+                    "acceptedShareCount",
+                    "creditedDifficulty",
+                    "status",
+                    "finalizedAt"
+                ) VALUES (
+                    $1::bigint,
+                    $2::bigint,
+                    $3::timestamptz,
+                    $4::timestamptz,
+                    $5::bigint,
+                    $6::numeric,
+                    'finalized',
+                    NOW()
+                )
+                RETURNING "id"::text AS "batchId"
+            `, [
+                rangeRow.startShareIndex,
+                rangeRow.endShareIndex,
+                statsRow.startAcceptedAt,
+                statsRow.endAcceptedAt,
+                statsRow.acceptedShareCount,
+                statsRow.creditedDifficulty,
+            ]);
+
+            await manager.query(`
+                INSERT INTO "share_rollup_batch_summary" (
+                    "batchId",
+                    "address",
+                    "clientName",
+                    "protocol",
+                    "blockHeight",
+                    "creditedDifficulty",
+                    "acceptedShareCount",
+                    "bestSubmissionDifficulty",
+                    "firstShareAt",
+                    "lastShareAt"
+                )
+                SELECT
+                    $1::bigint AS "batchId",
+                    "address",
+                    "clientName",
+                    "protocol",
+                    "blockHeight",
+                    SUM("creditedDifficulty") AS "creditedDifficulty",
+                    COUNT(*)::bigint AS "acceptedShareCount",
+                    MAX("submissionDifficulty") AS "bestSubmissionDifficulty",
+                    MIN("acceptedAt") AS "firstShareAt",
+                    MAX("acceptedAt") AS "lastShareAt"
+                FROM "accepted_share_entity"
+                WHERE "shareIndex" >= $2::bigint
+                  AND "shareIndex" <= $3::bigint
+                GROUP BY "address", "clientName", "protocol", "blockHeight"
+            `, [
+                batchRow.batchId,
+                rangeRow.startShareIndex,
+                rangeRow.endShareIndex,
+            ]);
+
+            return {
+                processed: true,
+                batchId: batchRow.batchId,
+                startShareIndex: rangeRow.startShareIndex,
+                endShareIndex: rangeRow.endShareIndex,
+                acceptedShareCount: this.toNumber(statsRow.acceptedShareCount),
+                creditedDifficulty: this.toNumber(statsRow.creditedDifficulty),
+            };
+        });
     }
 
     public async getPoolSummary(): Promise<ShareAccountingSummary> {
@@ -473,6 +659,32 @@ export class ShareAccountingService implements OnModuleDestroy {
         }
     }
 
+    private startShareRollupTimer(): void {
+        if (!this.shareRollupEnabled || process.env.MASTER !== 'true') {
+            return;
+        }
+
+        this.rollupTimer = setInterval(() => {
+            if (this.activeRollup != null) {
+                return;
+            }
+
+            this.activeRollup = this.processPendingShareRollupBatch()
+                .then(result => {
+                    if (result.processed) {
+                        console.log(`Share rollup batch ${result.batchId} finalized: indexes ${result.startShareIndex}-${result.endShareIndex}, shares ${result.acceptedShareCount}, difficulty ${result.creditedDifficulty}`);
+                    }
+                })
+                .catch(error => {
+                    console.error(`Share rollup batch failed: ${error.message}`);
+                })
+                .finally(() => {
+                    this.activeRollup = null;
+                });
+        }, this.shareRollupIntervalMs);
+        this.rollupTimer.unref?.();
+    }
+
     private buildWhereClause(filter: AccountingFilter): { whereSql: string; params: string[] } {
         const where: string[] = [];
         const params: string[] = [];
@@ -531,6 +743,14 @@ export class ShareAccountingService implements OnModuleDestroy {
     private readNonNegativeInt(name: string, defaultValue: number): number {
         const value = Number(process.env[name]);
         return Number.isInteger(value) && value >= 0 ? value : defaultValue;
+    }
+
+    private readBoolean(name: string, defaultValue: boolean): boolean {
+        const value = process.env[name]?.toLowerCase();
+        if (value == null || value.length === 0) {
+            return defaultValue;
+        }
+        return value === 'true' || value === '1' || value === 'yes';
     }
 }
 
