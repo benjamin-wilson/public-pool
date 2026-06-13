@@ -24,4 +24,13 @@ export class BlocksEntity extends TrackedEntity {
     @Column()
     blockData: string;
 
+    @Column({ nullable: true })
+    blockHash?: string;
+
+    @Column({ type: 'varchar', nullable: true })
+    blockSubmissionResult?: string;
+
+    @Column({ type: 'bigint', nullable: true })
+    payoutSnapshotId?: string;
+
 }

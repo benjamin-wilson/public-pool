@@ -6,6 +6,7 @@ import { UserAgentReportService } from '../src/ORM/_views/user-agent-report/user
 import { UserAgentReportView } from '../src/ORM/_views/user-agent-report/user-agent-report.view';
 import { ClientStatisticsService } from '../src/ORM/client-statistics/client-statistics.service';
 import { ClientEntity } from '../src/ORM/client/client.entity';
+import { PayoutSnapshotService } from '../src/ORM/payout-snapshot/payout-snapshot.service';
 import { ShareAccountingService } from '../src/ORM/share-accounting/share-accounting.service';
 import { RedisMessagingService } from '../src/services/redis-messaging.service';
 
@@ -42,9 +43,14 @@ describe('TimescaleDB and Redis integration', () => {
   });
 
   beforeEach(async () => {
+    await dataSource.query(`DELETE FROM payout_history`);
+    await dataSource.query(`DELETE FROM payout_snapshot_entry`);
+    await dataSource.query(`DELETE FROM payout_snapshot`);
+    await dataSource.query(`DELETE FROM payout_balance`);
     await dataSource.query(`DELETE FROM share_rollup_batch_summary`);
     await dataSource.query(`DELETE FROM share_rollup_batch`);
     await dataSource.query(`DELETE FROM accepted_share_entity`);
+    await dataSource.query(`DELETE FROM blocks_entity`);
     await dataSource.query(`DELETE FROM client_entity`);
     await dataSource.query(`REFRESH MATERIALIZED VIEW user_agent_report_view`);
     await redisMessagingService.clearClientPresence();
@@ -116,6 +122,22 @@ describe('TimescaleDB and Redis integration', () => {
       batch_table: 'share_rollup_batch',
       summary_table: 'share_rollup_batch_summary',
       finalized_index: '"IDX_share_rollup_batch_finalized_end"',
+    });
+
+    const payoutObjects = await dataSource.query(`
+      SELECT
+        to_regclass('public.payout_snapshot') AS snapshot_table,
+        to_regclass('public.payout_snapshot_entry') AS entry_table,
+        to_regclass('public.payout_balance') AS balance_table,
+        to_regclass('public.payout_history') AS history_table,
+        to_regclass('public."IDX_payout_snapshot_latest"') AS latest_index
+    `);
+    expect(payoutObjects[0]).toEqual({
+      snapshot_table: 'payout_snapshot',
+      entry_table: 'payout_snapshot_entry',
+      balance_table: 'payout_balance',
+      history_table: 'payout_history',
+      latest_index: '"IDX_payout_snapshot_latest"',
     });
   });
 
@@ -297,6 +319,120 @@ describe('TimescaleDB and Redis integration', () => {
 
     const rawRows = await dataSource.query(`SELECT COUNT(*)::int AS count FROM accepted_share_entity`);
     expect(rawRows[0].count).toBe(2);
+  });
+
+  it('should create payout snapshots from finalized share rollup batches', async () => {
+    process.env.PAYOUT_SNAPSHOT_ENABLED = 'true';
+    process.env.PAYOUT_METHOD = 'pplns';
+    process.env.PAYOUT_WINDOW_FACTOR = '4';
+    process.env.PAYOUT_MAX_COINBASE_OUTPUTS = '10';
+    process.env.PAYOUT_MIN_OUTPUT_SATS = '0';
+    process.env.PAYOUT_FEE_PERCENT = '0';
+    process.env.PAYOUT_FEE_ADDRESS = '';
+    process.env.PAYOUT_COINBASE_WEIGHT_BUDGET = '50000';
+    const accountingService = new ShareAccountingService(dataSource.getRepository(AcceptedShareEntity));
+    const payoutSnapshotService = new PayoutSnapshotService(dataSource);
+    const acceptedAt = new Date('2026-06-07T12:30:00Z');
+    const clients = await Promise.all([
+      dataSource.getRepository(ClientEntity).save({
+        address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
+        clientName: 'payout-worker-a',
+        sessionId: '57a6f098',
+        userAgent: 'integration-test',
+        startTime: new Date(),
+        bestDifficulty: 0,
+        hashRate: 0,
+      }),
+      dataSource.getRepository(ClientEntity).save({
+        address: 'tb1q99n3pu025yyu0jlywpmwzalyhm36tg5u37w20d',
+        clientName: 'payout-worker-b',
+        sessionId: '67a6f098',
+        userAgent: 'integration-test',
+        startTime: new Date(),
+        bestDifficulty: 0,
+        hashRate: 0,
+      }),
+    ]);
+
+    for (const [index, client] of clients.entries()) {
+      await accountingService.recordAcceptedShare({
+        protocol: 'sv1',
+        acceptedAt: new Date(acceptedAt.getTime() + index),
+        address: client.address,
+        clientName: client.clientName,
+        sessionId: client.sessionId,
+        clientId: client.id,
+        jobId: `payout-${index}`,
+        jobTemplateId: 'payout-template',
+        blockHeight: 900020,
+        creditedDifficulty: index === 0 ? 64 : 32,
+        submissionDifficulty: index === 0 ? 128 : 64,
+        networkDifficulty: 100000,
+        nonce: `payout-nonce-${index}`,
+        ntime: '64b3f3ec',
+        version: '20000000',
+        extraNonce2: `c70800000000000${index}`,
+        isBlockCandidate: false,
+        blockSubmissionResult: null,
+      });
+    }
+
+    await expect(accountingService.processPendingShareRollupBatch()).resolves.toEqual(expect.objectContaining({
+      processed: true,
+      acceptedShareCount: 2,
+      creditedDifficulty: 96,
+    }));
+
+    const snapshot = await payoutSnapshotService.createSnapshotForTemplate({
+      blockHeight: 900020,
+      coinbaseValueSats: 100000,
+      networkDifficulty: 100000,
+    });
+
+    expect(snapshot).toEqual(expect.objectContaining({
+      method: 'pplns',
+      blockHeight: 900020,
+      totalCreditedDifficulty: 96,
+      totalAcceptedShareCount: 2,
+      eligibleAddressCount: 2,
+      includedOutputCount: 2,
+      distributedSats: '100000',
+    }));
+    expect(snapshot.payoutOutputs).toEqual([
+      { address: clients[0].address, amountSats: 66667, percent: 66.667 },
+      { address: clients[1].address, amountSats: 33333, percent: 33.333 },
+    ]);
+
+    await expect(payoutSnapshotService.finalizeSnapshotForBlock({
+      payoutSnapshotId: snapshot.id,
+      blockHeight: 900020,
+      blockSubmissionResult: 'SUCCESS!',
+    })).resolves.toEqual(expect.objectContaining({
+      finalized: true,
+      payoutSnapshotId: snapshot.id,
+      historyRows: 2,
+      balanceRows: 2,
+    }));
+
+    const historyRows = await dataSource.query(`
+      SELECT "address", "paidSats"::int AS "paidSats", "rowType"
+      FROM payout_history
+      WHERE "blockHeight" = $1
+      ORDER BY "paidSats" DESC
+    `, [900020]);
+    expect(historyRows).toEqual([
+      { address: clients[0].address, paidSats: 66667, rowType: 'coinbase' },
+      { address: clients[1].address, paidSats: 33333, rowType: 'coinbase' },
+    ]);
+
+    await expect(payoutSnapshotService.finalizeSnapshotForBlock({
+      payoutSnapshotId: snapshot.id,
+      blockHeight: 900020,
+      blockSubmissionResult: 'SUCCESS!',
+    })).resolves.toEqual(expect.objectContaining({
+      finalized: false,
+      reason: 'already-finalized',
+    }));
   });
 
   it('should exclude soft-deleted clients from the user-agent report', async () => {

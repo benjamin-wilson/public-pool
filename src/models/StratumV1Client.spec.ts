@@ -646,6 +646,7 @@ describe('StratumV1Client', () => {
     });
 
     it('should submit and persist found blocks', async () => {
+        (bitcoinRpcService.SUBMIT_BLOCK as jest.Mock).mockResolvedValue('SUCCESS!');
         jest.spyOn(client as any, 'write').mockImplementation((data) => Promise.resolve(true));
         jest.spyOn(client as any, 'calculateDifficulty').mockReturnValue({
             submissionDifficulty: Number.MAX_SAFE_INTEGER,

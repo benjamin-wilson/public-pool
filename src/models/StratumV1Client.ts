@@ -11,6 +11,7 @@ import { AddressSettingsService } from '../ORM/address-settings/address-settings
 import { BlocksService } from '../ORM/blocks/blocks.service';
 import { ClientEntity } from '../ORM/client/client.entity';
 import { ClientService } from '../ORM/client/client.service';
+import { PayoutSnapshotService } from '../ORM/payout-snapshot/payout-snapshot.service';
 import { ShareAccountingService } from '../ORM/share-accounting/share-accounting.service';
 import { BitcoinRpcService } from '../services/bitcoin-rpc.service';
 import { NotificationService } from '../services/notification.service';
@@ -21,7 +22,7 @@ import { hash256 } from '../utils/hash.utils';
 import { eRequestMethod } from './enums/eRequestMethod';
 import { eResponseMethod } from './enums/eResponseMethod';
 import { eStratumErrorCode } from './enums/eStratumErrorCode';
-import { MiningJob } from './MiningJob';
+import { AddressObject, MiningJob } from './MiningJob';
 import { AuthorizationMessage } from './stratum-messages/AuthorizationMessage';
 import { ConfigurationMessage } from './stratum-messages/ConfigurationMessage';
 import { MiningSubmitMessage } from './stratum-messages/MiningSubmitMessage';
@@ -79,7 +80,9 @@ export class StratumV1Client {
         private readonly configService: ConfigService,
         private readonly addressSettingsService: AddressSettingsService,
         private readonly shareAccountingService?: ShareAccountingService,
-        private readonly redisMessagingService?: RedisMessagingService
+        private readonly redisMessagingService?: RedisMessagingService,
+        private readonly payoutSnapshotService?: PayoutSnapshotService,
+        private readonly accountingProtocol: 'sv1' | 'sv1_tls' = 'sv1',
     ) {
 
         this.socketDataHandler = (data: Buffer) => {
@@ -445,9 +448,7 @@ export class StratumV1Client {
 
     private async sendNewMiningJob(jobTemplate: IJobTemplate) {
 
-        let payoutInformation= [
-            { address: this.clientAuthorization.address, percent: 100 }
-        ];
+        let payoutInformation = this.getPayoutInformation(jobTemplate, this.clientAuthorization.address);
         // const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
         // //50Th/s
         // this.noFee = false;
@@ -648,19 +649,26 @@ export class StratumV1Client {
                     minerAddress: this.clientAuthorization.address,
                     worker: this.clientAuthorization.worker,
                     sessionId: this.extraNonceAndSessionId,
-                    blockData: blockHex
+                    blockData: blockHex,
+                    blockSubmissionResult,
+                    payoutSnapshotId: jobTemplate.blockData.payoutSnapshotId ?? null,
+                });
+                await this.payoutSnapshotService?.finalizeSnapshotForBlock({
+                    payoutSnapshotId: jobTemplate.blockData.payoutSnapshotId,
+                    blockHeight: jobTemplate.blockData.height,
+                    blockSubmissionResult,
                 });
 
                 await this.notificationService.notifySubscribersBlockFound(this.clientAuthorization.address, jobTemplate.blockData.height, updatedJobBlock, blockSubmissionResult);
                 //success
-                if (blockSubmissionResult == null) {
+                if (this.isSuccessfulBlockSubmission(blockSubmissionResult)) {
                     await this.addressSettingsService.resetBestDifficultyAndShares();
                 }
             }
             await this.ensureClientEntity();
             try {
                 await this.shareAccountingService?.recordAcceptedShare({
-                    protocol: 'sv1',
+                    protocol: this.accountingProtocol,
                     address: this.clientAuthorization.address,
                     clientName: this.clientAuthorization.worker,
                     sessionId: this.extraNonceAndSessionId,
@@ -875,6 +883,18 @@ export class StratumV1Client {
             ?? '',
         );
         return Number.isFinite(configured) && configured > 0 ? configured : null;
+    }
+
+    private getPayoutInformation(jobTemplate: IJobTemplate, fallbackAddress: string): AddressObject[] {
+        if (this.configService.get('PAYOUT_COINBASE_MODE') === 'snapshot' && jobTemplate.blockData.payoutOutputs?.length > 0) {
+            return jobTemplate.blockData.payoutOutputs;
+        }
+
+        return [{ address: fallbackAddress, percent: 100 }];
+    }
+
+    private isSuccessfulBlockSubmission(result?: string | null): boolean {
+        return result == null || result === 'SUCCESS!';
     }
 
     private closeSocket() {

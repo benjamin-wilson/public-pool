@@ -11,11 +11,18 @@ import { CurrentRoundBestShareIndex1780897600000 } from './ORM/_migrations/Curre
 import { CurrentRoundWorkRollup1780899000000 } from './ORM/_migrations/CurrentRoundWorkRollup1780899000000';
 import { ShareRollupBatches1780962600000 } from './ORM/_migrations/ShareRollupBatches1780962600000';
 import { AcceptedShareRetentionCompression1780966200000 } from './ORM/_migrations/AcceptedShareRetentionCompression1780966200000';
+import { PayoutSnapshots1780969800000 } from './ORM/_migrations/PayoutSnapshots1780969800000';
+import { AcceptedShareProtocolMetadata1781130600000 } from './ORM/_migrations/AcceptedShareProtocolMetadata1781130600000';
+import { BlocksSubmissionMetadata1781220000000 } from './ORM/_migrations/BlocksSubmissionMetadata1781220000000';
 import { UserAgentReportView } from './ORM/_views/user-agent-report/user-agent-report.view';
 import { AcceptedShareEntity } from './ORM/accepted-share/accepted-share.entity';
 import { AddressSettingsEntity } from './ORM/address-settings/address-settings.entity';
 import { BlocksEntity } from './ORM/blocks/blocks.entity';
 import { ClientEntity } from './ORM/client/client.entity';
+import { PayoutBalanceEntity } from './ORM/payout-snapshot/payout-balance.entity';
+import { PayoutHistoryEntity } from './ORM/payout-snapshot/payout-history.entity';
+import { PayoutSnapshotEntity } from './ORM/payout-snapshot/payout-snapshot.entity';
+import { PayoutSnapshotEntryEntity } from './ORM/payout-snapshot/payout-snapshot-entry.entity';
 import { RpcBlockEntity } from './ORM/rpc-block/rpc-block.entity';
 import { TelegramSubscriptionsEntity } from './ORM/telegram-subscriptions/telegram-subscriptions.entity';
 
@@ -27,6 +34,10 @@ export const databaseEntities = [
     TelegramSubscriptionsEntity,
     UserAgentReportView,
     AcceptedShareEntity,
+    PayoutBalanceEntity,
+    PayoutHistoryEntity,
+    PayoutSnapshotEntity,
+    PayoutSnapshotEntryEntity,
 ];
 
 export const databaseMigrations = [
@@ -40,6 +51,9 @@ export const databaseMigrations = [
     CurrentRoundWorkRollup1780899000000,
     ShareRollupBatches1780962600000,
     AcceptedShareRetentionCompression1780966200000,
+    PayoutSnapshots1780969800000,
+    AcceptedShareProtocolMetadata1781130600000,
+    BlocksSubmissionMetadata1781220000000,
 ];
 
 export function createDatabaseOptions(env: NodeJS.ProcessEnv): TypeOrmModuleOptions & DataSourceOptions {

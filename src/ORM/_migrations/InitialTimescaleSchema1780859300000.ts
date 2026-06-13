@@ -88,6 +88,8 @@ export class InitialTimescaleSchema1780859300000 implements MigrationInterface {
                 "worker" varchar NOT NULL,
                 "sessionId" varchar(8) NOT NULL,
                 "blockData" varchar NOT NULL,
+                "blockHash" varchar,
+                "blockSubmissionResult" varchar,
                 "deletedAt" timestamptz,
                 "createdAt" timestamptz NOT NULL DEFAULT now(),
                 "updatedAt" timestamptz NOT NULL DEFAULT now()

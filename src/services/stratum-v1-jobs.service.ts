@@ -4,7 +4,8 @@ import * as merkle from 'merkle-lib';
 import * as merkleProof from 'merkle-lib/proof';
 import { combineLatest, delay, filter, from, interval, map, Observable, shareReplay, startWith, switchMap, tap } from 'rxjs';
 
-import { MiningJob } from '../models/MiningJob';
+import { IBlockTemplateTx } from '../models/bitcoin-rpc/IBlockTemplate';
+import { AddressObject, MiningJob } from '../models/MiningJob';
 import { hash256 } from '../utils/hash.utils';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 
@@ -19,6 +20,12 @@ export interface IJobTemplate {
         networkDifficulty: number;
         height: number;
         clearJobs: boolean;
+        payoutSnapshotId?: string;
+        payoutOutputs?: AddressObject[];
+        transactions?: IBlockTemplateTx[];
+        sigoplimit?: number;
+        sizelimit?: number;
+        weightlimit?: number;
     };
 }
 
@@ -63,6 +70,12 @@ export class StratumV1JobsService {
                     timestamp,
                     blockTemplate.height,
                     blockTemplate.coinbasevalue,
+                    blockTemplate.payoutSnapshotId ?? '',
+                    ...(blockTemplate.payoutOutputs ?? []).map(output => [
+                        output.address,
+                        output.amountSats ?? '',
+                        output.percent ?? ''
+                    ].join(':')),
                     ...blockTemplate.transactions.map(tx => tx.hash ?? tx.txid ?? tx.data)
                 ].join('|');
 
@@ -80,11 +93,17 @@ export class StratumV1JobsService {
                     timestamp,
                     networkDifficulty: this.calculateNetworkDifficulty(parseInt(blockTemplate.bits, 16)),
                     clearJobs,
-                    height: blockTemplate.height
+                    height: blockTemplate.height,
+                    payoutSnapshotId: blockTemplate.payoutSnapshotId,
+                    payoutOutputs: blockTemplate.payoutOutputs,
+                    rawTransactions: blockTemplate.transactions,
+                    sigoplimit: blockTemplate.sigoplimit,
+                    sizelimit: blockTemplate.sizelimit,
+                    weightlimit: blockTemplate.weightlimit,
                 };
             }),
             filter(next => next != null),
-            map(({ version, bits, prevHash, transactions, timestamp, coinbasevalue, networkDifficulty, clearJobs, height }) => {
+            map(({ version, bits, prevHash, transactions, timestamp, coinbasevalue, networkDifficulty, clearJobs, height, payoutSnapshotId, payoutOutputs, rawTransactions, sigoplimit, sizelimit, weightlimit }) => {
                 const block = new bitcoinjs.Block();
 
                 //create an empty coinbase tx
@@ -122,7 +141,13 @@ export class StratumV1JobsService {
                         coinbasevalue,
                         networkDifficulty,
                         height,
-                        clearJobs
+                        clearJobs,
+                        payoutSnapshotId,
+                        payoutOutputs,
+                        transactions: rawTransactions,
+                        sigoplimit,
+                        sizelimit,
+                        weightlimit,
                     }
                 }
             }),

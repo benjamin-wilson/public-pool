@@ -14,6 +14,7 @@ import { AddressSettingsModule } from './ORM/address-settings/address-settings.m
 import { BlocksModule } from './ORM/blocks/blocks.module';
 import { ClientStatisticsModule } from './ORM/client-statistics/client-statistics.module';
 import { ClientModule } from './ORM/client/client.module';
+import { PayoutSnapshotModule } from './ORM/payout-snapshot/payout-snapshot.module';
 import { RpcBlocksModule } from './ORM/rpc-block/rpc-block.module';
 import { ShareAccountingModule } from './ORM/share-accounting/share-accounting.module';
 import { TelegramSubscriptionsModule } from './ORM/telegram-subscriptions/telegram-subscriptions.module';
@@ -23,12 +24,18 @@ import { BitcoinRpcService } from './services/bitcoin-rpc.service';
 import { BraiinsService } from './services/braiins.service';
 import { BTCPayService } from './services/btc-pay.service';
 import { DiscordService } from './services/discord.service';
+import { CustomWorkService } from './services/custom-work.service';
+import { DatumService } from './services/datum.service';
 import { NotificationService } from './services/notification.service';
 import { RedisMessagingModule } from './services/redis-messaging.module';
 import { StratumV1JobsService } from './services/stratum-v1-jobs.service';
 import { StratumV1Service } from './services/stratum-v1.service';
+import { Sv2JobDeclarationRegistryService } from './services/sv2-job-declaration-registry.service';
+import { Sv2JobDeclarationService } from './services/sv2-job-declaration.service';
+import { Sv2TemplateDistributionService } from './services/sv2-template-distribution.service';
 import { StratumV2Service } from './services/stratum-v2.service';
 import { TelegramService } from './services/telegram.service';
+import { TemplateProviderService } from './services/template-provider.service';
 
 
 const ORMModules = [
@@ -39,7 +46,8 @@ const ORMModules = [
     BlocksModule,
     RpcBlocksModule,
     UserAgentReportModule,
-    ShareAccountingModule
+    ShareAccountingModule,
+    PayoutSnapshotModule
 ]
 
 @Module({
@@ -82,6 +90,12 @@ const ORMModules = [
         BitcoinAddressValidator,
         StratumV1JobsService,
         StratumV2Service,
+        TemplateProviderService,
+        Sv2JobDeclarationRegistryService,
+        Sv2JobDeclarationService,
+        Sv2TemplateDistributionService,
+        CustomWorkService,
+        DatumService,
         BTCPayService,
         BraiinsService
     ],

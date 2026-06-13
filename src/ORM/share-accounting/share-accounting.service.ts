@@ -6,7 +6,9 @@ import { AcceptedShareEntity } from '../accepted-share/accepted-share.entity';
 import { RedisMessagingService } from '../../services/redis-messaging.service';
 
 export interface AcceptedShareRecord {
-    protocol: 'sv1' | 'sv2';
+    protocol: 'sv1' | 'sv1_tls' | 'sv2' | 'sv2_jdp' | 'datum';
+    workSource?: 'pool_template' | 'miner_template';
+    workProtocol?: 'pool' | 'sv2_jdp' | 'datum';
     acceptedAt?: Date;
     address: string;
     clientName: string;
@@ -121,6 +123,8 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
     public async recordAcceptedShare(record: AcceptedShareRecord): Promise<AcceptedShareEntity> {
         const acceptedShare = this.acceptedShareRepository.create({
             ...record,
+            workSource: record.workSource ?? 'pool_template',
+            workProtocol: record.workProtocol ?? 'pool',
             acceptedAt: record.acceptedAt ?? new Date(),
             nonce: record.nonce.toString(),
             ntime: record.ntime.toString(),

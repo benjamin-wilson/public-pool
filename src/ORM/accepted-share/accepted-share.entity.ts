@@ -15,8 +15,14 @@ export class AcceptedShareEntity {
     @Column({ type: 'bigint', default: () => `nextval('accepted_share_index_seq')` })
     shareIndex: number;
 
-    @Column({ length: 8, type: 'varchar' })
-    protocol: 'sv1' | 'sv2';
+    @Column({ length: 16, type: 'varchar' })
+    protocol: 'sv1' | 'sv1_tls' | 'sv2' | 'sv2_jdp' | 'datum';
+
+    @Column({ length: 16, type: 'varchar', default: 'pool_template' })
+    workSource: 'pool_template' | 'miner_template';
+
+    @Column({ length: 16, type: 'varchar', default: 'pool' })
+    workProtocol: 'pool' | 'sv2_jdp' | 'datum';
 
     @Column({ length: 62, type: 'varchar' })
     address: string;

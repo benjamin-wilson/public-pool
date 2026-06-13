@@ -7,6 +7,13 @@ export interface IBlockTemplateTx {
     sigops: number,                        // (numeric) total SigOps cost, as counted for purposes of block limits; if key is not present, sigop cost is unknown and clients MUST NOT assume it is zero
     weight: number                         // (numeric) total transaction weight, as counted for purposes of block limits
 }
+
+export interface IBlockTemplatePayoutOutput {
+    address: string;
+    percent?: number;
+    amountSats?: number;
+}
+
 export interface IBlockTemplate {
     // (json object)
     version: number;                       // (numeric) The preferred block version
@@ -35,5 +42,7 @@ export interface IBlockTemplate {
     height: number,                        // (numeric) The height of the next block
     default_witness_commitment: string     // (string, optional) a valid witness commitment for the unmodified block template
     capabilities: string[]
+    payoutSnapshotId?: string;
+    payoutOutputs?: IBlockTemplatePayoutOutput[];
 
 }

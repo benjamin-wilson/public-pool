@@ -6,6 +6,7 @@ import { Server, Socket } from 'net';
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
 import { ClientService } from '../ORM/client/client.service';
+import { PayoutSnapshotService } from '../ORM/payout-snapshot/payout-snapshot.service';
 import { ShareAccountingService } from '../ORM/share-accounting/share-accounting.service';
 import { StratumV2Client } from '../models/StratumV2Client';
 import { encodeSv2AuthorityPublicKey } from '../models/sv2/sv2-authority-key';
@@ -18,9 +19,11 @@ import {
     xOnlyPubKeyFromPriv,
 } from '../models/sv2/sv2-noise';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
+import { CustomWorkService } from './custom-work.service';
 import { NotificationService } from './notification.service';
 import { RedisMessagingService } from './redis-messaging.service';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
+import { Sv2JobDeclarationRegistryService } from './sv2-job-declaration-registry.service';
 
 const DEFAULT_SOCKET_TIMEOUT_MS = 1000 * 60 * 60;
 const DEFAULT_TCP_KEEPALIVE_INITIAL_DELAY_MS = 1000 * 60;
@@ -44,8 +47,11 @@ export class StratumV2Service implements OnModuleInit {
         private readonly configService: ConfigService,
         private readonly stratumV1JobsService: StratumV1JobsService,
         private readonly addressSettingsService: AddressSettingsService,
+        private readonly customWorkService: CustomWorkService,
+        private readonly jobDeclarationRegistry: Sv2JobDeclarationRegistryService,
         private readonly shareAccountingService?: ShareAccountingService,
         private readonly redisMessagingService?: RedisMessagingService,
+        private readonly payoutSnapshotService?: PayoutSnapshotService,
     ) {}
 
     public async onModuleInit(): Promise<void> {
@@ -91,8 +97,11 @@ export class StratumV2Service implements OnModuleInit {
             this.blocksService,
             this.configService,
             this.addressSettingsService,
+            this.customWorkService,
+            this.jobDeclarationRegistry,
             this.shareAccountingService,
             this.redisMessagingService,
+            this.payoutSnapshotService,
         );
     }
 
@@ -130,6 +139,10 @@ export class StratumV2Service implements OnModuleInit {
 
     public getExtendedMinerExtranonceSize(): number {
         return this.extranonceManager.minerExtranonceSize;
+    }
+
+    public getExtendedTotalExtranonceSize(): number {
+        return this.extranonceManager.totalSize;
     }
 
     private async initializeNoiseConfig(): Promise<void> {

@@ -59,6 +59,26 @@ describe('ShareAccountingService', () => {
         })]);
     });
 
+    it('should accept TLS SV1 protocol labels for accounting', async () => {
+        const repository = {
+            create: jest.fn(value => value),
+            insert: jest.fn().mockResolvedValue({}),
+        };
+        process.env.SHARE_ACCOUNTING_BATCH_SIZE = '1';
+        const service = new ShareAccountingService(repository as any);
+
+        await expect(service.recordAcceptedShare({
+            ...buildRecord('sv1-tls'),
+            protocol: 'sv1_tls',
+        })).resolves.toEqual(expect.objectContaining({
+            protocol: 'sv1_tls',
+        }));
+
+        expect(repository.insert).toHaveBeenCalledWith([expect.objectContaining({
+            protocol: 'sv1_tls',
+        })]);
+    });
+
     it('should batch accepted share inserts until the batch size is reached', async () => {
         process.env.SHARE_ACCOUNTING_BATCH_SIZE = '2';
         process.env.SHARE_ACCOUNTING_FLUSH_INTERVAL_MS = '1000';

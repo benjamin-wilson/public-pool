@@ -91,6 +91,24 @@ describe('StratumV1JobsService', () => {
         expect(service.getJobTemplateById(jobTemplate.blockData.id)).toBe(jobTemplate);
     });
 
+    it('should emit when payout snapshot metadata changes', async () => {
+        await firstValueFrom(service.newMiningJob$);
+
+        const payoutTemplate = createTemplate();
+        payoutTemplate.payoutSnapshotId = '42';
+        payoutTemplate.payoutOutputs = [
+            { address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4', amountSats: 123456 },
+        ];
+
+        const nextTemplate = firstValueFrom(service.newMiningJob$.pipe(skip(1)));
+        blockTemplate$.next(payoutTemplate);
+        const jobTemplate = await nextTemplate;
+
+        expect(jobTemplate.blockData.clearJobs).toBe(false);
+        expect(jobTemplate.blockData.payoutSnapshotId).toBe('42');
+        expect(jobTemplate.blockData.payoutOutputs).toEqual(payoutTemplate.payoutOutputs);
+    });
+
     it('should age old jobs and templates after five minutes', async () => {
         await firstValueFrom(service.newMiningJob$);
         const oldCreation = Date.now() - (1000 * 60 * 11);

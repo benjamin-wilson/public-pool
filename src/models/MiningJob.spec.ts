@@ -64,6 +64,25 @@ describe('MiningJob', () => {
             .toContain(`${extraNonce1}${extraNonce2}`);
     });
 
+    it('should support exact satoshi payout outputs', () => {
+        const firstAmount = Math.floor(jobTemplate.blockData.coinbasevalue / 3);
+        const secondAmount = jobTemplate.blockData.coinbasevalue - firstAmount;
+        const exactPayoutJob = new MiningJob(
+            bitcoinjs.networks.testnet,
+            '2',
+            [
+                { address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4', amountSats: firstAmount },
+                { address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4', amountSats: secondAmount },
+            ],
+            jobTemplate
+        );
+        const coinbase = exactPayoutJob.cloneCoinbaseTransaction();
+
+        expect(coinbase.outs[0].value).toBe(firstAmount);
+        expect(coinbase.outs[1].value).toBe(secondAmount);
+        expect(coinbase.outs[2].value).toBe(0);
+    });
+
     it('should update block nonce, timestamp, version mask, and coinbase script', () => {
         const extraNonce1 = '57a6f098';
         const extraNonce2 = 'c708000000000000';

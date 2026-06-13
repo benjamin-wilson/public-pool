@@ -8,9 +8,10 @@ import { IMiningNotify } from './stratum-messages/IMiningNotify';
 import { TOTAL_EXTRANONCE_SIZE_BYTES } from './stratum.constants';
 
 
-interface AddressObject {
+export interface AddressObject {
     address: string;
-    percent: number;
+    percent?: number;
+    amountSats?: number;
 }
 export class MiningJob {
 
@@ -177,7 +178,9 @@ export class MiningJob {
         let rewardBalance = reward;
 
         addresses.forEach(recipientAddress => {
-            const amount = Math.floor((recipientAddress.percent / 100) * reward);
+            const amount = recipientAddress.amountSats == null
+                ? Math.floor(((recipientAddress.percent ?? 0) / 100) * reward)
+                : recipientAddress.amountSats;
             rewardBalance -= amount;
             coinbaseTransaction.addOutput(this.getPaymentScript(recipientAddress.address), amount);
         })

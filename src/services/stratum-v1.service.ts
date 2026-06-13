@@ -9,6 +9,7 @@ import { UserAgentReportService } from '../ORM/_views/user-agent-report/user-age
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
 import { ClientService } from '../ORM/client/client.service';
+import { PayoutSnapshotService } from '../ORM/payout-snapshot/payout-snapshot.service';
 import { ShareAccountingService } from '../ORM/share-accounting/share-accounting.service';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 import { NotificationService } from './notification.service';
@@ -63,7 +64,8 @@ export class StratumV1Service implements OnModuleInit {
         private readonly stratumV2Service: StratumV2Service,
         private readonly userAgentReportService: UserAgentReportService,
         private readonly shareAccountingService?: ShareAccountingService,
-        private readonly redisMessagingService?: RedisMessagingService
+        private readonly redisMessagingService?: RedisMessagingService,
+        private readonly payoutSnapshotService?: PayoutSnapshotService
     ) {
 
     }
@@ -186,7 +188,7 @@ export class StratumV1Service implements OnModuleInit {
                 try {
                     protocol = this.detectProtocol(firstChunk);
                     if (protocol === 'v1') {
-                        client = this.createV1Client(socket);
+                        client = this.createV1Client(socket, 'sv1');
                         socket.emit('data', firstChunk);
                         return;
                     }
@@ -218,7 +220,7 @@ export class StratumV1Service implements OnModuleInit {
         return server;
     }
 
-    private createV1Client(socket: Socket): StratumV1Client {
+    private createV1Client(socket: Socket, accountingProtocol: 'sv1' | 'sv1_tls'): StratumV1Client {
         return new StratumV1Client(
             socket,
             this.stratumV1JobsService,
@@ -229,7 +231,9 @@ export class StratumV1Service implements OnModuleInit {
             this.configService,
             this.addressSettingsService,
             this.shareAccountingService,
-            this.redisMessagingService
+            this.redisMessagingService,
+            this.payoutSnapshotService,
+            accountingProtocol,
         );
     }
 
@@ -260,7 +264,7 @@ export class StratumV1Service implements OnModuleInit {
             socket.setTimeout(this.getSocketTimeoutMs());
             socket.setKeepAlive(true, this.getTcpKeepAliveInitialDelayMs());
 
-            const client = this.createV1Client(socket);
+            const client = this.createV1Client(socket, 'sv1_tls');
             let cleanedUp = false;
 
             const cleanup = async (reason: string) => {

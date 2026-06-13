@@ -27,6 +27,9 @@ describe('Sv2ExtranonceManager', () => {
   });
 
   it('minerExtranonceSize is total minus prefix', () => {
+    const defaultMgr = new Sv2ExtranonceManager();
+    expect(defaultMgr.minerExtranonceSize).toBe(10);
+
     const mgr = new Sv2ExtranonceManager(4, 8);
     expect(mgr.minerExtranonceSize).toBe(4);
 

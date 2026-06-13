@@ -1,4 +1,6 @@
-// ── SV2 Extranonce Manager ──────────────────────────────────────────
+import { SV2_EXTENDED_TOTAL_EXTRANONCE_SIZE_BYTES } from '../stratum.constants';
+
+// -- SV2 Extranonce Manager ------------------------------------------
 // Manages extranonce prefix allocation for extended mining channels.
 // Ensures no two channels share the same prefix to prevent hash collisions.
 
@@ -13,13 +15,11 @@ export class Sv2ExtranonceManager {
 
   /**
    * @param prefixSize Bytes used for pool-assigned prefix (default 4)
-   * @param totalExtranonceSize Total extranonce bytes (default 12: 4 prefix + 8 miner-controlled).
-   *        Must match MiningJob.ts's coinbase slot size (12 bytes) — both
-   *        protocols share the same coinbase template. Bumped from the
-   *        previous 8-byte total because the Braiins Hashpower marketplace
-   *        requires extranonce2_size >= 7 (compatibility spec).
+   * @param totalExtranonceSize Total extranonce bytes (default 14: 4 prefix + 10 miner/JDC-controlled).
+   *        SV2 extended jobs patch the coinbase script length when the
+   *        negotiated total differs from the SV1-compatible template slot.
    */
-  constructor(prefixSize = 4, totalExtranonceSize = 12) {
+  constructor(prefixSize = 4, totalExtranonceSize = SV2_EXTENDED_TOTAL_EXTRANONCE_SIZE_BYTES) {
     this.prefixSize = prefixSize;
     this.totalExtranonceSize = totalExtranonceSize;
 
@@ -32,6 +32,10 @@ export class Sv2ExtranonceManager {
 
   get minerExtranonceSize(): number {
     return this.totalExtranonceSize - this.prefixSize;
+  }
+
+  get totalSize(): number {
+    return this.totalExtranonceSize;
   }
 
   /**

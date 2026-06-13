@@ -1,7 +1,8 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import { asyncScheduler, BehaviorSubject, delay, filter, from, interval, scheduled, shareReplay, startWith, Subject, switchMap } from 'rxjs';
+import { PayoutSnapshotService } from '../ORM/payout-snapshot/payout-snapshot.service';
 import { RpcBlockService } from '../ORM/rpc-block/rpc-block.service';
 import * as zmq from 'zeromq';
 
@@ -24,7 +25,9 @@ export class BitcoinRpcService implements OnModuleInit {
     constructor(
         private readonly configService: ConfigService,
         private rpcBlockService: RpcBlockService,
-        private readonly redisMessagingService: RedisMessagingService
+        private readonly redisMessagingService: RedisMessagingService,
+        @Optional()
+        private readonly payoutSnapshotService?: PayoutSnapshotService
     ) {
 
     }
@@ -118,7 +121,17 @@ export class BitcoinRpcService implements OnModuleInit {
     }
 
     public async getAndBroadcastLatestTemplate() {
+        if (this.miningInfo?.blocks == null) {
+            console.warn('Skipping block template broadcast because mining info is not available');
+            return;
+        }
+
         const blockTemplate = await this.loadBlockTemplate(this.miningInfo.blocks);
+        if (blockTemplate == null) {
+            console.warn(`Skipping block template broadcast for height ${this.miningInfo.blocks}; block template is not available`);
+            return;
+        }
+
         this._newBlockTemplate$.next(blockTemplate);
         await this.redisMessagingService.setLatestMiningInfo(this.miningInfo);
         await this.redisMessagingService.setBlockTemplate(this.miningInfo.blocks, blockTemplate);
@@ -158,13 +171,32 @@ export class BitcoinRpcService implements OnModuleInit {
 
         let blockTemplate: IBlockTemplate;
         while (blockTemplate == null) {
-            blockTemplate = await this.callRpc<IBlockTemplate>('getblocktemplate', [
-                {
-                    rules: ['segwit'],
-                    mode: 'template',
-                    capabilities: ['serverlist', 'proposal']
-                }
-            ]);
+            try {
+                blockTemplate = await this.callRpc<IBlockTemplate>('getblocktemplate', [
+                    {
+                        rules: ['segwit'],
+                        mode: 'template',
+                        capabilities: ['serverlist', 'proposal']
+                    }
+                ]);
+            } catch (e) {
+                console.warn(`Block template is not available yet: ${e.message ?? e}`);
+                await new Promise(resolve => setTimeout(resolve, 10_000));
+            }
+        }
+
+        try {
+            const payoutSnapshot = await this.payoutSnapshotService?.createSnapshotForTemplate({
+                blockHeight,
+                coinbaseValueSats: blockTemplate.coinbasevalue,
+                networkDifficulty: this.calculateNetworkDifficulty(parseInt(blockTemplate.bits, 16)),
+            });
+            if (payoutSnapshot != null) {
+                blockTemplate.payoutSnapshotId = payoutSnapshot.id;
+                blockTemplate.payoutOutputs = payoutSnapshot.payoutOutputs;
+            }
+        } catch (e) {
+            console.error('Error creating payout snapshot', e);
         }
 
         try {
@@ -199,11 +231,23 @@ export class BitcoinRpcService implements OnModuleInit {
             console.log(hexdata);
             console.log(JSON.stringify(response));
         } catch (e) {
-            response = e;
-            console.log(`BLOCK SUBMISSION RESPONSE ERROR: ${e}`);
+            response = e instanceof Error ? e.message : String(e);
+            console.log(`BLOCK SUBMISSION RESPONSE ERROR: ${response}`);
         }
         return response;
 
+    }
+
+    public async TEST_MEMPOOL_ACCEPT(rawTransactions: Buffer[]): Promise<Array<{
+        txid?: string;
+        wtxid?: string;
+        allowed: boolean;
+        rejectReason?: string;
+        rejectDetails?: string;
+    }>> {
+        return this.callRpc('testmempoolaccept', [
+            rawTransactions.map(tx => tx.toString('hex')),
+        ]);
     }
 
     private async callRpc<T>(method: string, params: unknown[] = []): Promise<T> {
@@ -219,6 +263,14 @@ export class BitcoinRpcService implements OnModuleInit {
         }
 
         return response.data.result;
+    }
+
+    private calculateNetworkDifficulty(nBits: number) {
+        const mantissa: number = nBits & 0x007fffff;
+        const exponent: number = (nBits >> 24) & 0xff;
+        const target: number = mantissa * Math.pow(256, (exponent - 3));
+        const maxTarget = Math.pow(2, 208) * 65535;
+        return maxTarget / target;
     }
 
     private buildRpcUrl(url: string, port: number): string {
