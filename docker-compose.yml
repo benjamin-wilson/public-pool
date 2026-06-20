@@ -124,6 +124,7 @@ services:
       PPLNS_SV2_TDP_PORTS: ${PPLNS_SV2_TDP_PORTS:-}
       DATUM_PORTS: ${DATUM_PORTS:-}
       PPLNS_DATUM_PORTS: ${PPLNS_DATUM_PORTS:-}
+      CLIENT_PRESENCE_ENABLED: ${CLIENT_PRESENCE_ENABLED:-true}
     healthcheck:
       test: ["CMD-SHELL", "node -e \"const http=require('http'); const https=require('https'); const secure=process.env.API_SECURE==='true'; const client=secure?https:http; const req=client.get({hostname:'127.0.0.1',port:process.env.API_PORT||3334,path:'/api/network',rejectUnauthorized:false},res=>process.exit(res.statusCode<500?0:1)); req.on('error',()=>process.exit(1)); req.setTimeout(5000,()=>{req.destroy(); process.exit(1);});\""]
       interval: 30s
