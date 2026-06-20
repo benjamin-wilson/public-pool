@@ -35,11 +35,13 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
     private subscriber: RedisClientType;
     private connected = false;
     private readonly clientPresenceTtlSeconds: number;
+    private readonly clientPresenceEnabled: boolean;
 
     constructor(
         private readonly configService: ConfigService,
     ) {
         this.clientPresenceTtlSeconds = this.readPositiveInt('CLIENT_PRESENCE_TTL_SECONDS', CLIENT_PRESENCE_TTL_SECONDS);
+        this.clientPresenceEnabled = this.configService.get<string>('CLIENT_PRESENCE_ENABLED') !== 'false';
     }
 
     public async onModuleInit() {
@@ -139,6 +141,9 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     public async setClientPresence(presence: ClientPresence): Promise<void> {
+        if (!this.clientPresenceEnabled) {
+            return;
+        }
         if (!await this.ensureConnected()) {
             return;
         }
@@ -159,6 +164,9 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     public async removeClientPresence(clientId: string, address?: string): Promise<void> {
+        if (!this.clientPresenceEnabled) {
+            return;
+        }
         if (!await this.ensureConnected()) {
             return;
         }
@@ -181,6 +189,9 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     public async getClientPresence(clientId: string): Promise<ClientPresence | null> {
+        if (!this.clientPresenceEnabled) {
+            return null;
+        }
         if (!await this.ensureConnected()) {
             return null;
         }
@@ -190,6 +201,9 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     public async getClientPresenceByAddress(address: string): Promise<ClientPresence[]> {
+        if (!this.clientPresenceEnabled) {
+            return [];
+        }
         if (!await this.ensureConnected()) {
             return [];
         }
@@ -198,6 +212,9 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     public async getAllClientPresence(): Promise<ClientPresence[]> {
+        if (!this.clientPresenceEnabled) {
+            return [];
+        }
         if (!await this.ensureConnected()) {
             return [];
         }
@@ -206,6 +223,9 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     public async clearClientPresence(): Promise<void> {
+        if (!this.clientPresenceEnabled) {
+            return;
+        }
         if (!await this.ensureConnected()) {
             return;
         }
