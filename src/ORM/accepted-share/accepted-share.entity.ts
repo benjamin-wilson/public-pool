@@ -1,10 +1,10 @@
 import { Column, Entity, Index, PrimaryColumn, PrimaryGeneratedColumn } from 'typeorm';
 
+import { PayoutMode } from '../../types/payout-mode';
+
 @Entity()
-@Index('IDX_accepted_share_accounting_lookup', ['address', 'clientName', 'acceptedAt'])
-@Index('IDX_accepted_share_client_lookup', ['clientId', 'acceptedAt'])
-@Index('IDX_accepted_share_order', ['shareIndex'])
-@Index('IDX_accepted_share_unique_submission', ['acceptedAt', 'protocol', 'sessionId', 'jobId', 'nonce', 'ntime', 'version', 'extraNonce2'], { unique: true })
+@Index('IDX_accepted_share_mode_order', ['payoutMode', 'shareIndex'])
+@Index('IDX_accepted_share_unique_submission', ['acceptedAt', 'payoutMode', 'protocol', 'sessionId', 'jobId', 'nonce', 'ntime', 'version', 'extraNonce2'], { unique: true })
 export class AcceptedShareEntity {
     @PrimaryGeneratedColumn('uuid')
     id: string;
@@ -17,6 +17,9 @@ export class AcceptedShareEntity {
 
     @Column({ length: 16, type: 'varchar' })
     protocol: 'sv1' | 'sv1_tls' | 'sv2' | 'sv2_jdp' | 'datum';
+
+    @Column({ length: 16, type: 'varchar', default: 'solo' })
+    payoutMode: PayoutMode;
 
     @Column({ length: 16, type: 'varchar', default: 'pool_template' })
     workSource: 'pool_template' | 'miner_template';

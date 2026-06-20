@@ -1,9 +1,10 @@
 import { Column, Entity, Index, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 
+import { PayoutMode } from '../../types/payout-mode';
 import { PayoutSnapshotEntryEntity } from './payout-snapshot-entry.entity';
 
 @Entity({ name: 'payout_snapshot' })
-@Index('IDX_payout_snapshot_latest', ['status', 'createdAt'])
+@Index('IDX_payout_snapshot_latest', ['payoutMode', 'status', 'createdAt'])
 @Index('IDX_payout_snapshot_window', ['windowEndShareIndex'])
 export class PayoutSnapshotEntity {
     @PrimaryGeneratedColumn({ type: 'bigint' })
@@ -11,6 +12,9 @@ export class PayoutSnapshotEntity {
 
     @Column({ length: 32, type: 'varchar' })
     method: string;
+
+    @Column({ length: 16, type: 'varchar', default: 'pplns' })
+    payoutMode: PayoutMode;
 
     @Column({ length: 16, type: 'varchar', default: 'finalized' })
     status: 'finalized';

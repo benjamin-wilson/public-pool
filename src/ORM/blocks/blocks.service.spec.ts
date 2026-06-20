@@ -30,6 +30,9 @@ describe('BlocksService', () => {
             id: 9,
             blockSubmissionResult: 'SUCCESS!',
             payoutSnapshotId: '7',
+            minerAddress: 'tb1qminer',
+            worker: 'worker',
+            sessionId: 'abcd1234',
         });
         const service = new BlocksService({} as any, repository as any);
 
@@ -40,6 +43,88 @@ describe('BlocksService', () => {
         });
 
         expect(repository.update).not.toHaveBeenCalled();
+        expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('keeps real miner attribution when a duplicate TDP submit arrives', async () => {
+        const repository = createRepository();
+        repository.findOne.mockResolvedValue({
+            id: 9,
+            blockSubmissionResult: 'SUCCESS!',
+            payoutSnapshotId: '7',
+            minerAddress: 'tb1qminer',
+            worker: 'sv2gateway',
+            sessionId: 'abcd1234',
+        });
+        const service = new BlocksService({} as any, repository as any);
+
+        await service.save({
+            blockData: createBlockHex(),
+            minerAddress: 'tb1qpool',
+            worker: 'tdp',
+            sessionId: '00000010',
+            blockSubmissionResult: 'SUCCESS!',
+            payoutSnapshotId: '8',
+        });
+
+        expect(repository.update).toHaveBeenCalledWith(9, {
+            blockSubmissionResult: 'SUCCESS!',
+            payoutSnapshotId: '8',
+        });
+        expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('clears payout snapshot metadata when a duplicate successful solo submit arrives', async () => {
+        const repository = createRepository();
+        repository.findOne.mockResolvedValue({
+            id: 9,
+            blockSubmissionResult: 'SUCCESS!',
+            payoutSnapshotId: '7',
+            minerAddress: 'tb1qminer',
+            worker: 'worker',
+            sessionId: 'abcd1234',
+        });
+        const service = new BlocksService({} as any, repository as any);
+
+        await service.save({
+            blockData: createBlockHex(),
+            blockSubmissionResult: 'SUCCESS!',
+            payoutSnapshotId: null,
+        });
+
+        expect(repository.update).toHaveBeenCalledWith(9, {
+            blockSubmissionResult: 'SUCCESS!',
+            payoutSnapshotId: null,
+        });
+        expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('repairs internal TDP attribution when a duplicate real miner submit arrives', async () => {
+        const repository = createRepository();
+        repository.findOne.mockResolvedValue({
+            id: 9,
+            blockSubmissionResult: 'SUCCESS!',
+            payoutSnapshotId: '7',
+            minerAddress: 'tb1qpool',
+            worker: 'tdp',
+            sessionId: '00000010',
+        });
+        const service = new BlocksService({} as any, repository as any);
+
+        await service.save({
+            blockData: createBlockHex(),
+            minerAddress: 'tb1qminer',
+            worker: 'sv2gateway',
+            sessionId: 'abcd1234',
+            blockSubmissionResult: 'duplicate',
+            payoutSnapshotId: '8',
+        });
+
+        expect(repository.update).toHaveBeenCalledWith(9, {
+            minerAddress: 'tb1qminer',
+            worker: 'sv2gateway',
+            sessionId: 'abcd1234',
+        });
         expect(repository.save).not.toHaveBeenCalled();
     });
 
@@ -57,6 +142,50 @@ describe('BlocksService', () => {
             { height: 124, minerAddress: 'addr2', worker: 'b', sessionId: '2222', blockHash: 'hash-b' },
             { height: 123, minerAddress: 'addr1', worker: 'a', sessionId: '1111', blockHash: null },
         ]);
+        expect(repository.find).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.arrayContaining([
+                expect.objectContaining({ blockSubmissionResult: expect.objectContaining({ _value: expect.arrayContaining(['SUCCESS!', 'datum-gateway-submit-expected']) }) }),
+                expect.objectContaining({ blockSubmissionResult: expect.objectContaining({ _type: 'isNull' }) }),
+            ]),
+        }));
+    });
+
+    it('includes DATUM gateway-submitted candidates for address found-block lookups', async () => {
+        const repository = createRepository();
+        repository.find.mockResolvedValue([
+            {
+                height: 4991348,
+                minerAddress: 'tb1qminer',
+                worker: 'datum',
+                sessionId: '28ff7236',
+                blockHash: 'hash-datum',
+                blockSubmissionResult: 'datum-gateway-submit-expected',
+            },
+        ]);
+        const service = new BlocksService({} as any, repository as any);
+
+        await expect(service.getFoundBlocksByAddress('tb1qminer')).resolves.toEqual([
+            {
+                height: 4991348,
+                minerAddress: 'tb1qminer',
+                worker: 'datum',
+                sessionId: '28ff7236',
+                blockHash: 'hash-datum',
+                blockSubmissionResult: 'datum-gateway-submit-expected',
+            },
+        ]);
+        expect(repository.find).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.arrayContaining([
+                expect.objectContaining({
+                    minerAddress: 'tb1qminer',
+                    blockSubmissionResult: expect.objectContaining({ _value: expect.arrayContaining(['SUCCESS!', 'datum-gateway-submit-expected']) }),
+                }),
+                expect.objectContaining({
+                    minerAddress: 'tb1qminer',
+                    blockSubmissionResult: expect.objectContaining({ _type: 'isNull' }),
+                }),
+            ]),
+        }));
     });
 
     function createRepository() {

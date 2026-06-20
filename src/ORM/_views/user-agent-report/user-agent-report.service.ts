@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { ClientEntity } from '../../client/client.entity';
 import { UserAgentReportView } from './user-agent-report.view';
@@ -29,10 +29,17 @@ export class UserAgentReportService {
                 return null;
             });
         if (cachedReport != null) {
-            return cachedReport;
+            if (cachedReport.length > 0) {
+                return cachedReport;
+            }
         }
 
         if (process.env.API_ONLY == 'true') {
+            const liveReport = await this.refreshLiveReport();
+            if (liveReport.length > 0) {
+                return liveReport;
+            }
+
             return await this.userAgentReport.find();
         }
 
@@ -54,6 +61,7 @@ export class UserAgentReportService {
 
     private async buildLiveReport() {
         const presences = await this.redisMessagingService.getAllClientPresence();
+        const activePresences = await this.filterActivePresences(presences);
         const rows = new Map<string, {
             userAgent: string;
             count: number;
@@ -61,7 +69,7 @@ export class UserAgentReportService {
             totalHashRate: number;
         }>();
 
-        presences.forEach(presence => {
+        activePresences.forEach(presence => {
             const userAgent = presence.userAgent == null || presence.userAgent.length === 0
                 ? 'Other'
                 : presence.userAgent;
@@ -96,6 +104,29 @@ export class UserAgentReportService {
             });
 
         return report;
+    }
+
+    private async filterActivePresences(presences: Awaited<ReturnType<RedisMessagingService['getAllClientPresence']>>) {
+        if (presences.length === 0) {
+            return [];
+        }
+
+        const activeClients = await this.clientRepository.find({
+            select: {
+                id: true,
+            },
+            where: {
+                id: In(presences.map(presence => presence.clientId)),
+            },
+        });
+        const activeIds = new Set(activeClients.map(client => client.id));
+        const stalePresences = presences.filter(presence => !activeIds.has(presence.clientId));
+        void Promise.all(stalePresences.map(presence => {
+            return this.redisMessagingService.removeClientPresence(presence.clientId, presence.address)
+                .catch(() => undefined);
+        }));
+
+        return presences.filter(presence => activeIds.has(presence.clientId));
     }
 
     public async refreshReport() {

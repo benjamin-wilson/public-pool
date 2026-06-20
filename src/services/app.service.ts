@@ -84,6 +84,8 @@ export class AppService implements OnModuleInit {
         this.refreshingPoolSummary = true;
         try {
             await this.shareAccountingService.refreshPoolSummary();
+            await this.shareAccountingService.refreshPoolSummary('pplns');
+            await this.shareAccountingService.refreshPoolSummary('solo');
         } catch (error) {
             console.error(`Failed refreshing pool accounting summary: ${error.message}`);
         } finally {

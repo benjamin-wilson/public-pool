@@ -16,6 +16,7 @@ import { NotificationService } from './notification.service';
 import { RedisMessagingService } from './redis-messaging.service';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
 import { StratumV2Service } from './stratum-v2.service';
+import { parsePayoutModePorts, PayoutMode } from '../types/payout-mode';
 
 import { readFileSync } from 'fs';
 import { TlsOptions, TLSSocket, createServer } from 'tls';
@@ -24,6 +25,7 @@ import * as path from 'path';
 interface StratumListenerState {
     port: number;
     secure: boolean;
+    payoutMode: PayoutMode;
     server: Server | null;
     paused: boolean;
 }
@@ -87,12 +89,18 @@ export class StratumV1Service implements OnModuleInit {
 
         // wait for all the other processes to init for an even connection distribution 
         setTimeout(() => {
-            process.env.STRATUM_PORTS.split(',').forEach(port => {
-                this.startSocketServer(parseInt(port));
+            parsePayoutModePorts(
+                process.env.STRATUM_PORTS,
+                process.env.PPLNS_STRATUM_PORTS,
+            ).forEach(({ port, payoutMode }) => {
+                this.startSocketServer(port, payoutMode);
             });
             if (process.env.STRATUM_SECURE?.toLowerCase() === 'true') {
-                process.env.SECURE_STRATUM_PORTS.split(',').forEach(port => {
-                    this.startSecureSocketServer(parseInt(port));
+                parsePayoutModePorts(
+                    process.env.SECURE_STRATUM_PORTS,
+                    process.env.PPLNS_SECURE_STRATUM_PORTS,
+                ).forEach(({ port, payoutMode }) => {
+                    this.startSecureSocketServer(port, payoutMode);
                 });
             }
         }, (10000));
@@ -109,10 +117,11 @@ export class StratumV1Service implements OnModuleInit {
 
     }
 
-    private startSocketServer(port: number) {
+    private startSocketServer(port: number, payoutMode: PayoutMode) {
         const listener: StratumListenerState = {
             port,
             secure: false,
+            payoutMode,
             server: null,
             paused: false
         };
@@ -120,7 +129,7 @@ export class StratumV1Service implements OnModuleInit {
         this.listen(listener);
     }
 
-    private createSocketServer(): Server {
+    private createSocketServer(payoutMode: PayoutMode): Server {
         const server = new Server(async (socket: Socket) => {
             socket.setTimeout(this.getSocketTimeoutMs());
             socket.setKeepAlive(true, this.getTcpKeepAliveInitialDelayMs());
@@ -188,14 +197,14 @@ export class StratumV1Service implements OnModuleInit {
                 try {
                     protocol = this.detectProtocol(firstChunk);
                     if (protocol === 'v1') {
-                        client = this.createV1Client(socket, 'sv1');
+                        client = this.createV1Client(socket, 'sv1', payoutMode);
                         socket.emit('data', firstChunk);
                         return;
                     }
 
                     if (protocol === 'v2') {
                         await this.stratumV2Service.ensureInitialized();
-                        client = this.stratumV2Service.createClient(socket, firstChunk);
+                        client = this.stratumV2Service.createClient(socket, firstChunk, payoutMode);
                         return;
                     }
 
@@ -220,7 +229,7 @@ export class StratumV1Service implements OnModuleInit {
         return server;
     }
 
-    private createV1Client(socket: Socket, accountingProtocol: 'sv1' | 'sv1_tls'): StratumV1Client {
+    private createV1Client(socket: Socket, accountingProtocol: 'sv1' | 'sv1_tls', payoutMode: PayoutMode): StratumV1Client {
         return new StratumV1Client(
             socket,
             this.stratumV1JobsService,
@@ -234,13 +243,15 @@ export class StratumV1Service implements OnModuleInit {
             this.redisMessagingService,
             this.payoutSnapshotService,
             accountingProtocol,
+            payoutMode,
         );
     }
 
-    private startSecureSocketServer(port: number) {
+    private startSecureSocketServer(port: number, payoutMode: PayoutMode) {
         const listener: StratumListenerState = {
             port,
             secure: true,
+            payoutMode,
             server: null,
             paused: false
         };
@@ -248,7 +259,7 @@ export class StratumV1Service implements OnModuleInit {
         this.listen(listener);
     }
 
-    private createSecureSocketServer(): Server {
+    private createSecureSocketServer(payoutMode: PayoutMode): Server {
 
         const currentDirectory = process.cwd();
         const keyPath = path.join(currentDirectory, 'secrets', 'key.pem');
@@ -264,7 +275,7 @@ export class StratumV1Service implements OnModuleInit {
             socket.setTimeout(this.getSocketTimeoutMs());
             socket.setKeepAlive(true, this.getTcpKeepAliveInitialDelayMs());
 
-            const client = this.createV1Client(socket, 'sv1_tls');
+            const client = this.createV1Client(socket, 'sv1_tls', payoutMode);
             let cleanedUp = false;
 
             const cleanup = async (reason: string) => {
@@ -329,12 +340,12 @@ export class StratumV1Service implements OnModuleInit {
             return;
         }
 
-        const server = listener.secure ? this.createSecureSocketServer() : this.createSocketServer();
+        const server = listener.secure ? this.createSecureSocketServer(listener.payoutMode) : this.createSocketServer(listener.payoutMode);
         listener.server = server;
         listener.paused = false;
 
         server.listen(listener.port, () => {
-            console.log(`${listener.secure ? 'Stratum TLS' : 'Stratum'} server is listening on port ${listener.port}`);
+            console.log(`${listener.secure ? 'Stratum TLS' : 'Stratum'} ${listener.payoutMode} server is listening on port ${listener.port}`);
         });
     }
 

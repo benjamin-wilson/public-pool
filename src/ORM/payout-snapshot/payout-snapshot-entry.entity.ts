@@ -1,5 +1,6 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 
+import { PayoutMode } from '../../types/payout-mode';
 import { PayoutSnapshotEntity } from './payout-snapshot.entity';
 
 @Entity({ name: 'payout_snapshot_entry' })
@@ -11,6 +12,9 @@ export class PayoutSnapshotEntryEntity {
 
     @Column({ type: 'bigint' })
     snapshotId: string;
+
+    @Column({ length: 16, type: 'varchar', default: 'pplns' })
+    payoutMode: PayoutMode;
 
     @ManyToOne(() => PayoutSnapshotEntity, snapshot => snapshot.entries, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'snapshotId' })

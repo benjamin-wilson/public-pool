@@ -114,6 +114,49 @@ describe('TemplateProviderService', () => {
         expect(validation.template).toBe(template);
     });
 
+    it('accepts declared SV2 JDP script-only coinbase prefixes that start with the required BIP34 height', async () => {
+        const { provider, jobTemplate } = await createProvider();
+        const template = provider.upsert(jobTemplate);
+        const scriptOnlyPrefix = Buffer.concat([
+            provider.buildCoinbaseHeightPrefix(template.height),
+            Buffer.from('/public-pool-sri-jdc-e2e/', 'utf8'),
+        ]);
+
+        const validation = provider.validateDeclaredWtxids({
+            version: MockRecording1.BLOCK_TEMPLATE.version,
+            coinbaseTxPrefix: scriptOnlyPrefix,
+            wtxidList: [],
+        });
+
+        expect(validation.valid).toBe(true);
+        expect(validation.template).toBe(template);
+    });
+
+    it('ignores zero-value extra outputs when validating coinbase payouts', async () => {
+        const { provider, jobTemplate } = await createProvider();
+        const coinbaseTx = createCoinbaseTransaction(provider.buildCoinbaseHeightPrefix(jobTemplate.blockData.height));
+        coinbaseTx.addOutput(
+            bitcoinjs.address.toOutputScript('tb1qdyjakeepue4trak9d3hvyelrd0aw7mwju2d0c2', bitcoinjs.networks.testnet),
+            0,
+        );
+        coinbaseTx.addOutput(
+            bitcoinjs.address.toOutputScript('tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4', bitcoinjs.networks.testnet),
+            jobTemplate.blockData.coinbasevalue,
+        );
+
+        const validation = provider.validateCoinbaseTransactionPayoutOutputs({
+            coinbaseTx: coinbaseTx.toBuffer(),
+            payoutInformation: [{
+                address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
+                amountSats: jobTemplate.blockData.coinbasevalue,
+            }],
+            coinbaseValue: jobTemplate.blockData.coinbasevalue,
+            network: bitcoinjs.networks.testnet,
+        });
+
+        expect(validation.valid).toBe(true);
+    });
+
     it('accepts DATUM template metadata matching the latest template fast path', async () => {
         const { provider, jobTemplate } = await createProvider();
         const template = provider.upsert(jobTemplate);

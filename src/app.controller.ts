@@ -1,5 +1,5 @@
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Controller, Get, Inject } from '@nestjs/common';
+import { Controller, Get, Inject, Query } from '@nestjs/common';
 import { Cache } from 'cache-manager';
 import { firstValueFrom } from 'rxjs';
 
@@ -13,12 +13,14 @@ import { UserAgentReportView } from './ORM/_views/user-agent-report/user-agent-r
 import { StratumV2Service } from './services/stratum-v2.service';
 import { ShareAccountingService } from './ORM/share-accounting/share-accounting.service';
 import { RedisMessagingService } from './services/redis-messaging.service';
+import { normalizePayoutMode } from './types/payout-mode';
 
 @Controller()
 export class AppController {
 
   private uptime = new Date();
   private siteInfoRefreshPromise: Promise<SiteInfoResponse> | null = null;
+  private readonly userAgentOtherGroupThreshold = 20;
 
   constructor(
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
@@ -37,16 +39,16 @@ export class AppController {
   public async info() {
     const CACHE_KEY = 'SITE_INFO';
     const STALE_CACHE_KEY = 'SITE_INFO_STALE';
-    const cachedResult = await this.getCached(CACHE_KEY, 5 * 60 * 1000);
+    const cachedResult = await this.getCached<SiteInfoResponse>(CACHE_KEY, 5 * 60 * 1000);
 
     if (cachedResult != null) {
-      return cachedResult;
+      return await this.withFreshFoundBlocks(cachedResult);
     }
 
     const staleResult = await this.getCached<SiteInfoResponse>(STALE_CACHE_KEY, 60 * 60 * 1000);
     if (staleResult != null) {
       void this.refreshSiteInfo(staleResult);
-      return staleResult;
+      return await this.withFreshFoundBlocks(staleResult);
     }
 
     return await this.refreshSiteInfo(null);
@@ -83,32 +85,7 @@ export class AppController {
       withInfoTimeout<UserAgentReportView[]>('user agent report', this.userAgentReportService.getReport(), staleInfo?.userAgents ?? []),
     ]);
 
-    const other: {
-      count: number,
-      bestDifficulty: number,
-      totalHashRate: number;
-    } = {
-      count: 0,
-      bestDifficulty: 0,
-      totalHashRate: 0
-    };
-    const userAgents: UserAgentReportView[] = userAgentReport.reduce((pre, cur, idx, arr) => {
-      // If less than 10Th/s and less than 100 devices, add to 'other'
-      if (parseInt(cur.totalHashRate) < 10000000000000 && parseInt(cur.count) < 200) {
-        other.totalHashRate += parseFloat(cur.totalHashRate);
-        other.count += parseInt(cur.count);
-        if (other.bestDifficulty < cur.bestDifficulty) {
-          other.bestDifficulty = cur.bestDifficulty;
-        }
-      } else {
-        pre.push(cur);
-      }
-      return pre;
-    }, []);
-
-    if (other.count > 0) {
-      userAgents.push({ userAgent: 'Other', count: other.count.toString(), bestDifficulty: other.bestDifficulty, totalHashRate: other.totalHashRate.toString() })
-    }
+    const userAgents = this.groupSmallUserAgents(userAgentReport);
 
     const data: SiteInfoResponse = {
       blockData,
@@ -129,16 +106,71 @@ export class AppController {
     return data;
   }
 
+  private groupSmallUserAgents(userAgentReport: UserAgentReportView[]): UserAgentReportView[] {
+    if (userAgentReport.length <= this.userAgentOtherGroupThreshold) {
+      return userAgentReport;
+    }
+
+    const other: {
+      count: number,
+      bestDifficulty: number,
+      totalHashRate: number;
+    } = {
+      count: 0,
+      bestDifficulty: 0,
+      totalHashRate: 0
+    };
+    const userAgents: UserAgentReportView[] = userAgentReport.reduce((pre, cur) => {
+      // If less than 10Th/s and less than 100 devices, add to 'other'
+      if (parseInt(cur.totalHashRate) < 10000000000000 && parseInt(cur.count) < 200) {
+        other.totalHashRate += parseFloat(cur.totalHashRate);
+        other.count += parseInt(cur.count);
+        if (other.bestDifficulty < cur.bestDifficulty) {
+          other.bestDifficulty = cur.bestDifficulty;
+        }
+      } else {
+        pre.push(cur);
+      }
+      return pre;
+    }, []);
+
+    if (other.count > 0) {
+      userAgents.push({ userAgent: 'Other', count: other.count.toString(), bestDifficulty: other.bestDifficulty, totalHashRate: other.totalHashRate.toString() })
+    }
+
+    return userAgents;
+  }
+
+  private async withFreshFoundBlocks(info: SiteInfoResponse): Promise<SiteInfoResponse> {
+    const blockData = await this.withTimeout(
+      'found blocks cache refresh',
+      this.blocksService.getFoundBlocks(),
+      info.blockData,
+      () => undefined,
+      500
+    );
+
+    if (blockData === info.blockData) {
+      return info;
+    }
+
+    return {
+      ...info,
+      blockData
+    };
+  }
+
   @Get('info/accounting')
-  public async infoAccounting() {
-    const CACHE_KEY = 'SITE_ACCOUNTING';
+  public async infoAccounting(@Query('payoutMode') payoutMode?: string) {
+    const mode = normalizePayoutMode(payoutMode ?? 'pplns');
+    const CACHE_KEY = `SITE_ACCOUNTING:${mode}`;
     const cachedResult = await this.getCached(CACHE_KEY, 15 * 1000);
 
     if (cachedResult != null) {
       return cachedResult;
     }
 
-    const data = await this.shareAccountingService.getPoolSummary();
+    const data = await this.shareAccountingService.getPoolSummary(mode);
 
     //15 sec
     await this.setCached(CACHE_KEY, data, 15 * 1000);
@@ -198,6 +230,25 @@ export class AppController {
     return chartData;
 
 
+  }
+
+  @Get('info/chart/payout-modes')
+  public async infoChartByPayoutMode(@Query('payoutMode') payoutMode?: string) {
+    const mode = payoutMode == null || payoutMode === 'all'
+      ? undefined
+      : normalizePayoutMode(payoutMode);
+    const CACHE_KEY = `SITE_HASHRATE_GRAPH_BY_PAYOUT_MODE:${mode ?? 'all'}`;
+    const cachedResult = await this.getCached(CACHE_KEY, 10 * 60 * 1000);
+
+    if (cachedResult != null) {
+      return cachedResult;
+    }
+
+    const chartData = await this.clientStatisticsService.getChartDataForSiteByPayoutMode(mode);
+
+    await this.setCached(CACHE_KEY, chartData, 10 * 60 * 1000);
+
+    return chartData;
   }
 
   private async getCached<T>(key: string, localTtlMs: number): Promise<T | null> {

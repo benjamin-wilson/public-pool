@@ -24,6 +24,7 @@ import { NotificationService } from './notification.service';
 import { RedisMessagingService } from './redis-messaging.service';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
 import { Sv2JobDeclarationRegistryService } from './sv2-job-declaration-registry.service';
+import { parsePayoutModePorts, PayoutMode } from '../types/payout-mode';
 
 const DEFAULT_SOCKET_TIMEOUT_MS = 1000 * 60 * 60;
 const DEFAULT_TCP_KEEPALIVE_INITIAL_DELAY_MS = 1000 * 60;
@@ -70,7 +71,7 @@ export class StratumV2Service implements OnModuleInit {
         }
 
         await this.ensureInitialized();
-        ports.forEach(port => this.startSocketServer(port));
+        ports.forEach(({ port, payoutMode }) => this.startSocketServer(port, payoutMode));
     }
 
     public async ensureInitialized(): Promise<void> {
@@ -81,7 +82,7 @@ export class StratumV2Service implements OnModuleInit {
         await this.initializeNoiseConfig();
     }
 
-    public createClient(socket: Socket, firstChunk: Buffer): StratumV2Client {
+    public createClient(socket: Socket, firstChunk: Buffer, payoutMode: PayoutMode = 'solo'): StratumV2Client {
         if (this.noiseConfig == null) {
             throw new Error('Stratum V2 service is not initialized');
         }
@@ -102,6 +103,7 @@ export class StratumV2Service implements OnModuleInit {
             this.shareAccountingService,
             this.redisMessagingService,
             this.payoutSnapshotService,
+            payoutMode,
         );
     }
 
@@ -170,21 +172,14 @@ export class StratumV2Service implements OnModuleInit {
         };
     }
 
-    private getPorts(): number[] {
-        const configuredPorts = this.configService.get<string>('STRATUM_V2_PORTS');
-        if (!configuredPorts?.trim()) {
-            return [];
-        }
-
-        const ports = configuredPorts
-            .split(',')
-            .map(port => parseInt(port.trim(), 10))
-            .filter(port => Number.isInteger(port) && port > 0 && port <= 65535);
-
-        return Array.from(new Set(ports));
+    private getPorts(): { port: number; payoutMode: PayoutMode }[] {
+        return parsePayoutModePorts(
+            this.configService.get<string>('STRATUM_V2_PORTS'),
+            this.configService.get<string>('PPLNS_STRATUM_V2_PORTS'),
+        );
     }
 
-    private startSocketServer(port: number): void {
+    private startSocketServer(port: number, payoutMode: PayoutMode): void {
         const server = new Server((socket: Socket) => {
             socket.setTimeout(this.getSocketTimeoutMs());
             socket.setKeepAlive(true, this.getTcpKeepAliveInitialDelayMs());
@@ -202,7 +197,7 @@ export class StratumV2Service implements OnModuleInit {
             };
 
             socket.once('data', (firstChunk: Buffer) => {
-                client = this.createClient(socket, firstChunk);
+                client = this.createClient(socket, firstChunk, payoutMode);
             });
 
             socket.on('timeout', closeSocket);
@@ -224,7 +219,7 @@ export class StratumV2Service implements OnModuleInit {
         });
 
         server.listen(port, () => {
-            console.log(`Stratum V2 server is listening on port ${port}`);
+            console.log(`Stratum V2 ${payoutMode} server is listening on port ${port}`);
         });
         this.servers.push(server);
     }

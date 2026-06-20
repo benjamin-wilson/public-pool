@@ -23,15 +23,14 @@ describe('buildPayoutDistribution', () => {
             payoutSats: entry.payoutSats,
             balanceAfterSats: entry.balanceAfterSats,
         }))).toEqual([
-            { address: ADDRESS_A, payoutSats: 1000, balanceAfterSats: -334 },
+            { address: ADDRESS_A, payoutSats: 667, balanceAfterSats: 0 },
+            { address: ADDRESS_B, payoutSats: 333, balanceAfterSats: 0 },
         ]);
-        expect(result.entries.find(entry => entry.address === ADDRESS_B))
-            .toEqual(expect.objectContaining({ includedInCoinbase: false, balanceAfterSats: 333 }));
         expect(result.distributedSats).toBe(1000);
         expect(result.unallocatedRemainderSats).toBe(0);
     });
 
-    it('should carry sub-dust work forward as signed credit', () => {
+    it('should include small active miner payouts instead of reallocating their work', () => {
         const result = buildPayoutDistribution({
             addressWork: [
                 { address: ADDRESS_A, creditedDifficulty: 999, acceptedShareCount: 999 },
@@ -48,17 +47,18 @@ describe('buildPayoutDistribution', () => {
         const paid = result.entries.find(entry => entry.address === ADDRESS_A);
 
         expect(pending).toEqual(expect.objectContaining({
-            includedInCoinbase: false,
+            includedInCoinbase: true,
             grossPayoutSats: 1,
-            payoutSats: 0,
-            balanceAfterSats: 1,
+            payoutSats: 1,
+            balanceAfterSats: 0,
         }));
         expect(paid).toEqual(expect.objectContaining({
             includedInCoinbase: true,
-            payoutSats: 1000,
-            balanceAfterSats: -1,
+            payoutSats: 999,
+            balanceAfterSats: 0,
         }));
         expect(result.distributedSats).toBe(1000);
+        expect(result.unallocatedRemainderSats).toBe(0);
     });
 
     it('should trim outputs that do not fit the coinbase weight budget', () => {
@@ -77,10 +77,16 @@ describe('buildPayoutDistribution', () => {
 
         expect(result.payoutOutputs).toHaveLength(1);
         expect(result.payoutOutputs[0].address).toBe(ADDRESS_A);
+        expect(result.payoutOutputs[0]).toEqual(expect.objectContaining({
+            payoutSats: 3000,
+            balanceAfterSats: -1889,
+        }));
         expect(result.entries.find(entry => entry.address === ADDRESS_B))
             .toEqual(expect.objectContaining({ includedInCoinbase: false, balanceAfterSats: 1000 }));
         expect(result.entries.find(entry => entry.address === ADDRESS_C))
-            .toEqual(expect.objectContaining({ includedInCoinbase: false, balanceAfterSats: 888 }));
+            .toEqual(expect.objectContaining({ includedInCoinbase: false, balanceAfterSats: 889 }));
+        expect(result.distributedSats).toBe(3000);
+        expect(result.unallocatedRemainderSats).toBe(0);
     });
 
     it('should apply positive and negative carried balances to the next distribution', () => {

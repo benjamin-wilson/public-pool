@@ -113,6 +113,28 @@ describe('RedisMessagingService', () => {
         expect([...store.keys()].filter(key => key.startsWith('client-presence'))).toHaveLength(0);
         expect([...sets.keys()].filter(key => key.startsWith('client-presence'))).toHaveLength(0);
     });
+
+    it('should not return address presence that is no longer in the active global set', async () => {
+        await service.connect();
+
+        await service.setClientPresence({
+            clientId: '00000000-0000-4000-8000-000000000001',
+            address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
+            clientName: 'worker',
+            sessionId: '57a6f098',
+            userAgent: 'bitaxe',
+            startTime: '2026-06-07T12:00:00.000Z',
+            lastSeen: '2026-06-07T12:01:00.000Z',
+            hashRate: 100,
+            bestDifficulty: 200,
+        });
+        sets.get('client-presence:all')?.delete('00000000-0000-4000-8000-000000000001');
+
+        expect(await service.getClientPresenceByAddress('tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4'))
+            .toHaveLength(0);
+        expect(sets.get('client-presence:address:tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4'))
+            ?.not.toContain('00000000-0000-4000-8000-000000000001');
+    });
 });
 
 const store = new Map<string, string>();

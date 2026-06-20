@@ -23,6 +23,7 @@ import { DifficultyUtils } from '../utils/difficulty.utils';
 import { hash256 } from '../utils/hash.utils';
 import { AddressObject, MiningJob } from './MiningJob';
 import { StratumV1ClientStatistics } from './StratumV1ClientStatistics';
+import { PayoutMode } from '../types/payout-mode';
 import { BufferReader } from './sv2/sv2-binary-codec';
 import {
     SV2_CHANNEL_MSG_FLAG,
@@ -149,6 +150,7 @@ export class StratumV2Client {
         private readonly shareAccountingService?: ShareAccountingService,
         private readonly redisMessagingService?: RedisMessagingService,
         private readonly payoutSnapshotService?: PayoutSnapshotService,
+        private readonly payoutMode: PayoutMode = 'solo',
     ) {
         this.firstChunkSummary = this.describeChunk(firstChunk);
         this.noiseSession = new Sv2NoiseSession(this.stratumV2Service.getNoiseConfig());
@@ -766,6 +768,26 @@ export class StratumV2Client {
             msg,
             channel.extranoncePrefix.length + channel.extranonceSize,
         );
+        const payoutValidation = this.validateCoinbasePayoutOutputs(
+            Buffer.concat([
+                split.coinbasePrefix,
+                Buffer.alloc(channel.extranoncePrefix.length + channel.extranonceSize),
+                split.coinbaseSuffix,
+            ]),
+            latestTemplate,
+            this.getPayoutInformation(latestTemplate, this.address),
+        );
+        if (!payoutValidation.valid) {
+            await this.sendFrame(
+                Sv2MsgType.SET_CUSTOM_MINING_JOB_ERROR,
+                serializeSetCustomMiningJobError({
+                    channelId: msg.channelId,
+                    requestId: msg.requestId,
+                    errorCode: payoutValidation.errorCode,
+                }),
+            );
+            return;
+        }
         const placeholderJob = new MiningJob(
             this.network,
             jobIdHex,
@@ -862,13 +884,19 @@ export class StratumV2Client {
                 sessionId: this.sessionId,
                 blockData: blockHex,
                 blockSubmissionResult,
-                payoutSnapshotId: jobTemplate.blockData.payoutSnapshotId ?? null,
+                payoutSnapshotId: this.payoutMode === 'pplns'
+                    ? jobTemplate.blockData.payoutSnapshotId ?? null
+                    : null,
+                payoutMode: this.payoutMode,
             });
-            await this.payoutSnapshotService?.finalizeSnapshotForBlock({
-                payoutSnapshotId: jobTemplate.blockData.payoutSnapshotId,
-                blockHeight: jobTemplate.blockData.height,
-                blockSubmissionResult,
-            });
+            if (this.payoutMode === 'pplns') {
+                await this.payoutSnapshotService?.finalizeSnapshotForBlock({
+                    payoutSnapshotId: jobTemplate.blockData.payoutSnapshotId,
+                    blockHeight: jobTemplate.blockData.height,
+                    blockSubmissionResult,
+                    payoutMode: this.payoutMode,
+                });
+            }
             await this.notificationService.notifySubscribersBlockFound(
                 this.address,
                 jobTemplate.blockData.height,
@@ -882,6 +910,7 @@ export class StratumV2Client {
 
         await this.shareAccountingService?.recordAcceptedShare({
             protocol: metadata.workProtocol === 'sv2_jdp' ? 'sv2_jdp' : 'sv2',
+            payoutMode: this.payoutMode,
             workSource: metadata.workProtocol === 'sv2_jdp' ? 'miner_template' : 'pool_template',
             workProtocol: metadata.workProtocol ?? 'pool',
             address: this.address,
@@ -929,13 +958,12 @@ export class StratumV2Client {
         const testBlock = Object.assign(new bitcoinjs.Block(), jobTemplate.block);
         testBlock.transactions = jobTemplate.block.transactions.map(tx => Object.assign(new bitcoinjs.Transaction(), tx));
 
-        const coinbaseTx = extendedJob.miningJob.cloneCoinbaseTransaction();
-        const script = coinbaseTx.ins[0].script;
-        coinbaseTx.ins[0].script = Buffer.concat([
-            script.subarray(0, script.length - (extranoncePrefix.length + submission.extranonce.length)),
+        const coinbaseTx = bitcoinjs.Transaction.fromBuffer(Buffer.concat([
+            extendedJob.coinbasePrefix,
             extranoncePrefix,
             submission.extranonce,
-        ]);
+            extendedJob.coinbaseSuffix,
+        ]));
         testBlock.transactions[0] = coinbaseTx;
         testBlock.version = submission.version;
         testBlock.nonce = submission.nonce;
@@ -1282,6 +1310,7 @@ export class StratumV2Client {
                     clientName: this.workerName,
                     userAgent: this.userAgent,
                     startTime: new Date(),
+                    payoutMode: this.payoutMode,
                     bestDifficulty: 0,
                 });
                 await this.updateClientPresence(new Date());
@@ -1302,6 +1331,7 @@ export class StratumV2Client {
                 address: this.clientEntity.address,
                 clientName: this.clientEntity.clientName,
                 sessionId: this.clientEntity.sessionId,
+                payoutMode: this.payoutMode,
                 userAgent: this.clientEntity.userAgent,
                 startTime: new Date(this.clientEntity.startTime).toISOString(),
                 lastSeen: lastSeen.toISOString(),
@@ -1394,11 +1424,76 @@ export class StratumV2Client {
     }
 
     private getPayoutInformation(jobTemplate: IJobTemplate, fallbackAddress: string): AddressObject[] {
-        if (this.configService.get('PAYOUT_COINBASE_MODE') === 'snapshot' && jobTemplate.blockData.payoutOutputs?.length > 0) {
+        if (this.payoutMode === 'pplns' && jobTemplate.blockData.payoutOutputs?.length > 0) {
             return jobTemplate.blockData.payoutOutputs;
         }
 
         return [{ address: fallbackAddress, percent: 100 }];
+    }
+
+    private validateCoinbasePayoutOutputs(
+        coinbaseTxBytes: Buffer,
+        jobTemplate: IJobTemplate,
+        payoutInformation: AddressObject[],
+    ): { valid: boolean; errorCode?: string } {
+        let transaction: bitcoinjs.Transaction;
+        try {
+            transaction = bitcoinjs.Transaction.fromBuffer(coinbaseTxBytes);
+        } catch {
+            return { valid: false, errorCode: 'invalid-coinbase-transaction' };
+        }
+
+        const expectedOutputs = this.buildExpectedPayoutOutputs(payoutInformation, jobTemplate.blockData.coinbasevalue);
+        const submittedOutputs = transaction.outs
+            .filter(output => !this.isWitnessCommitmentOutput(output.script))
+            .filter(output => BigInt(output.value) !== 0n)
+            .map(output => ({
+                value: BigInt(output.value),
+                scriptPubKey: Buffer.from(output.script),
+            }));
+
+        if (submittedOutputs.length !== expectedOutputs.length) {
+            return { valid: false, errorCode: 'invalid-coinbase-payout-outputs' };
+        }
+        for (let i = 0; i < expectedOutputs.length; i++) {
+            const expected = expectedOutputs[i];
+            const submitted = submittedOutputs[i];
+            if (submitted.value !== expected.value || !submitted.scriptPubKey.equals(expected.scriptPubKey)) {
+                return { valid: false, errorCode: 'invalid-coinbase-payout-outputs' };
+            }
+        }
+        return { valid: true };
+    }
+
+    private buildExpectedPayoutOutputs(
+        payoutInformation: AddressObject[],
+        coinbaseValue: number,
+    ): { value: bigint; scriptPubKey: Buffer }[] {
+        let rewardBalance = BigInt(Math.max(0, Math.floor(coinbaseValue)));
+        const outputs = payoutInformation.map(recipientAddress => {
+            const value = recipientAddress.amountSats == null
+                ? BigInt(Math.floor(((recipientAddress.percent ?? 0) / 100) * coinbaseValue))
+                : BigInt(recipientAddress.amountSats);
+            rewardBalance -= value;
+            return {
+                value,
+                scriptPubKey: bitcoinjs.address.toOutputScript(recipientAddress.address, this.network),
+            };
+        });
+        if (outputs.length > 0 && rewardBalance !== 0n) {
+            outputs[0] = {
+                ...outputs[0],
+                value: outputs[0].value + rewardBalance,
+            };
+        }
+        return outputs;
+    }
+
+    private isWitnessCommitmentOutput(script: Buffer): boolean {
+        return script.length === 38
+            && script[0] === bitcoinjs.opcodes.OP_RETURN
+            && script[1] === 0x24
+            && script.subarray(2, 6).equals(Buffer.from('aa21a9ed', 'hex'));
     }
 
     private isSuccessfulBlockSubmission(result?: string | null): boolean {

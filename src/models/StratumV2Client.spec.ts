@@ -7,6 +7,7 @@ import { MockRecording1 } from '../../test/models/MockRecording1';
 import { ClientEntity } from '../ORM/client/client.entity';
 import { CustomWorkService } from '../services/custom-work.service';
 import { StratumV1JobsService } from '../services/stratum-v1-jobs.service';
+import { hash256 } from '../utils/hash.utils';
 import { BufferReader } from './sv2/sv2-binary-codec';
 import { SV2_CHANNEL_MSG_FLAG, Sv2MiningSetupFlags, Sv2MsgType, Sv2Protocol } from './sv2/sv2-constants';
 import {
@@ -115,6 +116,50 @@ describe('StratumV2Client extended channels', () => {
         expect(error.errorCode).toBe('invalid-extranonce-size');
     });
 
+    it('reconstructs extended-channel block candidates with a matching merkle root', async () => {
+        const { client, sentFrames } = await createClient();
+        await (client as any).handleOpenExtendedMiningChannel(serializeOpenExtendedMiningChannel({
+            requestId: 1,
+            userIdentity: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4.worker',
+            nominalHashRate: 0,
+            maxTarget: Buffer.alloc(32, 0xff),
+            minExtranonceSize: 8,
+        }));
+        const jobFrame = sentFrames
+            .filter(frame => frame.msgType === Sv2MsgType.NEW_EXTENDED_MINING_JOB)
+            .at(-1);
+        const job = deserializeNewExtendedMiningJob(new BufferReader(jobFrame.payload));
+        const channel = (client as any).channels.get(1);
+        const extendedJob = channel.extendedJobs.get(job.jobId);
+        const extranonce = Buffer.alloc(channel.extranonceSize, 0x42);
+        const coinbaseTxBytes = Buffer.concat([
+            extendedJob.coinbasePrefix,
+            channel.extranoncePrefix,
+            extranonce,
+            extendedJob.coinbaseSuffix,
+        ]);
+        let merkleRoot = hash256(coinbaseTxBytes);
+        for (const sibling of extendedJob.merklePath) {
+            merkleRoot = hash256(Buffer.concat([merkleRoot, sibling]));
+        }
+
+        const block = (client as any).reconstructExtendedBlock(
+            extendedJob,
+            {
+                jobId: job.jobId,
+                nonce: 123,
+                ntime: parseInt(MockRecording1.TIME, 16),
+                version: job.version,
+                extranonce,
+            },
+            merkleRoot,
+            channel.extranoncePrefix,
+        );
+
+        expect(block.merkleRoot.equals(bitcoinjs.Block.calculateMerkleRoot(block.transactions, false))).toBe(true);
+        expect(block.transactions[0].toBuffer()).toEqual(coinbaseTxBytes);
+    });
+
     it('accepts SV2 work-selection setup and SetCustomMiningJob without sending pool work', async () => {
         const { client, sentFrames } = await createClient();
         await (client as any).handleSetupConnection(serializeSetupConnection({
@@ -151,7 +196,16 @@ describe('StratumV2Client extended channels', () => {
             coinbaseTxVersion: 2,
             coinbasePrefix: Buffer.from('51', 'hex'),
             coinbaseTxInputNSequence: 0xffffffff,
-            coinbaseTxOutputs: Buffer.from('010000000000000000016a', 'hex'),
+            coinbaseTxOutputs: serializeCoinbaseOutputs([
+                {
+                    address: 'tb1qdyjakeepue4trak9d3hvyelrd0aw7mwju2d0c2',
+                    amountSats: 0,
+                },
+                {
+                    address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
+                    amountSats: MockRecording1.BLOCK_TEMPLATE.coinbasevalue,
+                },
+            ]),
             coinbaseTxLocktime: 0,
             merklePath: [],
         }));
@@ -161,6 +215,55 @@ describe('StratumV2Client extended channels', () => {
         expect(success.channelId).toBe(1);
         expect(success.requestId).toBe(99);
         expect((client as any).channels.get(1).extendedJobs.get(success.jobId).workProtocol).toBe('sv2_jdp');
+    });
+
+    it('rejects SV2 work-selection custom jobs that do not pay the pool coinbase outputs', async () => {
+        const { client, sentFrames } = await createClient();
+        await (client as any).handleSetupConnection(serializeSetupConnection({
+            protocol: Sv2Protocol.MINING,
+            minVersion: 2,
+            maxVersion: 2,
+            flags: Sv2MiningSetupFlags.REQUIRES_WORK_SELECTION | Sv2MiningSetupFlags.REQUIRES_VERSION_ROLLING,
+            endpoint_host: 'localhost',
+            endpoint_port: 3333,
+            vendor: 'jd-client',
+            hardwareVersion: '',
+            firmwareVersion: '',
+            deviceId: '',
+        }));
+        await (client as any).handleOpenExtendedMiningChannel(serializeOpenExtendedMiningChannel({
+            requestId: 1,
+            userIdentity: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4.worker',
+            nominalHashRate: 0,
+            maxTarget: Buffer.alloc(32, 0xff),
+            minExtranonceSize: 8,
+        }));
+
+        sentFrames.length = 0;
+        await (client as any).handleSetCustomMiningJob(serializeSetCustomMiningJob({
+            channelId: 1,
+            requestId: 100,
+            token: Buffer.from('aa', 'hex'),
+            version: MockRecording1.BLOCK_TEMPLATE.version,
+            prevHash: Buffer.alloc(32, 1),
+            minNtime: parseInt(MockRecording1.TIME, 16),
+            nBits: parseInt(MockRecording1.BLOCK_TEMPLATE.bits, 16),
+            coinbaseTxVersion: 2,
+            coinbasePrefix: Buffer.from('51', 'hex'),
+            coinbaseTxInputNSequence: 0xffffffff,
+            coinbaseTxOutputs: serializeCoinbaseOutputs([{
+                address: 'tb1qdyjakeepue4trak9d3hvyelrd0aw7mwju2d0c2',
+                amountSats: MockRecording1.BLOCK_TEMPLATE.coinbasevalue,
+            }]),
+            coinbaseTxLocktime: 0,
+            merklePath: [],
+        }));
+
+        const errorFrame = sentFrames.find(frame => frame.msgType === Sv2MsgType.SET_CUSTOM_MINING_JOB_ERROR);
+        const error = deserializeSetCustomMiningJobError(new BufferReader(errorFrame.payload));
+        expect(error.channelId).toBe(1);
+        expect(error.requestId).toBe(100);
+        expect(error.errorCode).toBe('invalid-coinbase-payout-outputs');
     });
 
     it('rejects SetCustomMiningJob when work selection was not negotiated', async () => {
@@ -308,6 +411,8 @@ describe('StratumV2Client extended channels', () => {
             worker: 'worker',
             sessionId: 'sv2-session',
             blockData: expect.any(String),
+            payoutSnapshotId: null,
+            payoutMode: 'solo',
         }));
         expect(notificationService.notifySubscribersBlockFound).toHaveBeenCalled();
         expect(addressSettingsService.resetBestDifficultyAndShares).toHaveBeenCalled();
@@ -452,3 +557,19 @@ describe('StratumV2Client extended channels', () => {
         };
     }
 });
+
+function serializeCoinbaseOutputs(outputs: { address: string; amountSats: number }[]): Buffer {
+    return Buffer.concat([
+        Buffer.from([outputs.length]),
+        ...outputs.map(output => {
+            const script = bitcoinjs.address.toOutputScript(output.address, bitcoinjs.networks.testnet);
+            const value = Buffer.alloc(8);
+            value.writeBigUInt64LE(BigInt(output.amountSats), 0);
+            return Buffer.concat([
+                value,
+                Buffer.from([script.length]),
+                script,
+            ]);
+        }),
+    ]);
+}

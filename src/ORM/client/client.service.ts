@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { ClientEntity } from './client.entity';
 
@@ -60,6 +60,23 @@ export class ClientService {
 
     public async connectedClientCount(): Promise<number> {
         return await this.clientRepository.count();
+    }
+
+    public async getActiveIds(ids: string[]): Promise<Set<string>> {
+        if (ids.length === 0) {
+            return new Set();
+        }
+
+        const clients = await this.clientRepository.find({
+            select: {
+                id: true,
+            },
+            where: {
+                id: In(ids),
+            },
+        });
+
+        return new Set(clients.map(client => client.id));
     }
 
     public async getByAddress(address: string): Promise<ClientEntity[]> {

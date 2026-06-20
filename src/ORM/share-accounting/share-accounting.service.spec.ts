@@ -48,6 +48,7 @@ describe('ShareAccountingService', () => {
 
         expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
             acceptedAt,
+            payoutMode: 'solo',
             nonce: '123',
             ntime: '456',
             version: '536870912',
@@ -55,8 +56,52 @@ describe('ShareAccountingService', () => {
         }));
         expect(repository.insert).toHaveBeenCalledWith([expect.objectContaining({
             protocol: 'sv1',
+            payoutMode: 'solo',
             creditedDifficulty: 1024,
         })]);
+    });
+
+    it('should compact only PPLNS shares into payout rollup batches', async () => {
+        process.env.SHARE_ROLLUP_ENABLED = 'true';
+        const manager = {
+            query: jest.fn()
+                .mockResolvedValueOnce([{ locked: true }])
+                .mockResolvedValueOnce([{ lastProcessedShareIndex: '10' }])
+                .mockResolvedValueOnce([{ startShareIndex: '11', endShareIndex: '20', acceptedShareCount: 10 }])
+                .mockResolvedValueOnce([{ startAcceptedAt: new Date('2026-06-14T00:00:00Z'), endAcceptedAt: new Date('2026-06-14T00:01:00Z'), acceptedShareCount: '10', creditedDifficulty: '1000' }])
+                .mockResolvedValueOnce([{ batchId: '99' }])
+                .mockResolvedValueOnce([]),
+        };
+        const repository = {
+            manager: {
+                transaction: jest.fn((callback: any) => callback(manager)),
+            },
+        };
+        const service = new ShareAccountingService(repository as any);
+
+        await expect(service.processPendingShareRollupBatch()).resolves.toEqual(expect.objectContaining({
+            processed: true,
+            payoutMode: 'pplns',
+            batchId: '99',
+            startShareIndex: '11',
+            endShareIndex: '20',
+        }));
+
+        expect(manager.query).toHaveBeenNthCalledWith(
+            2,
+            expect.stringContaining('"payoutMode" = $1'),
+            ['pplns'],
+        );
+        expect(manager.query).toHaveBeenNthCalledWith(
+            3,
+            expect.stringContaining('"payoutMode" = $4'),
+            ['10', expect.any(Number), expect.any(Number), 'pplns'],
+        );
+        expect(manager.query).toHaveBeenNthCalledWith(
+            6,
+            expect.stringContaining('"payoutMode" = $4'),
+            ['99', '11', '20', 'pplns'],
+        );
     });
 
     it('should accept TLS SV1 protocol labels for accounting', async () => {
@@ -295,7 +340,8 @@ describe('ShareAccountingService', () => {
                     currentRoundAcceptedShares: '11',
                     workSinceLastBlock: '352',
                     currentRoundNetworkDifficulty: '1000',
-                }]),
+                }])
+                .mockResolvedValueOnce([]),
         };
         const service = new ShareAccountingService(repository as any, redis as any);
 
@@ -314,10 +360,53 @@ describe('ShareAccountingService', () => {
         expect(repository.query).toHaveBeenNthCalledWith(
             2,
             expect.stringContaining('FROM "accepted_share_block_10m"'),
+            [],
+        );
+        expect(repository.query).toHaveBeenNthCalledWith(
+            3,
+            expect.stringContaining('FROM "accepted_share_high_score"'),
+            ['all'],
         );
         expect(repository.query).not.toHaveBeenCalledWith(
             expect.stringContaining('FROM "accepted_share_entity"'),
         );
+    });
+
+    it('should retain best submitted share after raw share retention removes older rows', async () => {
+        const repository = {
+            query: jest.fn()
+                .mockResolvedValueOnce([{
+                    totalAcceptedShares: '3',
+                    totalCreditedDifficulty: '96',
+                    acceptedSharesLast10Minutes: '2',
+                    creditedDifficultyLast10Minutes: '64',
+                    acceptedSharesLastHour: '3',
+                    creditedDifficultyLastHour: '96',
+                    acceptedSharesLastDay: '3',
+                    creditedDifficultyLastDay: '96',
+                    hashRateLast10Minutes: '458129844.9',
+                    hashRateLastHour: '114532461.2',
+                    latestShareAt: new Date('2026-06-07T12:10:00Z'),
+                }])
+                .mockResolvedValueOnce([{
+                    bestSubmissionDifficulty: '4096',
+                    bestSubmissionDifficultyAt: new Date('2026-06-07T12:10:00Z'),
+                    currentRoundAcceptedShares: '11',
+                    workSinceLastBlock: '352',
+                    currentRoundNetworkDifficulty: '1000',
+                }])
+                .mockResolvedValueOnce([{
+                    bestSubmissionDifficulty: '8192',
+                    bestSubmissionDifficultyAt: new Date('2026-06-01T12:10:00Z'),
+                }]),
+        };
+        const service = new ShareAccountingService(repository as any);
+
+        await expect(service.refreshPoolSummary()).resolves.toEqual(expect.objectContaining({
+            bestSubmissionDifficulty: 8192,
+            bestSubmissionDifficultyAt: '2026-06-01T12:10:00.000Z',
+            workSinceLastBlock: 352,
+        }));
     });
 
     it('should cache accounting summaries briefly to protect hot dashboard endpoints', async () => {
@@ -370,6 +459,7 @@ describe('ShareAccountingService', () => {
 
         await expect(service.processPendingShareRollupBatch()).resolves.toEqual({
             processed: true,
+            payoutMode: 'pplns',
             batchId: '7',
             startShareIndex: '11',
             endShareIndex: '20',
@@ -386,7 +476,7 @@ describe('ShareAccountingService', () => {
         expect(manager.query).toHaveBeenNthCalledWith(
             6,
             expect.stringContaining('INSERT INTO "share_rollup_batch_summary"'),
-            ['7', '11', '20'],
+            ['7', '11', '20', 'pplns'],
         );
     });
 

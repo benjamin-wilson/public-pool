@@ -8,6 +8,7 @@ import { ClientStatisticsService } from '../src/ORM/client-statistics/client-sta
 import { ClientEntity } from '../src/ORM/client/client.entity';
 import { PayoutSnapshotService } from '../src/ORM/payout-snapshot/payout-snapshot.service';
 import { ShareAccountingService } from '../src/ORM/share-accounting/share-accounting.service';
+import { ShareHighScoreService } from '../src/ORM/share-accounting/share-high-score.service';
 import { RedisMessagingService } from '../src/services/redis-messaging.service';
 
 describe('TimescaleDB and Redis integration', () => {
@@ -49,6 +50,7 @@ describe('TimescaleDB and Redis integration', () => {
     await dataSource.query(`DELETE FROM payout_balance`);
     await dataSource.query(`DELETE FROM share_rollup_batch_summary`);
     await dataSource.query(`DELETE FROM share_rollup_batch`);
+    await dataSource.query(`DELETE FROM accepted_share_high_score`);
     await dataSource.query(`DELETE FROM accepted_share_entity`);
     await dataSource.query(`DELETE FROM blocks_entity`);
     await dataSource.query(`DELETE FROM client_entity`);
@@ -64,10 +66,13 @@ describe('TimescaleDB and Redis integration', () => {
     const hypertables = await dataSource.query(`
       SELECT hypertable_name, compression_enabled
       FROM timescaledb_information.hypertables
-      WHERE hypertable_name = 'accepted_share_entity'
+      WHERE hypertable_name IN ('accepted_share_entity', 'share_rollup_batch_summary')
+      ORDER BY hypertable_name
     `);
-    expect(hypertables).toHaveLength(1);
-    expect(hypertables[0].compression_enabled).toBe(true);
+    expect(hypertables).toEqual([
+      expect.objectContaining({ hypertable_name: 'accepted_share_entity', compression_enabled: true }),
+      expect.objectContaining({ hypertable_name: 'share_rollup_batch_summary', compression_enabled: true }),
+    ]);
 
     const aggregates = await dataSource.query(`
       SELECT view_name
@@ -91,37 +96,55 @@ describe('TimescaleDB and Redis integration', () => {
     expect(legacyTables).toHaveLength(0);
 
     const policies = await dataSource.query(`
-      SELECT proc_name, schedule_interval::text AS schedule_interval
+      SELECT proc_name, schedule_interval::text AS schedule_interval, hypertable_name
       FROM timescaledb_information.jobs
       WHERE hypertable_name = 'accepted_share_entity'
+         OR hypertable_name = 'share_rollup_batch_summary'
+         OR proc_name = 'prune_share_rollup_batches'
          OR application_name LIKE 'Refresh Continuous Aggregate Policy%'
       ORDER BY proc_name, schedule_interval
     `);
     expect(policies).toEqual(expect.arrayContaining([
-      expect.objectContaining({ proc_name: 'policy_compression' }),
-      expect.objectContaining({ proc_name: 'policy_retention' }),
+      expect.objectContaining({ proc_name: 'policy_compression', hypertable_name: 'accepted_share_entity' }),
+      expect.objectContaining({ proc_name: 'policy_compression', hypertable_name: 'share_rollup_batch_summary' }),
+      expect.objectContaining({ proc_name: 'policy_retention', hypertable_name: 'accepted_share_entity' }),
+      expect.objectContaining({ proc_name: 'prune_share_rollup_batches' }),
       expect.objectContaining({ proc_name: 'policy_refresh_continuous_aggregate' }),
     ]));
 
     const shareOrderObjects = await dataSource.query(`
       SELECT to_regclass('public.accepted_share_index_seq') AS sequence_name,
-        to_regclass('public."IDX_accepted_share_order"') AS index_name
+        to_regclass('public."IDX_accepted_share_mode_order"') AS index_name,
+        to_regclass('public."IDX_accepted_share_accounting_lookup"') AS dropped_accounting_lookup,
+        to_regclass('public."IDX_accepted_share_client_lookup"') AS dropped_client_lookup,
+        to_regclass('public."IDX_accepted_share_round_best"') AS dropped_round_best
     `);
     expect(shareOrderObjects[0]).toEqual({
       sequence_name: 'accepted_share_index_seq',
-      index_name: '"IDX_accepted_share_order"',
+      index_name: '"IDX_accepted_share_mode_order"',
+      dropped_accounting_lookup: null,
+      dropped_client_lookup: null,
+      dropped_round_best: null,
     });
 
     const shareRollupObjects = await dataSource.query(`
       SELECT
         to_regclass('public.share_rollup_batch') AS batch_table,
         to_regclass('public.share_rollup_batch_summary') AS summary_table,
-        to_regclass('public."IDX_share_rollup_batch_finalized_end"') AS finalized_index
+        to_regclass('public.accepted_share_high_score') AS high_score_table,
+        to_regclass('public."IDX_share_rollup_batch_finalized_end"') AS finalized_index,
+        to_regclass('public."IDX_share_rollup_summary_batch"') AS summary_batch_index,
+        to_regclass('public."UQ_accepted_share_high_score_scope"') AS high_score_scope_index,
+        to_regclass('public."IDX_share_rollup_summary_address_batch"') AS dropped_summary_address_index
     `);
     expect(shareRollupObjects[0]).toEqual({
       batch_table: 'share_rollup_batch',
       summary_table: 'share_rollup_batch_summary',
+      high_score_table: 'accepted_share_high_score',
       finalized_index: '"IDX_share_rollup_batch_finalized_end"',
+      summary_batch_index: '"IDX_share_rollup_summary_batch"',
+      high_score_scope_index: '"UQ_accepted_share_high_score_scope"',
+      dropped_summary_address_index: null,
     });
 
     const payoutObjects = await dataSource.query(`
@@ -156,6 +179,7 @@ describe('TimescaleDB and Redis integration', () => {
 
     await service.recordAcceptedShare({
       protocol: 'sv1',
+      payoutMode: 'pplns',
       acceptedAt,
       address: client.address,
       clientName: client.clientName,
@@ -176,6 +200,7 @@ describe('TimescaleDB and Redis integration', () => {
     });
     await service.recordAcceptedShare({
       protocol: 'sv1',
+      payoutMode: 'pplns',
       acceptedAt: new Date(acceptedAt.getTime() + 1),
       address: client.address,
       clientName: client.clientName,
@@ -228,6 +253,100 @@ describe('TimescaleDB and Redis integration', () => {
     ]));
   });
 
+  it('should retain daily and all-time best share from completed rollup buckets', async () => {
+    const client = await dataSource.getRepository(ClientEntity).save({
+      address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
+      clientName: 'high-score-worker',
+      sessionId: '67a6f099',
+      userAgent: 'integration-test',
+      startTime: new Date(),
+      bestDifficulty: 0,
+      hashRate: 0,
+    });
+    const accountingService = new ShareAccountingService(dataSource.getRepository(AcceptedShareEntity));
+    const highScoreService = new ShareHighScoreService(dataSource);
+    const bucketStartMs = Math.floor((Date.now() - 20 * 60 * 1000) / (10 * 60 * 1000)) * 10 * 60 * 1000;
+    const acceptedAt = new Date(bucketStartMs + 1000);
+
+    for (const [index, submissionDifficulty] of [4096, 1024].entries()) {
+      await accountingService.recordAcceptedShare({
+        protocol: index === 0 ? 'sv2' : 'sv1',
+        payoutMode: 'pplns',
+        acceptedAt: new Date(acceptedAt.getTime() + index),
+        address: client.address,
+        clientName: client.clientName,
+        sessionId: client.sessionId,
+        clientId: client.id,
+        jobId: `high-score-${index}`,
+        jobTemplateId: 'high-score-template',
+        blockHeight: 900100,
+        creditedDifficulty: 64,
+        submissionDifficulty,
+        networkDifficulty: 100000,
+        nonce: `high-score-nonce-${index}`,
+        ntime: '64b3f3ec',
+        version: '20000000',
+        extraNonce2: `c70800000000000${index}`,
+        isBlockCandidate: false,
+        blockSubmissionResult: null,
+      });
+    }
+
+    await dataSource.query(
+      `CALL refresh_continuous_aggregate('accepted_share_block_10m', $1::timestamptz, $2::timestamptz)`,
+      [new Date(bucketStartMs), new Date(bucketStartMs + 10 * 60 * 1000)],
+    );
+
+    await expect(highScoreService.refreshHighScores()).resolves.toEqual(expect.objectContaining({
+      processed: true,
+    }));
+
+    const rows = await dataSource.query(`
+      SELECT
+        "scope",
+        "payoutMode",
+        "submissionDifficulty"::float AS "submissionDifficulty",
+        "address",
+        "clientName",
+        "protocol"
+      FROM accepted_share_high_score
+      WHERE "payoutMode" IN ('all', 'pplns')
+      ORDER BY "payoutMode", "scope"
+    `);
+
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        scope: 'all_time',
+        payoutMode: 'all',
+        submissionDifficulty: 4096,
+        address: client.address,
+        clientName: client.clientName,
+        protocol: 'sv2',
+      }),
+      expect.objectContaining({
+        scope: 'all_time',
+        payoutMode: 'pplns',
+        submissionDifficulty: 4096,
+        address: client.address,
+        clientName: client.clientName,
+        protocol: 'sv2',
+      }),
+      expect.objectContaining({
+        scope: 'daily',
+        payoutMode: 'pplns',
+        submissionDifficulty: 4096,
+        address: client.address,
+        clientName: client.clientName,
+        protocol: 'sv2',
+      }),
+    ]));
+
+    const summaryService = new ShareAccountingService(dataSource.getRepository(AcceptedShareEntity));
+    await expect(summaryService.refreshPoolSummary('pplns')).resolves.toEqual(expect.objectContaining({
+      bestSubmissionDifficulty: 4096,
+    }));
+  });
+
   it('should finalize accepted shares into share rollup batches without mutating raw rows', async () => {
     const client = await dataSource.getRepository(ClientEntity).save({
       address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
@@ -243,6 +362,7 @@ describe('TimescaleDB and Redis integration', () => {
 
     await service.recordAcceptedShare({
       protocol: 'sv1',
+      payoutMode: 'pplns',
       acceptedAt,
       address: client.address,
       clientName: client.clientName,
@@ -263,6 +383,7 @@ describe('TimescaleDB and Redis integration', () => {
     });
     await service.recordAcceptedShare({
       protocol: 'sv2',
+      payoutMode: 'pplns',
       acceptedAt: new Date(acceptedAt.getTime() + 1),
       address: client.address,
       clientName: client.clientName,
@@ -357,6 +478,7 @@ describe('TimescaleDB and Redis integration', () => {
     for (const [index, client] of clients.entries()) {
       await accountingService.recordAcceptedShare({
         protocol: 'sv1',
+        payoutMode: 'pplns',
         acceptedAt: new Date(acceptedAt.getTime() + index),
         address: client.address,
         clientName: client.clientName,

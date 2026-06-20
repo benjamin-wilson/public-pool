@@ -19,6 +19,7 @@ import { RedisMessagingService } from '../services/redis-messaging.service';
 import { IJobTemplate, StratumV1JobsService } from '../services/stratum-v1-jobs.service';
 import { DifficultyUtils } from '../utils/difficulty.utils';
 import { hash256 } from '../utils/hash.utils';
+import { PayoutMode } from '../types/payout-mode';
 import { eRequestMethod } from './enums/eRequestMethod';
 import { eResponseMethod } from './enums/eResponseMethod';
 import { eStratumErrorCode } from './enums/eStratumErrorCode';
@@ -83,6 +84,7 @@ export class StratumV1Client {
         private readonly redisMessagingService?: RedisMessagingService,
         private readonly payoutSnapshotService?: PayoutSnapshotService,
         private readonly accountingProtocol: 'sv1' | 'sv1_tls' = 'sv1',
+        private readonly payoutMode: PayoutMode = 'solo',
     ) {
 
         this.socketDataHandler = (data: Buffer) => {
@@ -447,6 +449,7 @@ export class StratumV1Client {
     }
 
     private async sendNewMiningJob(jobTemplate: IJobTemplate) {
+        await this.ensureClientEntity();
 
         let payoutInformation = this.getPayoutInformation(jobTemplate, this.clientAuthorization.address);
         // const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
@@ -519,6 +522,7 @@ export class StratumV1Client {
                     clientName: this.clientAuthorization.worker,
                     userAgent: this.clientSubscription.userAgent,
                     startTime: new Date(),
+                    payoutMode: this.payoutMode,
                     bestDifficulty: 0
                 });
                 await this.updateClientPresence(new Date());
@@ -539,6 +543,7 @@ export class StratumV1Client {
                 address: this.clientEntity.address,
                 clientName: this.clientEntity.clientName,
                 sessionId: this.clientEntity.sessionId,
+                payoutMode: this.payoutMode,
                 userAgent: this.clientEntity.userAgent,
                 startTime: new Date(this.clientEntity.startTime).toISOString(),
                 lastSeen: lastSeen.toISOString(),
@@ -651,13 +656,19 @@ export class StratumV1Client {
                     sessionId: this.extraNonceAndSessionId,
                     blockData: blockHex,
                     blockSubmissionResult,
-                    payoutSnapshotId: jobTemplate.blockData.payoutSnapshotId ?? null,
+                    payoutSnapshotId: this.payoutMode === 'pplns'
+                        ? jobTemplate.blockData.payoutSnapshotId ?? null
+                        : null,
+                    payoutMode: this.payoutMode,
                 });
-                await this.payoutSnapshotService?.finalizeSnapshotForBlock({
-                    payoutSnapshotId: jobTemplate.blockData.payoutSnapshotId,
-                    blockHeight: jobTemplate.blockData.height,
-                    blockSubmissionResult,
-                });
+                if (this.payoutMode === 'pplns') {
+                    await this.payoutSnapshotService?.finalizeSnapshotForBlock({
+                        payoutSnapshotId: jobTemplate.blockData.payoutSnapshotId,
+                        blockHeight: jobTemplate.blockData.height,
+                        blockSubmissionResult,
+                        payoutMode: this.payoutMode,
+                    });
+                }
 
                 await this.notificationService.notifySubscribersBlockFound(this.clientAuthorization.address, jobTemplate.blockData.height, updatedJobBlock, blockSubmissionResult);
                 //success
@@ -669,6 +680,7 @@ export class StratumV1Client {
             try {
                 await this.shareAccountingService?.recordAcceptedShare({
                     protocol: this.accountingProtocol,
+                    payoutMode: this.payoutMode,
                     address: this.clientAuthorization.address,
                     clientName: this.clientAuthorization.worker,
                     sessionId: this.extraNonceAndSessionId,
@@ -886,7 +898,7 @@ export class StratumV1Client {
     }
 
     private getPayoutInformation(jobTemplate: IJobTemplate, fallbackAddress: string): AddressObject[] {
-        if (this.configService.get('PAYOUT_COINBASE_MODE') === 'snapshot' && jobTemplate.blockData.payoutOutputs?.length > 0) {
+        if (this.payoutMode === 'pplns' && jobTemplate.blockData.payoutOutputs?.length > 0) {
             return jobTemplate.blockData.payoutOutputs;
         }
 

@@ -80,11 +80,15 @@ describe('datum-codec', () => {
     it('serializes coinbaser fetch responses', () => {
         const response = serializeDatumCoinbaserFetchResponse(50n, [
             { value: 50n, scriptPubKey: Buffer.from('6a', 'hex') },
-        ]);
+        ], 7);
         const mining = deserializeDatumMiningCommand(response);
         expect(mining.command).toBe(DatumMiningCommand.FETCH_COINBASER_RESPONSE);
         expect(mining.body.readBigUInt64LE(0)).toBe(50n);
         expect(mining.body.readUInt32LE(8)).toBe(11);
+        expect(mining.body[12]).toBe(7);
+        expect(mining.body.readBigUInt64LE(13)).toBe(50n);
+        expect(mining.body[21]).toBe(1);
+        expect(mining.body.subarray(22).toString('hex')).toBe('6a');
     });
 
     it('deserializes coinbaser fetch requests', () => {
@@ -174,6 +178,42 @@ describe('datum-codec', () => {
         expect(parsed.nBits?.toString('hex')).toBe('ffff7f20');
         expect(parsed.height).toBe(100);
         expect(parsed.merkleBranches?.[0].equals(Buffer.alloc(32, 0xbb))).toBe(true);
+        expect(parsed.coinbasePairs.get(2)?.coinb1.toString('hex')).toBe('abcd');
+        expect(parsed.coinbasePairs.get(2)?.coinb2.toString('hex')).toBe('010203');
+    });
+
+    it('classifies DATUM coinbase sections by section type, not the top-level coinbase id', () => {
+        const username = Buffer.from('bc1ptest.worker\0', 'utf8');
+        const extranonce = Buffer.from('000102030405060708090a0b', 'hex');
+        const base = Buffer.alloc(17 + DATUM_EXTRANONCE_SIZE);
+        base[0] = 3;
+        base[1] = 0xff;
+        base[2] = 0x02;
+        base[3] = 0x12;
+        base.writeUInt32LE(100, 4);
+        base.writeUInt32LE(200, 8);
+        base.writeUInt32LE(0x20000000, 12);
+        base[16] = DATUM_EXTRANONCE_SIZE;
+        extranonce.copy(base, 17);
+
+        const coinbaseSection = Buffer.concat([
+            Buffer.from([0x02, 2]),
+            Buffer.from([0x02, 0x00]),
+            Buffer.from([0x03, 0x00]),
+            Buffer.from('abcd', 'hex'),
+            Buffer.from('010203', 'hex'),
+        ]);
+
+        const parsed = deserializeDatumPowSubmit(Buffer.concat([
+            base,
+            username,
+            Buffer.alloc(4),
+            coinbaseSection,
+            Buffer.from([0xfe]),
+        ]));
+
+        expect(parsed.subsidyOnly).toBe(true);
+        expect(parsed.subsidyOnlyCoinbase).toBeUndefined();
         expect(parsed.coinbasePairs.get(2)?.coinb1.toString('hex')).toBe('abcd');
         expect(parsed.coinbasePairs.get(2)?.coinb2.toString('hex')).toBe('010203');
     });

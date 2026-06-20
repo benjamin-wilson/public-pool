@@ -1,5 +1,6 @@
 import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
+import { PayoutMode } from '../../types/payout-mode';
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
 
@@ -23,6 +24,9 @@ export class ClientEntity extends TrackedEntity {
 
     @Column({ length: 8, type: 'varchar', })
     sessionId: string;
+
+    @Column({ length: 16, type: 'varchar', default: 'solo' })
+    payoutMode: PayoutMode;
 
 
     @Column({ length: 128, type: 'varchar', nullable: true })

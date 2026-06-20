@@ -74,6 +74,21 @@ services:
       - "0.0.0.0:4332:4332/tcp"
       - "0.0.0.0:4331:4331/tcp"
       - "0.0.0.0:4330:4330/tcp"
+      - "0.0.0.0:13333:13333/tcp"
+      - "0.0.0.0:13332:13332/tcp"
+      - "0.0.0.0:13331:13331/tcp"
+      - "0.0.0.0:13330:13330/tcp"
+      - "0.0.0.0:14333:14333/tcp"
+      - "0.0.0.0:14332:14332/tcp"
+      - "0.0.0.0:14331:14331/tcp"
+      - "0.0.0.0:14330:14330/tcp"
+      - "0.0.0.0:23330:23330/tcp"
+      - "0.0.0.0:23331:23331/tcp"
+      - "0.0.0.0:23332:23332/tcp"
+      - "0.0.0.0:23333:23333/tcp"
+      - "0.0.0.0:23334:23334/tcp"
+      - "0.0.0.0:23335:23335/tcp"
+      - "0.0.0.0:23336:23336/tcp"
       - "${API_BIND_HOST:-127.0.0.1}:${API_PUBLIC_PORT:-3334}:3334/tcp"
     volumes:
       - "./.env:/public-pool/.env:ro"
@@ -92,14 +107,23 @@ services:
       PM2_ENABLED: ${PM2_ENABLED:-true}
       STRATUM_WORKERS: ${STRATUM_WORKERS:-2}
       STRATUM_PORTS: ${STRATUM_PORTS:-3333,3332,3331,3330}
+      PPLNS_STRATUM_PORTS: ${PPLNS_STRATUM_PORTS:-}
       STRATUM_MIN_DIFFICULTY: ${STRATUM_MIN_DIFFICULTY:-1}
       STRATUM_SOCKET_TIMEOUT_MS: ${STRATUM_SOCKET_TIMEOUT_MS:-3600000}
       STRATUM_TCP_KEEPALIVE_INITIAL_DELAY_MS: ${STRATUM_TCP_KEEPALIVE_INITIAL_DELAY_MS:-60000}
       STRATUM_SECURE: ${STRATUM_SECURE:-true}
       SECURE_STRATUM_PORTS: ${SECURE_STRATUM_PORTS:-4333,4332,4331,4330}
+      PPLNS_SECURE_STRATUM_PORTS: ${PPLNS_SECURE_STRATUM_PORTS:-}
       STRATUM_MAX_CONNECTIONS_PER_LISTENER: ${STRATUM_MAX_CONNECTIONS_PER_LISTENER:-10000}
       STRATUM_TLS_HANDSHAKE_TIMEOUT_MS: ${STRATUM_TLS_HANDSHAKE_TIMEOUT_MS:-10000}
       STRATUM_V2_PORTS: ${STRATUM_V2_PORTS:-}
+      PPLNS_STRATUM_V2_PORTS: ${PPLNS_STRATUM_V2_PORTS:-}
+      SV2_JDP_PORTS: ${SV2_JDP_PORTS:-}
+      PPLNS_SV2_JDP_PORTS: ${PPLNS_SV2_JDP_PORTS:-}
+      SV2_TDP_PORTS: ${SV2_TDP_PORTS:-}
+      PPLNS_SV2_TDP_PORTS: ${PPLNS_SV2_TDP_PORTS:-}
+      DATUM_PORTS: ${DATUM_PORTS:-}
+      PPLNS_DATUM_PORTS: ${PPLNS_DATUM_PORTS:-}
     healthcheck:
       test: ["CMD-SHELL", "node -e \"const http=require('http'); const https=require('https'); const secure=process.env.API_SECURE==='true'; const client=secure?https:http; const req=client.get({hostname:'127.0.0.1',port:process.env.API_PORT||3334,path:'/api/network',rejectUnauthorized:false},res=>process.exit(res.statusCode<500?0:1)); req.on('error',()=>process.exit(1)); req.setTimeout(5000,()=>{req.destroy(); process.exit(1);});\""]
       interval: 30s

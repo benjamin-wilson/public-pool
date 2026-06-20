@@ -4,9 +4,11 @@ import { Repository } from 'typeorm';
 
 import { AcceptedShareEntity } from '../accepted-share/accepted-share.entity';
 import { RedisMessagingService } from '../../services/redis-messaging.service';
+import { normalizePayoutMode, PayoutMode } from '../../types/payout-mode';
 
 export interface AcceptedShareRecord {
     protocol: 'sv1' | 'sv1_tls' | 'sv2' | 'sv2_jdp' | 'datum';
+    payoutMode?: PayoutMode;
     workSource?: 'pool_template' | 'miner_template';
     workProtocol?: 'pool' | 'sv2_jdp' | 'datum';
     acceptedAt?: Date;
@@ -64,6 +66,7 @@ export interface SessionShareSummary {
 export interface ShareRollupBatchResult {
     processed: boolean;
     reason?: 'disabled' | 'locked' | 'no-shares';
+    payoutMode?: PayoutMode;
     batchId?: string;
     startShareIndex?: string;
     endShareIndex?: string;
@@ -75,6 +78,7 @@ interface AccountingFilter {
     address?: string;
     clientName?: string;
     clientId?: string;
+    payoutMode?: PayoutMode;
 }
 
 const HASHES_PER_DIFFICULTY = 4294967296;
@@ -123,6 +127,7 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
     public async recordAcceptedShare(record: AcceptedShareRecord): Promise<AcceptedShareEntity> {
         const acceptedShare = this.acceptedShareRepository.create({
             ...record,
+            payoutMode: normalizePayoutMode(record.payoutMode),
             workSource: record.workSource ?? 'pool_template',
             workProtocol: record.workProtocol ?? 'pool',
             acceptedAt: record.acceptedAt ?? new Date(),
@@ -186,11 +191,13 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
                 return { processed: false, reason: 'locked' };
             }
 
+            const payoutMode: PayoutMode = 'pplns';
             const [lastRow] = await manager.query(`
                 SELECT COALESCE(MAX("endShareIndex"), 0)::text AS "lastProcessedShareIndex"
                 FROM "share_rollup_batch"
                 WHERE "status" = 'finalized'
-            `);
+                  AND "payoutMode" = $1
+            `, [payoutMode]);
             const lastProcessedShareIndex = lastRow?.lastProcessedShareIndex ?? '0';
 
             const [rangeRow] = await manager.query(`
@@ -201,6 +208,7 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
                     SELECT MIN("shareIndex") AS "firstUnstableShareIndex"
                     FROM "accepted_share_entity", last_state
                     WHERE "shareIndex" > last_state."lastProcessedShareIndex"
+                      AND "payoutMode" = $4
                       AND "acceptedAt" > NOW() - ($2::int * INTERVAL '1 second')
                 ),
                 stable_bound AS MATERIALIZED (
@@ -210,6 +218,7 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
                                 SELECT MAX("shareIndex")
                                 FROM "accepted_share_entity", last_state
                                 WHERE "shareIndex" > last_state."lastProcessedShareIndex"
+                                  AND "payoutMode" = $4
                             )
                             ELSE (SELECT "firstUnstableShareIndex" FROM first_unstable) - 1
                         END AS "maxStableShareIndex"
@@ -219,6 +228,7 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
                     FROM "accepted_share_entity", last_state, stable_bound
                     WHERE "shareIndex" > last_state."lastProcessedShareIndex"
                       AND "shareIndex" <= stable_bound."maxStableShareIndex"
+                      AND "payoutMode" = $4
                     ORDER BY "shareIndex" ASC
                     LIMIT $3::int
                 )
@@ -231,6 +241,7 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
                 lastProcessedShareIndex,
                 this.shareRollupSafetyLagSeconds,
                 this.shareRollupMaxSharesPerBatch,
+                payoutMode,
             ]);
 
             if (rangeRow?.startShareIndex == null || rangeRow?.endShareIndex == null || this.toNumber(rangeRow.acceptedShareCount) === 0) {
@@ -246,7 +257,8 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
                 FROM "accepted_share_entity"
                 WHERE "shareIndex" >= $1::bigint
                   AND "shareIndex" <= $2::bigint
-            `, [rangeRow.startShareIndex, rangeRow.endShareIndex]);
+                  AND "payoutMode" = $3
+            `, [rangeRow.startShareIndex, rangeRow.endShareIndex, payoutMode]);
 
             if (statsRow?.startAcceptedAt == null || this.toNumber(statsRow.acceptedShareCount) === 0) {
                 return { processed: false, reason: 'no-shares' };
@@ -256,6 +268,7 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
                 INSERT INTO "share_rollup_batch" (
                     "startShareIndex",
                     "endShareIndex",
+                    "payoutMode",
                     "startAcceptedAt",
                     "endAcceptedAt",
                     "acceptedShareCount",
@@ -265,10 +278,11 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
                 ) VALUES (
                     $1::bigint,
                     $2::bigint,
-                    $3::timestamptz,
+                    $3,
                     $4::timestamptz,
-                    $5::bigint,
-                    $6::numeric,
+                    $5::timestamptz,
+                    $6::bigint,
+                    $7::numeric,
                     'finalized',
                     NOW()
                 )
@@ -276,6 +290,7 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
             `, [
                 rangeRow.startShareIndex,
                 rangeRow.endShareIndex,
+                payoutMode,
                 statsRow.startAcceptedAt,
                 statsRow.endAcceptedAt,
                 statsRow.acceptedShareCount,
@@ -285,6 +300,7 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
             await manager.query(`
                 INSERT INTO "share_rollup_batch_summary" (
                     "batchId",
+                    "payoutMode",
                     "address",
                     "clientName",
                     "protocol",
@@ -297,6 +313,7 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
                 )
                 SELECT
                     $1::bigint AS "batchId",
+                    "payoutMode",
                     "address",
                     "clientName",
                     "protocol",
@@ -309,15 +326,18 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
                 FROM "accepted_share_entity"
                 WHERE "shareIndex" >= $2::bigint
                   AND "shareIndex" <= $3::bigint
-                GROUP BY "address", "clientName", "protocol", "blockHeight"
+                  AND "payoutMode" = $4
+                GROUP BY "payoutMode", "address", "clientName", "protocol", "blockHeight"
             `, [
                 batchRow.batchId,
                 rangeRow.startShareIndex,
                 rangeRow.endShareIndex,
+                payoutMode,
             ]);
 
             return {
                 processed: true,
+                payoutMode,
                 batchId: batchRow.batchId,
                 startShareIndex: rangeRow.startShareIndex,
                 endShareIndex: rangeRow.endShareIndex,
@@ -327,9 +347,11 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
         });
     }
 
-    public async getPoolSummary(): Promise<ShareAccountingSummary> {
+    public async getPoolSummary(payoutMode?: PayoutMode): Promise<ShareAccountingSummary> {
+        const mode = payoutMode == null ? undefined : normalizePayoutMode(payoutMode);
+        const poolSummaryCacheKey = mode == null ? this.poolSummaryCacheKey : `${this.poolSummaryCacheKey}:${mode}`;
         const cached = await this.redisMessagingService
-            ?.getJsonCache<ShareAccountingSummary>(this.poolSummaryCacheKey)
+            ?.getJsonCache<ShareAccountingSummary>(poolSummaryCacheKey)
             .catch(error => {
                 console.error(`Pool accounting summary cache read failed: ${error.message}`);
                 return null;
@@ -342,20 +364,22 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
             return this.emptySummary();
         }
 
-        return this.getSummary({});
+        return this.getSummary({ payoutMode: mode });
     }
 
-    public async refreshPoolSummary(): Promise<ShareAccountingSummary> {
-        const summary = await this.withPoolRollupOverlay(await this.getSummary({}));
+    public async refreshPoolSummary(payoutMode?: PayoutMode): Promise<ShareAccountingSummary> {
+        const mode = payoutMode == null ? undefined : normalizePayoutMode(payoutMode);
+        const poolSummaryCacheKey = mode == null ? this.poolSummaryCacheKey : `${this.poolSummaryCacheKey}:${mode}`;
+        const summary = await this.withPoolRollupOverlay(await this.getSummary({ payoutMode: mode }), mode);
         await this.redisMessagingService
-            ?.setJsonCache(this.poolSummaryCacheKey, summary, 10 * 60 * 1000)
+            ?.setJsonCache(poolSummaryCacheKey, summary, 10 * 60 * 1000)
             .catch(error => {
                 console.error(`Pool accounting summary cache write failed: ${error.message}`);
             });
         return summary;
     }
 
-    private async withPoolRollupOverlay(summary: ShareAccountingSummary): Promise<ShareAccountingSummary> {
+    private async withPoolRollupOverlay(summary: ShareAccountingSummary, payoutMode?: PayoutMode): Promise<ShareAccountingSummary> {
         if (process.env.API_ONLY === 'true') {
             return summary;
         }
@@ -364,11 +388,13 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
                 WITH latest_found_block AS (
                     SELECT COALESCE(MAX("height"), 0) AS "height"
                     FROM "blocks_entity"
+                    ${payoutMode == null ? '' : 'WHERE "payoutMode" = $1'}
                 ),
                 filtered_rows AS (
                     SELECT "accepted_share_block_10m".*
                     FROM "accepted_share_block_10m", latest_found_block
                     WHERE "blockHeight" > latest_found_block."height"
+                      ${payoutMode == null ? '' : 'AND "payoutMode" = $1'}
                 ),
                 best_share AS (
                     SELECT
@@ -384,17 +410,26 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
                     COALESCE(MAX("networkDifficulty"), 0)::float AS "currentRoundNetworkDifficulty",
                     COALESCE((SELECT "bestSubmissionDifficulty" FROM best_share), 0)::float AS "bestSubmissionDifficulty",
                     (SELECT "bucket" FROM best_share) AS "bestSubmissionDifficultyAt"
-                FROM filtered_rows
-        `);
+            FROM filtered_rows
+        `, payoutMode == null ? [] : [payoutMode]);
         const currentRoundNetworkDifficulty = this.toNumber(currentRoundRow?.currentRoundNetworkDifficulty);
         const workSinceLastBlock = this.toNumber(currentRoundRow?.workSinceLastBlock);
+        const liveBestSubmissionDifficulty = this.toNumber(currentRoundRow?.bestSubmissionDifficulty);
+        const liveBestSubmissionDifficultyAt = currentRoundRow?.bestSubmissionDifficultyAt == null
+            ? null
+            : new Date(currentRoundRow.bestSubmissionDifficultyAt).toISOString();
+        const retainedBest = await this.getRetainedBestSubmissionDifficulty(payoutMode);
+        const retainedBestSubmissionDifficulty = this.toNumber(retainedBest?.bestSubmissionDifficulty);
+        const useRetainedBest = retainedBestSubmissionDifficulty > liveBestSubmissionDifficulty;
 
         return {
             ...summary,
-            bestSubmissionDifficulty: this.toNumber(currentRoundRow?.bestSubmissionDifficulty),
-            bestSubmissionDifficultyAt: currentRoundRow?.bestSubmissionDifficultyAt == null
-                ? null
-                : new Date(currentRoundRow.bestSubmissionDifficultyAt).toISOString(),
+            bestSubmissionDifficulty: useRetainedBest
+                ? retainedBestSubmissionDifficulty
+                : liveBestSubmissionDifficulty,
+            bestSubmissionDifficultyAt: useRetainedBest
+                ? retainedBest?.bestSubmissionDifficultyAt ?? null
+                : liveBestSubmissionDifficultyAt,
             workSinceLastBlock,
             currentRoundAcceptedShares: this.toNumber(currentRoundRow?.currentRoundAcceptedShares),
             currentRoundNetworkDifficulty,
@@ -402,6 +437,40 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
                 ? this.roundPercent((workSinceLastBlock / currentRoundNetworkDifficulty) * 100)
                 : 0,
         };
+    }
+
+    private async getRetainedBestSubmissionDifficulty(payoutMode?: PayoutMode): Promise<{
+        bestSubmissionDifficulty: number;
+        bestSubmissionDifficultyAt: string | null;
+    } | null> {
+        try {
+            const [row] = await this.acceptedShareRepository.query(`
+                SELECT
+                    "submissionDifficulty"::float AS "bestSubmissionDifficulty",
+                    "acceptedAt" AS "bestSubmissionDifficultyAt"
+                FROM "accepted_share_high_score"
+                WHERE "scope" = 'all_time'
+                  AND "payoutMode" = $1
+                ORDER BY "submissionDifficulty" DESC, "acceptedAt" DESC
+                LIMIT 1
+            `, [payoutMode ?? 'all']);
+
+            if (row == null) {
+                return null;
+            }
+
+            return {
+                bestSubmissionDifficulty: this.toNumber(row.bestSubmissionDifficulty),
+                bestSubmissionDifficultyAt: row.bestSubmissionDifficultyAt == null
+                    ? null
+                    : new Date(row.bestSubmissionDifficultyAt).toISOString(),
+            };
+        } catch (error) {
+            if (error?.code === '42P01') {
+                return null;
+            }
+            throw error;
+        }
     }
 
     public emptySummary(): ShareAccountingSummary {
@@ -428,16 +497,16 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
         };
     }
 
-    public async getAddressSummary(address: string): Promise<ShareAccountingSummary> {
-        return this.getSummary({ address });
+    public async getAddressSummary(address: string, payoutMode?: PayoutMode): Promise<ShareAccountingSummary> {
+        return this.getSummary({ address, payoutMode });
     }
 
-    public async getWorkerGroupSummary(address: string, clientName: string): Promise<ShareAccountingSummary> {
-        return this.getSummary({ address, clientName });
+    public async getWorkerGroupSummary(address: string, clientName: string, payoutMode?: PayoutMode): Promise<ShareAccountingSummary> {
+        return this.getSummary({ address, clientName, payoutMode });
     }
 
-    public async getSessionSummary(clientId: string): Promise<ShareAccountingSummary> {
-        return this.getSummary({ clientId });
+    public async getSessionSummary(clientId: string, payoutMode?: PayoutMode): Promise<ShareAccountingSummary> {
+        return this.getSummary({ clientId, payoutMode });
     }
 
     public async getSessionSummaries(clientIds: string[]): Promise<Map<string, SessionShareSummary>> {
@@ -705,6 +774,10 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
             params.push(filter.clientId);
             where.push(`"clientId" = $${params.length}`);
         }
+        if (filter.payoutMode != null) {
+            params.push(filter.payoutMode);
+            where.push(`"payoutMode" = $${params.length}`);
+        }
 
         return {
             whereSql: where.length > 0 ? `WHERE ${where.join(' AND ')}` : '',
@@ -726,6 +799,7 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
             address: filter.address ?? null,
             clientName: filter.clientName ?? null,
             clientId: filter.clientId ?? null,
+            payoutMode: filter.payoutMode ?? null,
         });
     }
 

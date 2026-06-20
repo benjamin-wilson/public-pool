@@ -3,7 +3,6 @@ import { BehaviorSubject, firstValueFrom } from 'rxjs';
 
 import { MockRecording1 } from '../../test/models/MockRecording1';
 import { BufferReader } from '../models/sv2/sv2-binary-codec';
-import { MiningJob } from '../models/MiningJob';
 import { Sv2MsgType, Sv2Protocol } from '../models/sv2/sv2-constants';
 import {
     deserializeSetupConnectionSuccess,
@@ -56,20 +55,23 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
         expect(sentFrames.some(frame => frame.msgType === Sv2MsgType.TDP_SET_NEW_PREV_HASH)).toBe(true);
         const templateFrame = sentFrames.find(frame => frame.msgType === Sv2MsgType.TDP_NEW_TEMPLATE);
         const template = deserializeTdpNewTemplate(new BufferReader(templateFrame.payload));
-        const expectedJob = new MiningJob(
+        const heightPrefix = templateProvider.buildCoinbaseHeightPrefix(MockRecording1.BLOCK_TEMPLATE.height);
+        expect(template.coinbasePrefix).toEqual(heightPrefix);
+        expect(template.coinbasePrefix.subarray(0, 4)).not.toEqual(Buffer.from('02000000', 'hex'));
+        expect(template.coinbaseTxVersion).toBe(2);
+        expect(template.coinbaseTxInputSequence).toBe(0xffffffff);
+        expect(template.coinbaseTxValueRemaining).toBe(0n);
+        expect(template.coinbaseTxOutputsCount).toBe(2);
+        expect(template.coinbaseTxOutputs).toEqual((connection as any).serializeFixedCoinbaseOutputs(jobTemplate).serialized);
+        expect(template.coinbaseTxOutputs.includes(bitcoinjs.address.toOutputScript(
+            'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
             bitcoinjs.networks.testnet,
-            jobTemplate.blockData.id,
-            [{ address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4', percent: 100 }],
-            jobTemplate,
-        );
-        const expectedCoinbaseTx = expectedJob.cloneCoinbaseTransaction();
-        expect(template.coinbasePrefix).toEqual(expectedJob.getCoinbasePrefixBuffer());
-        expect(template.coinbasePrefix.includes(templateProvider.buildCoinbaseHeightPrefix(MockRecording1.BLOCK_TEMPLATE.height))).toBe(true);
-        expect(template.coinbaseTxVersion).toBe(expectedCoinbaseTx.version);
-        expect(template.coinbaseTxInputSequence).toBe(expectedCoinbaseTx.ins[0].sequence);
-        expect(template.coinbaseTxOutputsCount).toBe(expectedCoinbaseTx.outs.length);
-        expect(template.coinbaseTxOutputs).toEqual((connection as any).serializeCoinbaseOutputs(expectedCoinbaseTx));
-        expect(template.coinbaseTxLocktime).toBe(expectedCoinbaseTx.locktime);
+        ))).toBe(true);
+        expect(template.coinbaseTxOutputs.includes(Buffer.concat([
+            Buffer.from('aa21a9ed', 'hex'),
+            jobTemplate.block.witnessCommit,
+        ]))).toBe(true);
+        expect(template.coinbaseTxLocktime).toBe(0);
     });
 
     it('serves transaction data for known templates', async () => {
@@ -88,7 +90,7 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
     });
 
     it('submits reconstructed blocks from SubmitSolution', async () => {
-        const { connection, templateProvider, jobTemplate, bitcoinRpcService, blocksService, payoutSnapshotService, notificationService } = await createConnection();
+        const { connection, templateProvider, jobTemplate, bitcoinRpcService, blocksService, payoutSnapshotService, notificationService } = await createConnection('pplns');
         const template = templateProvider.upsert(jobTemplate);
         const callOrder: string[] = [];
         bitcoinRpcService.SUBMIT_BLOCK.mockImplementation(async () => {
@@ -98,7 +100,10 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
         blocksService.save.mockImplementation(async () => {
             callOrder.push('save');
         });
-        const coinbaseTx = createCoinbaseTransaction(templateProvider.buildCoinbaseHeightPrefix(template.height));
+        const coinbaseTx = createPayoutCoinbaseTransaction(
+            templateProvider.buildCoinbaseHeightPrefix(template.height),
+            jobTemplate.blockData.coinbasevalue,
+        );
 
         await (connection as any).handleFrame(
             Sv2MsgType.TDP_SUBMIT_SOLUTION,
@@ -123,6 +128,7 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
             payoutSnapshotId: jobTemplate.blockData.payoutSnapshotId,
             blockHeight: MockRecording1.BLOCK_TEMPLATE.height,
             blockSubmissionResult: null,
+            payoutMode: 'pplns',
         });
         expect(notificationService.notifySubscribersBlockFound).toHaveBeenCalledWith(
             'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
@@ -135,7 +141,10 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
     it('does not resubmit duplicate SubmitSolution messages', async () => {
         const { connection, templateProvider, jobTemplate, bitcoinRpcService } = await createConnection();
         const template = templateProvider.upsert(jobTemplate);
-        const coinbaseTx = createCoinbaseTransaction(templateProvider.buildCoinbaseHeightPrefix(template.height));
+        const coinbaseTx = createPayoutCoinbaseTransaction(
+            templateProvider.buildCoinbaseHeightPrefix(template.height),
+            jobTemplate.blockData.coinbasevalue,
+        );
         const payload = serializeTdpSubmitSolution({
             templateId: template.templateId,
             version: template.version,
@@ -173,13 +182,44 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
         warn.mockRestore();
     });
 
+    it('rejects SubmitSolution locally when the coinbase does not pay the pool outputs', async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const { connection, templateProvider, jobTemplate, bitcoinRpcService, blocksService } = await createConnection();
+        const template = templateProvider.upsert(jobTemplate);
+        const coinbaseTx = createPayoutCoinbaseTransaction(
+            templateProvider.buildCoinbaseHeightPrefix(template.height),
+            jobTemplate.blockData.coinbasevalue,
+            'tb1qdyjakeepue4trak9d3hvyelrd0aw7mwju2d0c2',
+        );
+
+        await (connection as any).handleFrame(
+            Sv2MsgType.TDP_SUBMIT_SOLUTION,
+            serializeTdpSubmitSolution({
+                templateId: template.templateId,
+                version: template.version,
+                headerTimestamp: template.minNtime,
+                headerNonce: 123,
+                coinbaseTx: coinbaseTx.toBuffer(),
+            }),
+        );
+
+        expect(bitcoinRpcService.SUBMIT_BLOCK).not.toHaveBeenCalled();
+        expect(blocksService.save).not.toHaveBeenCalled();
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('coinbase-payout-output-mismatch'));
+        warn.mockRestore();
+    });
+
+
     it('submits using a served template snapshot after provider cache cleanup', async () => {
         const { connection, sentFrames, templateProvider, jobTemplate, bitcoinRpcService, blocksService } = await createConnection();
         await (connection as any).sendTemplate(jobTemplate);
         const templateId = BigInt(parseInt(jobTemplate.blockData.id, 16));
         jest.spyOn(templateProvider, 'getTemplate').mockReturnValue(undefined);
         sentFrames.length = 0;
-        const coinbaseTx = createCoinbaseTransaction(templateProvider.buildCoinbaseHeightPrefix(jobTemplate.blockData.height));
+        const coinbaseTx = createPayoutCoinbaseTransaction(
+            templateProvider.buildCoinbaseHeightPrefix(jobTemplate.blockData.height),
+            jobTemplate.blockData.coinbasevalue,
+        );
 
         await (connection as any).handleFrame(
             Sv2MsgType.TDP_SUBMIT_SOLUTION,
@@ -200,7 +240,7 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
         expect(sentFrames.some(frame => frame.msgType === Sv2MsgType.TDP_REQUEST_TRANSACTION_DATA_ERROR)).toBe(false);
     });
 
-    async function createConnection(): Promise<{
+    async function createConnection(payoutMode: 'solo' | 'pplns' = 'solo'): Promise<{
         connection: Sv2TemplateDistributionConnection;
         sentFrames: any[];
         templateProvider: TemplateProviderService;
@@ -262,6 +302,7 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
             notificationService as any,
             'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
             bitcoinjs.networks.testnet,
+            payoutMode,
         );
         const sentFrames: any[] = [];
         (connection as any).sendFrame = jest.fn((msgType: number, payload: Buffer) => {
@@ -285,6 +326,21 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
         tx.version = 2;
         tx.addInput(Buffer.alloc(32), 0xffffffff, 0xffffffff, script);
         tx.addOutput(Buffer.from('6a', 'hex'), 0);
+        return tx;
+    }
+
+    function createPayoutCoinbaseTransaction(
+        script: Buffer,
+        coinbaseValue: number,
+        address = 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
+    ): bitcoinjs.Transaction {
+        const tx = new bitcoinjs.Transaction();
+        tx.version = 2;
+        tx.addInput(Buffer.alloc(32), 0xffffffff, 0xffffffff, script);
+        tx.addOutput(
+            bitcoinjs.address.toOutputScript(address, bitcoinjs.networks.testnet),
+            coinbaseValue,
+        );
         return tx;
     }
 });

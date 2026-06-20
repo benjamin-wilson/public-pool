@@ -14,6 +14,9 @@ import { AcceptedShareRetentionCompression1780966200000 } from './ORM/_migration
 import { PayoutSnapshots1780969800000 } from './ORM/_migrations/PayoutSnapshots1780969800000';
 import { AcceptedShareProtocolMetadata1781130600000 } from './ORM/_migrations/AcceptedShareProtocolMetadata1781130600000';
 import { BlocksSubmissionMetadata1781220000000 } from './ORM/_migrations/BlocksSubmissionMetadata1781220000000';
+import { PayoutModes1781300000000 } from './ORM/_migrations/PayoutModes1781300000000';
+import { ShareRollupStoragePolicy1781305000000 } from './ORM/_migrations/ShareRollupStoragePolicy1781305000000';
+import { AcceptedShareHighScores1781309000000 } from './ORM/_migrations/AcceptedShareHighScores1781309000000';
 import { UserAgentReportView } from './ORM/_views/user-agent-report/user-agent-report.view';
 import { AcceptedShareEntity } from './ORM/accepted-share/accepted-share.entity';
 import { AddressSettingsEntity } from './ORM/address-settings/address-settings.entity';
@@ -54,6 +57,9 @@ export const databaseMigrations = [
     PayoutSnapshots1780969800000,
     AcceptedShareProtocolMetadata1781130600000,
     BlocksSubmissionMetadata1781220000000,
+    PayoutModes1781300000000,
+    ShareRollupStoragePolicy1781305000000,
+    AcceptedShareHighScores1781309000000,
 ];
 
 export function createDatabaseOptions(env: NodeJS.ProcessEnv): TypeOrmModuleOptions & DataSourceOptions {

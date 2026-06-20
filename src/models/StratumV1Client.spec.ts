@@ -547,8 +547,9 @@ describe('StratumV1Client', () => {
         await new Promise((r) => setTimeout(r, 100));
 
         expect((client as any).write).lastCalledWith(`{"id":5,"result":null,"error":[21,"Job not found",""]}\n`);
-        expect(await clientService.connectedClientCount()).toBe(0);
+        expect(await clientService.connectedClientCount()).toBe(1);
         expect(hashSpy).not.toHaveBeenCalled();
+        expect(shareAccountingService.recordAcceptedShare).not.toHaveBeenCalled();
     });
 
     it('should reject submissions when the job template has expired', async () => {
@@ -578,7 +579,8 @@ describe('StratumV1Client', () => {
         await new Promise((r) => setTimeout(r, 100));
 
         expect((client as any).write).lastCalledWith(`{"id":5,"result":null,"error":[23,"Difficulty too low",""]}\n`);
-        expect(await clientService.connectedClientCount()).toBe(0);
+        expect(await clientService.connectedClientCount()).toBe(1);
+        expect(shareAccountingService.recordAcceptedShare).not.toHaveBeenCalled();
     });
 
     it('should reject submissions with short extranonce2 values', async () => {
@@ -670,7 +672,9 @@ describe('StratumV1Client', () => {
             minerAddress: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
             worker: 'bitaxe3',
             sessionId: MockRecording1.EXTRA_NONCE,
-            blockData: expect.any(String)
+            blockData: expect.any(String),
+            payoutSnapshotId: null,
+            payoutMode: 'solo',
         }));
         expect(notificationService.notifySubscribersBlockFound).toHaveBeenCalled();
         expect(addressSettings.resetBestDifficultyAndShares).toHaveBeenCalled();

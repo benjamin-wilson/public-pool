@@ -332,21 +332,21 @@ export function deserializeDatumCoinbaserFetch(payload: Buffer): DatumCoinbaserF
     return { rewardValue: payload.readBigUInt64LE(0) };
 }
 
-export function serializeDatumCoinbaserFetchResponse(rewardValue: bigint, outputs: DatumPayoutOutput[]): Buffer {
+export function serializeDatumCoinbaserFetchResponse(rewardValue: bigint, outputs: DatumPayoutOutput[], coinbaserId = 1): Buffer {
     const w = new BufferWriter();
     w.writeU64(rewardValue);
-    const outputsBuffer = serializeDatumPayoutOutputs(outputs);
+    const outputsBuffer = serializeDatumPayoutOutputs(outputs, coinbaserId);
     w.writeU32(outputsBuffer.length);
     w.writeBytes(outputsBuffer);
     return serializeDatumMiningCommand(DatumMiningCommand.FETCH_COINBASER_RESPONSE, Buffer.from(w.toBuffer()));
 }
 
-export function serializeDatumPayoutOutputs(outputs: DatumPayoutOutput[]): Buffer {
-    if (outputs.length > 255) {
-        throw new RangeError('DATUM payout output count must fit in one byte');
+export function serializeDatumPayoutOutputs(outputs: DatumPayoutOutput[], coinbaserId = 1): Buffer {
+    if (!Number.isInteger(coinbaserId) || coinbaserId < 0 || coinbaserId > 255) {
+        throw new RangeError('DATUM coinbaser id must fit in one byte');
     }
     const w = new BufferWriter();
-    w.writeU8(outputs.length);
+    w.writeU8(coinbaserId);
     for (const output of outputs) {
         if (output.scriptPubKey.length > 255) {
             throw new RangeError('DATUM scriptPubKey length must fit in one byte');
@@ -422,7 +422,7 @@ export function deserializeDatumPowSubmit(payload: Buffer): DatumPowSubmit {
                 coinb1: reader.readBytes(coinb1Len),
                 coinb2: reader.readBytes(coinb2Len),
             };
-            if (coinbaseType === 255 || coinbaseId === 255) {
+            if (coinbaseType === 255) {
                 result.subsidyOnlyCoinbase = coinbase;
             } else {
                 coinbasePairs.set(coinbaseType, coinbase);

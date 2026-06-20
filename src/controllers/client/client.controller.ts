@@ -1,10 +1,12 @@
-import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query } from '@nestjs/common';
 
 import { AddressSettingsService } from '../../ORM/address-settings/address-settings.service';
 import { ClientStatisticsService } from '../../ORM/client-statistics/client-statistics.service';
 import { ClientService } from '../../ORM/client/client.service';
+import { PayoutSnapshotService } from '../../ORM/payout-snapshot/payout-snapshot.service';
 import { ShareAccountingService } from '../../ORM/share-accounting/share-accounting.service';
 import { RedisMessagingService } from '../../services/redis-messaging.service';
+import { normalizePayoutMode, PayoutMode } from '../../types/payout-mode';
 
 
 @Controller('client')
@@ -15,13 +17,15 @@ export class ClientController {
         private readonly clientStatisticsService: ClientStatisticsService,
         private readonly addressSettingsService: AddressSettingsService,
         private readonly shareAccountingService: ShareAccountingService,
+        private readonly payoutSnapshotService: PayoutSnapshotService,
         private readonly redisMessagingService: RedisMessagingService
     ) { }
 
 
     @Get(':address')
-    async getClientInfo(@Param('address') address: string) {
-        const workers = await this.redisMessagingService.getClientPresenceByAddress(address);
+    async getClientInfo(@Param('address') address: string, @Query('payoutMode') payoutMode?: string) {
+        const mode = this.getRequestedPayoutMode(payoutMode);
+        const workers = await this.getActiveAddressWorkers(address, mode);
         const sessionSummaries = await this.shareAccountingService.getSessionSummaries(workers.map(worker => worker.clientId));
 
         const addressSettings = process.env.API_ONLY === 'true'
@@ -30,15 +34,19 @@ export class ClientController {
         const bestDifficulty = addressSettings?.bestDifficulty ?? workers.reduce((best, worker) => {
             return Math.max(best, Number(worker.bestDifficulty ?? 0));
         }, 0);
-        const accounting = this.withBestSubmissionDifficulty(
-            await this.shareAccountingService.getAddressSummary(address),
-            bestDifficulty,
-        );
+        const accountingSummary = mode == null
+            ? await this.shareAccountingService.getAddressSummary(address)
+            : await this.shareAccountingService.getAddressSummary(address, mode);
+        const accounting = this.withBestSubmissionDifficulty(accountingSummary, bestDifficulty);
+        const expectedPayout = mode === 'solo'
+            ? null
+            : await this.payoutSnapshotService.getLatestExpectedPayoutForAddress(address);
 
         const response = {
             bestDifficulty,
             workersCount: workers.length,
             accounting,
+            expectedPayout,
             workers: await Promise.all(
                 workers.map(async (worker) => {
                     const sessionSummary = sessionSummaries.get(worker.clientId);
@@ -49,6 +57,7 @@ export class ClientController {
                     return {
                         sessionId: worker.sessionId,
                         name: worker.clientName,
+                        payoutMode: worker.payoutMode,
                         bestDifficulty: bestDifficulty.toFixed(2),
                         hashRate: sessionSummary?.hashRateLast10Minutes ?? worker.hashRate,
                         startTime: worker.startTime,
@@ -65,9 +74,16 @@ export class ClientController {
         return await this.clientStatisticsService.getChartDataForAddress(address);
     }
 
+    @Get(':address/chart/payout-modes')
+    async getClientInfoChartByPayoutMode(@Param('address') address: string, @Query('payoutMode') payoutMode?: string) {
+        const mode = this.getRequestedPayoutMode(payoutMode);
+        return await this.clientStatisticsService.getChartDataForAddressByPayoutMode(address, mode);
+    }
+
     @Get(':address/:workerName')
-    async getWorkerGroupInfo(@Param('address') address: string, @Param('workerName') workerName: string) {
-        const addressWorkers = await this.redisMessagingService.getClientPresenceByAddress(address);
+    async getWorkerGroupInfo(@Param('address') address: string, @Param('workerName') workerName: string, @Query('payoutMode') payoutMode?: string) {
+        const mode = this.getRequestedPayoutMode(payoutMode);
+        const addressWorkers = await this.getActiveAddressWorkers(address, mode);
         const workers = addressWorkers
             .filter(worker => worker.clientName === workerName);
 
@@ -79,24 +95,28 @@ export class ClientController {
         }, 0);
 
         const chartData = await this.clientStatisticsService.getChartDataForGroup(address, workerName);
-        const accounting = this.withBestSubmissionDifficulty(
-            await this.shareAccountingService.getWorkerGroupSummary(address, workerName),
-            bestDifficulty,
-        );
+        const chartDataByPayoutMode = await this.clientStatisticsService.getChartDataForGroupByPayoutMode(address, workerName, mode);
+        const accountingSummary = mode == null
+            ? await this.shareAccountingService.getWorkerGroupSummary(address, workerName)
+            : await this.shareAccountingService.getWorkerGroupSummary(address, workerName, mode);
+        const accounting = this.withBestSubmissionDifficulty(accountingSummary, bestDifficulty);
         const response = {
 
             name: workerName,
             bestDifficulty: Math.floor(bestDifficulty),
+            payoutModes: [...new Set(workers.map(worker => worker.payoutMode))],
             accounting,
             chartData: chartData,
+            chartDataByPayoutMode,
 
         }
         return response;
     }
 
     @Get(':address/:workerName/:sessionId')
-    async getWorkerInfo(@Param('address') address: string, @Param('workerName') workerName: string, @Param('sessionId') sessionId: string) {
-        const addressWorkers = await this.redisMessagingService.getClientPresenceByAddress(address);
+    async getWorkerInfo(@Param('address') address: string, @Param('workerName') workerName: string, @Param('sessionId') sessionId: string, @Query('payoutMode') payoutMode?: string) {
+        const mode = this.getRequestedPayoutMode(payoutMode);
+        const addressWorkers = await this.getActiveAddressWorkers(address, mode);
         const presenceWorker = addressWorkers
             .find(worker => worker.clientName === workerName && worker.sessionId === sessionId);
         const worker = presenceWorker == null
@@ -106,14 +126,18 @@ export class ClientController {
                 sessionId: presenceWorker.sessionId,
                 clientName: presenceWorker.clientName,
                 bestDifficulty: presenceWorker.bestDifficulty,
+                payoutMode: presenceWorker.payoutMode,
                 startTime: presenceWorker.startTime,
             };
         if (worker == null) {
             return new NotFoundException();
         }
         const chartData = await this.clientStatisticsService.getChartDataForSession(worker.id);
+        const chartDataByPayoutMode = await this.clientStatisticsService.getChartDataForSessionByPayoutMode(worker.id, mode);
         const accounting = this.withBestSubmissionDifficulty(
-            await this.shareAccountingService.getSessionSummary(worker.id),
+            mode == null
+                ? await this.shareAccountingService.getSessionSummary(worker.id)
+                : await this.shareAccountingService.getSessionSummary(worker.id, mode),
             worker.bestDifficulty,
         );
 
@@ -121,8 +145,10 @@ export class ClientController {
             sessionId: worker.sessionId,
             name: worker.clientName,
             bestDifficulty: Math.floor(worker.bestDifficulty),
+            payoutMode: worker.payoutMode,
             accounting,
             chartData: chartData,
+            chartDataByPayoutMode,
             startTime: worker.startTime
         }
         return response;
@@ -143,5 +169,24 @@ export class ClientController {
             ...accounting,
             bestSubmissionDifficulty: fallback,
         };
+    }
+
+    private getRequestedPayoutMode(payoutMode?: string): PayoutMode | undefined {
+        if (payoutMode == null || payoutMode === 'all') {
+            return undefined;
+        }
+        return normalizePayoutMode(payoutMode);
+    }
+
+    private async getActiveAddressWorkers(address: string, payoutMode?: PayoutMode) {
+        const workers = await this.redisMessagingService.getClientPresenceByAddress(address);
+        const activeIds = await this.clientService.getActiveIds(workers.map(worker => worker.clientId));
+        const staleWorkers = workers.filter(worker => !activeIds.has(worker.clientId));
+        void Promise.all(staleWorkers.map(worker => {
+            return this.redisMessagingService.removeClientPresence(worker.clientId, worker.address)
+                .catch(() => undefined);
+        }));
+
+        return workers.filter(worker => activeIds.has(worker.clientId) && (payoutMode == null || worker.payoutMode === payoutMode));
     }
 }

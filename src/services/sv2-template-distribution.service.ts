@@ -14,7 +14,6 @@ import {
     serializeSetupConnectionError,
     serializeSetupConnectionSuccess,
 } from '../models/sv2/sv2-messages';
-import { AddressObject, MiningJob } from '../models/MiningJob';
 import { Sv2NoiseSession } from '../models/sv2/sv2-noise';
 import {
     deserializeTdpCoinbaseOutputConstraints,
@@ -30,6 +29,8 @@ import { NotificationService } from './notification.service';
 import { IJobTemplate, StratumV1JobsService } from './stratum-v1-jobs.service';
 import { StratumV2Service } from './stratum-v2.service';
 import { TemplateProviderService, TemplateProviderTemplate } from './template-provider.service';
+import { AddressObject } from '../models/MiningJob';
+import { parsePayoutModePorts, PayoutMode } from '../types/payout-mode';
 
 interface TdpCoinbaseTemplateFields {
     coinbaseTxVersion: number;
@@ -67,12 +68,12 @@ export class Sv2TemplateDistributionService implements OnModuleInit {
         }
 
         await this.stratumV2Service.ensureInitialized();
-        for (const port of ports) {
-            this.startServer(port);
+        for (const { port, payoutMode } of ports) {
+            this.startServer(port, payoutMode);
         }
     }
 
-    private startServer(port: number): void {
+    private startServer(port: number, payoutMode: PayoutMode): void {
         const server = new Server(socket => {
             void new Sv2TemplateDistributionConnection(
                 socket,
@@ -85,22 +86,19 @@ export class Sv2TemplateDistributionService implements OnModuleInit {
                 this.notificationService,
                 this.getPoolPayoutAddress(),
                 this.getNetwork(),
+                payoutMode,
             ).start();
         });
         server.on('error', error => console.error(`SV2 TDP server error on port ${port}: ${error.message}`));
-        server.listen(port, () => console.log(`SV2 Template Distribution server is listening on port ${port}`));
+        server.listen(port, () => console.log(`SV2 Template Distribution ${payoutMode} server is listening on port ${port}`));
         this.servers.push(server);
     }
 
-    private getPorts(): number[] {
-        const configured = this.configService.get<string>('SV2_TDP_PORTS');
-        if (!configured?.trim()) {
-            return [];
-        }
-        return Array.from(new Set(configured
-            .split(',')
-            .map(port => parseInt(port.trim(), 10))
-            .filter(port => Number.isInteger(port) && port > 0 && port <= 65535)));
+    private getPorts(): { port: number; payoutMode: PayoutMode }[] {
+        return parsePayoutModePorts(
+            this.configService.get<string>('SV2_TDP_PORTS'),
+            this.configService.get<string>('PPLNS_SV2_TDP_PORTS'),
+        );
     }
 
     private getPoolPayoutAddress(): string {
@@ -149,6 +147,7 @@ export class Sv2TemplateDistributionConnection {
         private readonly notificationService: NotificationService,
         private readonly poolPayoutAddress: string,
         private readonly network: bitcoinjs.networks.Network,
+        private readonly payoutMode: PayoutMode,
     ) {
         this.noiseSession = new Sv2NoiseSession(stratumV2Service.getNoiseConfig());
     }
@@ -272,43 +271,65 @@ export class Sv2TemplateDistributionConnection {
     }
 
     private buildCoinbaseTemplateFields(template: IJobTemplate): TdpCoinbaseTemplateFields {
-        const job = new MiningJob(
-            this.network,
-            template.blockData.id,
-            this.getPayoutInformation(template),
-            template,
-        );
-        const coinbaseTx = job.cloneCoinbaseTransaction();
+        const coinbaseTxOutputs = this.serializeFixedCoinbaseOutputs(template);
+        const spendableValue = coinbaseTxOutputs.spendableValue;
 
         return {
-            coinbaseTxVersion: coinbaseTx.version,
-            coinbasePrefix: job.getCoinbasePrefixBuffer(),
-            coinbaseTxInputSequence: coinbaseTx.ins[0]?.sequence ?? 0xffffffff,
-            coinbaseTxValueRemaining: BigInt(template.blockData.coinbasevalue),
-            coinbaseTxOutputsCount: coinbaseTx.outs.length,
-            coinbaseTxOutputs: this.serializeCoinbaseOutputs(coinbaseTx),
-            coinbaseTxLocktime: coinbaseTx.locktime,
+            coinbaseTxVersion: 2,
+            coinbasePrefix: this.templateProvider.buildCoinbaseHeightPrefix(template.blockData.height),
+            coinbaseTxInputSequence: 0xffffffff,
+            coinbaseTxValueRemaining: BigInt(template.blockData.coinbasevalue) - spendableValue,
+            coinbaseTxOutputsCount: coinbaseTxOutputs.count,
+            coinbaseTxOutputs: coinbaseTxOutputs.serialized,
+            coinbaseTxLocktime: 0,
+        };
+    }
+
+    private serializeFixedCoinbaseOutputs(template: IJobTemplate): { count: number; serialized: Buffer; spendableValue: bigint } {
+        const payoutOutputs = this.templateProvider.buildCoinbasePayoutOutputs(
+            this.getPayoutInformation(template),
+            template.blockData.coinbasevalue,
+            this.network,
+        );
+        const outputs: { value: bigint; script: Buffer }[] = payoutOutputs.map(output => ({
+            value: output.value,
+            script: output.scriptPubKey,
+        }));
+        const spendableValue = payoutOutputs.reduce((sum, output) => sum + output.value, 0n);
+
+        if (template.block.witnessCommit != null) {
+            const segwitMagicBits = Buffer.from('aa21a9ed', 'hex');
+            outputs.push({
+                value: 0n,
+                script: bitcoinjs.script.compile([
+                    bitcoinjs.opcodes.OP_RETURN,
+                    Buffer.concat([segwitMagicBits, template.block.witnessCommit]),
+                ]),
+            });
+        }
+
+        return {
+            count: outputs.length,
+            serialized: Buffer.concat(outputs.map(output => this.serializeCoinbaseOutput(output.value, output.script))),
+            spendableValue,
         };
     }
 
     private getPayoutInformation(template: IJobTemplate): AddressObject[] {
-        if (template.blockData.payoutOutputs?.length > 0) {
+        if (this.payoutMode === 'pplns' && template.blockData.payoutOutputs?.length > 0) {
             return template.blockData.payoutOutputs;
         }
-
         return [{ address: this.poolPayoutAddress, percent: 100 }];
     }
 
-    private serializeCoinbaseOutputs(coinbaseTx: bitcoinjs.Transaction): Buffer {
-        return Buffer.concat(coinbaseTx.outs.map(output => {
-            const value = Buffer.alloc(8);
-            value.writeBigUInt64LE(BigInt(output.value), 0);
-            return Buffer.concat([
-                value,
-                this.encodeBitcoinVarInt(output.script.length),
-                Buffer.from(output.script),
-            ]);
-        }));
+    private serializeCoinbaseOutput(valueSats: bigint, script: Buffer): Buffer {
+        const value = Buffer.alloc(8);
+        value.writeBigUInt64LE(valueSats, 0);
+        return Buffer.concat([
+            value,
+            this.encodeBitcoinVarInt(script.length),
+            Buffer.from(script),
+        ]);
     }
 
     private encodeBitcoinVarInt(value: number): Buffer {
@@ -369,6 +390,16 @@ export class Sv2TemplateDistributionConnection {
             console.warn(`[SV2 TDP] SubmitSolution rejected locally: ${coinbaseValidation.errorCode}`);
             return;
         }
+        const payoutValidation = this.templateProvider.validateCoinbaseTransactionPayoutOutputs({
+            coinbaseTx: solution.coinbaseTx,
+            payoutInformation: this.getPayoutInformation(template.jobTemplate),
+            coinbaseValue: template.coinbaseValue,
+            network: this.network,
+        });
+        if (!payoutValidation.valid) {
+            console.warn(`[SV2 TDP] SubmitSolution rejected locally: ${payoutValidation.errorCode}`);
+            return;
+        }
         const block = this.templateProvider.buildBlockFromSolution({
             template,
             coinbaseTx: solution.coinbaseTx,
@@ -390,13 +421,19 @@ export class Sv2TemplateDistributionConnection {
             sessionId: solution.templateId.toString(16).slice(-8).padStart(8, '0'),
             blockData: blockHex,
             blockSubmissionResult: result,
-            payoutSnapshotId: template.jobTemplate.blockData.payoutSnapshotId ?? null,
+            payoutSnapshotId: this.payoutMode === 'pplns'
+                ? template.jobTemplate.blockData.payoutSnapshotId ?? null
+                : null,
+            payoutMode: this.payoutMode,
         });
-        await this.payoutSnapshotService.finalizeSnapshotForBlock({
-            payoutSnapshotId: template.jobTemplate.blockData.payoutSnapshotId,
-            blockHeight: template.height,
-            blockSubmissionResult: result,
-        });
+        if (this.payoutMode === 'pplns') {
+            await this.payoutSnapshotService.finalizeSnapshotForBlock({
+                payoutSnapshotId: template.jobTemplate.blockData.payoutSnapshotId,
+                blockHeight: template.height,
+                blockSubmissionResult: result,
+                payoutMode: this.payoutMode,
+            });
+        }
         await this.notificationService.notifySubscribersBlockFound(
             this.poolPayoutAddress || 'sv2-tdp',
             template.height,

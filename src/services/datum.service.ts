@@ -19,6 +19,7 @@ import {
     DatumPowSubmit,
     DatumJobValidationStatus,
     DatumJobValidationResponse,
+    DatumPayoutOutput,
     deserializeDatumCoinbaserFetch,
     deserializeDatumJobValidationResponse,
     deserializeDatumMiningCommand,
@@ -33,9 +34,13 @@ import { DatumCryptoSession } from '../models/datum/datum-crypto';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 import { CustomWorkService } from './custom-work.service';
 import { RedisMessagingService } from './redis-messaging.service';
-import { StratumV1JobsService } from './stratum-v1-jobs.service';
+import { IJobTemplate, StratumV1JobsService } from './stratum-v1-jobs.service';
 import { DatumKeyPair } from '../models/datum/datum-crypto';
 import { TemplateProviderService } from './template-provider.service';
+import { StratumV1ClientStatistics } from '../models/StratumV1ClientStatistics';
+import type { AddressObject } from '../models/MiningJob';
+import { PayoutSnapshotService } from '../ORM/payout-snapshot/payout-snapshot.service';
+import { parsePayoutModePorts, PayoutMode } from '../types/payout-mode';
 
 const DEFAULT_DATUM_SHARE_DIFFICULTY = 1;
 const DEFAULT_DATUM_PING_INTERVAL_MS = 30_000;
@@ -55,6 +60,7 @@ export class DatumService implements OnModuleInit {
         private readonly customWorkService: CustomWorkService,
         private readonly templateProvider: TemplateProviderService,
         private readonly redisMessagingService?: RedisMessagingService,
+        private readonly payoutSnapshotService?: PayoutSnapshotService,
     ) {}
 
     public async onModuleInit(): Promise<void> {
@@ -70,25 +76,25 @@ export class DatumService implements OnModuleInit {
         this.identityKeys = this.getIdentityKeys();
         console.log(`DATUM server public key: ${Buffer.concat([this.identityKeys.edPublicKey, this.identityKeys.xPublicKey]).toString('hex')}`);
 
-        for (const port of ports) {
-            await this.startServer(port);
+        for (const { port, payoutMode } of ports) {
+            await this.startServer(port, payoutMode);
         }
     }
 
-    private async startServer(port: number): Promise<void> {
+    private async startServer(port: number, payoutMode: PayoutMode): Promise<void> {
         const server = new Server(socket => {
-            void this.handleSocket(socket);
+            void this.handleSocket(socket, payoutMode);
         });
         server.on('error', error => {
             console.error(`DATUM server error on port ${port}: ${error.message}`);
         });
         server.listen(port, () => {
-            console.log(`DATUM server is listening on port ${port}`);
+            console.log(`DATUM ${payoutMode} server is listening on port ${port}`);
         });
         this.servers.push(server);
     }
 
-    private async handleSocket(socket: Socket): Promise<void> {
+    private async handleSocket(socket: Socket, payoutMode: PayoutMode): Promise<void> {
         socket.setKeepAlive(true, 60_000);
         socket.setNoDelay(true);
 
@@ -96,6 +102,7 @@ export class DatumService implements OnModuleInit {
         const reader = new DatumFrameReader(DATUM_INITIAL_HEADER_KEY);
         const state: DatumClientState = {
             sessionId: Math.random().toString(16).slice(2, 10),
+            payoutMode,
             session,
             clientEntity: null,
             address: null,
@@ -103,6 +110,9 @@ export class DatumService implements OnModuleInit {
             userAgent: 'datum/unknown',
             pingTimer: null,
             datumJobs: new Map(),
+            coinbaserPayoutContexts: new Map(),
+            nextCoinbaserId: 1,
+            statistics: new StratumV1ClientStatistics(this.getConfiguredDatumShareDifficulty()),
         };
         console.log(`[DATUM ${state.sessionId}] connection accepted from ${socket.remoteAddress}:${socket.remotePort}`);
 
@@ -188,7 +198,7 @@ export class DatumService implements OnModuleInit {
             throw new Error(`DATUM coinbase tag is too long: ${coinbaseTag.length}`);
         }
 
-        const minDifficulty = Math.max(1, Math.floor(this.getDatumShareDifficulty()));
+        const minDifficulty = Math.max(1, Math.floor(this.getConfiguredDatumShareDifficulty()));
         const vardiffMin = 1n << BigInt(Math.ceil(Math.log2(minDifficulty)));
         const vardiffMinBuffer = Buffer.alloc(8);
         vardiffMinBuffer.writeBigUInt64LE(vardiffMin, 0);
@@ -208,16 +218,27 @@ export class DatumService implements OnModuleInit {
 
     private async handleCoinbaserFetch(socket: Socket, state: DatumClientState, payload: Buffer): Promise<void> {
         const fetch = deserializeDatumCoinbaserFetch(payload);
-        const payoutAddress = this.getDatumPoolPayoutAddress();
-        if (!payoutAddress) {
+        const latestTemplate = await firstValueFrom(this.jobsService.newMiningJob$);
+        const payoutOutputs = this.getDatumPayoutOutputs(latestTemplate, Number(fetch.rewardValue), state.payoutMode);
+        if (payoutOutputs.length === 0) {
             throw new Error('DATUM_POOL_PAYOUT_ADDRESS or DEV_FEE_ADDRESS must be set before DATUM coinbaser fetches can be served');
         }
 
-        const scriptPubKey = bitcoinjs.address.toOutputScript(payoutAddress, this.getNetwork());
-        const response = serializeDatumCoinbaserFetchResponse(fetch.rewardValue, [{
-            value: fetch.rewardValue,
-            scriptPubKey,
-        }]);
+        const coinbaserId = this.nextDatumCoinbaserId(state);
+        state.coinbaserPayoutContexts.set(coinbaserId, {
+            payoutOutputs,
+            payoutSnapshotId: latestTemplate.blockData.payoutSnapshotId ?? null,
+            blockHeight: latestTemplate.blockData.height,
+            payoutMode: state.payoutMode,
+        });
+        if (state.coinbaserPayoutContexts.size > 512) {
+            const oldestCoinbaserId = state.coinbaserPayoutContexts.keys().next().value;
+            if (oldestCoinbaserId != null) {
+                state.coinbaserPayoutContexts.delete(oldestCoinbaserId);
+            }
+        }
+
+        const response = serializeDatumCoinbaserFetchResponse(fetch.rewardValue, payoutOutputs, coinbaserId);
         await this.writeRaw(socket, state.session.encryptChannelFrame(DatumProtocolCommand.MINING, response));
     }
 
@@ -273,8 +294,14 @@ export class DatumService implements OnModuleInit {
             await this.sendShareResponse(socket, state, DatumShareResponseStatus.REJECTED, DatumRejectReason.OTHER, pow.nonce, pow.targetByte, pow.jobId);
             return;
         }
+        const payoutValidation = this.validateDatumCoinbasePayouts(coinbase, pow, latestTemplate, datumJob.coinbaseValue, datumJob.expectedPayoutOutputs, state.payoutMode);
+        if (!payoutValidation.valid) {
+            this.logDatumCoinbaseMismatchOnce(state, payoutValidation);
+            await this.sendShareResponse(socket, state, DatumShareResponseStatus.REJECTED, DatumRejectReason.BAD_COINBASER_ID, pow.nonce, pow.targetByte, pow.jobId);
+            return;
+        }
 
-        const shareDifficulty = this.getDatumShareDifficulty();
+        const shareDifficulty = this.getDatumSubmittedShareDifficulty(pow);
         const nBits = datumJob.nBits.readUInt32LE(0);
         const validation = this.customWorkService.validateShare({
             coinbasePrefix: coinbase.coinb1,
@@ -310,11 +337,23 @@ export class DatumService implements OnModuleInit {
                 sessionId: state.sessionId,
                 blockData: validation.header.toString('hex'),
                 blockSubmissionResult,
-                payoutSnapshotId: null,
+                payoutSnapshotId: state.payoutMode === 'pplns'
+                    ? datumJob.payoutSnapshotId ?? null
+                    : null,
+                payoutMode: state.payoutMode,
             });
+            if (state.payoutMode === 'pplns') {
+                await this.payoutSnapshotService?.finalizeSnapshotForBlock({
+                    payoutSnapshotId: datumJob.payoutSnapshotId,
+                    blockHeight: datumJob.height ?? latestTemplate.blockData.height,
+                    blockSubmissionResult,
+                    payoutMode: state.payoutMode,
+                });
+            }
         }
         await this.shareAccountingService.recordAcceptedShare({
             protocol: 'datum',
+            payoutMode: state.payoutMode,
             workSource: 'miner_template',
             workProtocol: 'datum',
             address,
@@ -334,16 +373,41 @@ export class DatumService implements OnModuleInit {
             isBlockCandidate,
             blockSubmissionResult,
         });
+        await this.updateAcceptedSharePresence(state, address, workerName, validation.submissionDifficulty, shareDifficulty);
+    }
+
+    private async updateAcceptedSharePresence(
+        state: DatumClientState,
+        address: string,
+        workerName: string,
+        submissionDifficulty: number,
+        creditedDifficulty: number,
+    ): Promise<void> {
+        if (state.clientEntity == null) {
+            return;
+        }
+
+        await state.statistics.addShares(state.clientEntity, creditedDifficulty);
+        state.clientEntity.hashRate = state.statistics.hashRate;
+        if (submissionDifficulty > Number(state.clientEntity.bestDifficulty ?? 0)) {
+            await this.clientService.updateBestDifficultyIfHigher(state.clientEntity.id, submissionDifficulty);
+            state.clientEntity.bestDifficulty = submissionDifficulty;
+        }
+
         await this.redisMessagingService?.setClientPresence({
             clientId: state.clientEntity.id,
             address,
             clientName: workerName,
             sessionId: state.sessionId,
+            payoutMode: state.payoutMode,
             userAgent: state.userAgent,
             startTime: new Date(state.clientEntity.startTime).toISOString(),
             lastSeen: new Date().toISOString(),
-            hashRate: 0,
-            bestDifficulty: validation.submissionDifficulty,
+            hashRate: state.statistics.hashRate,
+            bestDifficulty: Math.max(
+                Number(state.clientEntity.bestDifficulty ?? 0),
+                submissionDifficulty,
+            ),
         });
     }
 
@@ -367,6 +431,11 @@ export class DatumService implements OnModuleInit {
         }
         if (pow.coinbaserId != null) {
             cache.coinbaserId = pow.coinbaserId;
+            const payoutContext = state.coinbaserPayoutContexts.get(pow.coinbaserId);
+            if (payoutContext != null) {
+                cache.expectedPayoutOutputs = payoutContext.payoutOutputs;
+                cache.payoutSnapshotId = payoutContext.payoutSnapshotId;
+            }
         }
         if (pow.height != null) {
             cache.height = pow.height;
@@ -507,6 +576,152 @@ export class DatumService implements OnModuleInit {
         return cache.coinbasePairs.get(pow.coinbaseId) ?? cache.subsidyOnlyCoinbase;
     }
 
+    private validateDatumCoinbasePayouts(
+        coinbase: { coinb1: Buffer; coinb2: Buffer },
+        pow: Pick<DatumPowSubmit, 'extranonce' | 'targetByteIndex' | 'targetByte'>,
+        latestTemplate: IJobTemplate,
+        coinbaseValue?: bigint,
+        expectedPayoutOutputs?: DatumPayoutOutput[],
+        payoutMode?: PayoutMode,
+    ): DatumCoinbasePayoutValidation {
+        const rewardValue = coinbaseValue == null
+            ? latestTemplate.blockData.coinbasevalue
+            : Number(coinbaseValue);
+        const expectedOutputs = expectedPayoutOutputs ?? this.getDatumPayoutOutputs(latestTemplate, rewardValue, payoutMode);
+        if (expectedOutputs.length === 0) {
+            return { valid: false, expectedOutputs, submittedOutputs: [], error: 'missing-expected-outputs' };
+        }
+
+        let coinbaseTx = Buffer.concat([
+            coinbase.coinb1,
+            pow.extranonce,
+            coinbase.coinb2,
+        ]);
+        coinbaseTx = Buffer.from(coinbaseTx);
+        if (pow.targetByteIndex != null) {
+            if (pow.targetByteIndex < 0 || pow.targetByteIndex >= coinbaseTx.length) {
+                return { valid: false, expectedOutputs, submittedOutputs: [], error: 'target-byte-out-of-range' };
+            }
+            coinbaseTx[pow.targetByteIndex] = pow.targetByte & 0xff;
+        }
+
+        let transaction: bitcoinjs.Transaction;
+        try {
+            transaction = bitcoinjs.Transaction.fromBuffer(coinbaseTx);
+        } catch {
+            return { valid: false, expectedOutputs, submittedOutputs: [], error: 'invalid-coinbase-transaction' };
+        }
+
+        const submittedOutputs = transaction.outs
+            .filter(output => !this.isIgnoredCoinbaseMetadataOutput(output))
+            .map(output => ({
+                value: BigInt(output.value),
+                scriptPubKey: Buffer.from(output.script),
+            }));
+
+        if (submittedOutputs.length !== expectedOutputs.length) {
+            return { valid: false, expectedOutputs, submittedOutputs, error: 'output-count-mismatch' };
+        }
+
+        const valid = expectedOutputs.every((expected, index) => {
+            const submitted = submittedOutputs[index];
+            return submitted.value === expected.value
+                && submitted.scriptPubKey.equals(expected.scriptPubKey);
+        });
+        return {
+            valid,
+            expectedOutputs,
+            submittedOutputs,
+            error: valid ? undefined : 'output-mismatch',
+        };
+    }
+
+    private getDatumPayoutOutputs(latestTemplate: { blockData?: { payoutOutputs?: AddressObject[] } }, rewardValue: number, payoutMode: PayoutMode = 'solo'): DatumPayoutOutput[] {
+        const configuredOutputs = latestTemplate?.blockData?.payoutOutputs;
+        const payoutAddresses = payoutMode === 'pplns' && configuredOutputs?.length > 0
+            ? configuredOutputs
+            : this.getDatumFallbackPayoutOutputs(rewardValue);
+
+        let rewardBalance = Math.max(0, Math.floor(rewardValue));
+        const outputs = payoutAddresses.map((recipientAddress, index) => {
+            const amount = recipientAddress.amountSats == null
+                ? Math.floor(((recipientAddress.percent ?? 0) / 100) * rewardValue)
+                : recipientAddress.amountSats;
+            rewardBalance -= amount;
+            return {
+                value: BigInt(amount),
+                scriptPubKey: bitcoinjs.address.toOutputScript(recipientAddress.address, this.getNetwork()),
+            };
+        });
+        if (outputs.length > 0 && rewardBalance !== 0) {
+            outputs[0] = {
+                ...outputs[0],
+                value: outputs[0].value + BigInt(rewardBalance),
+            };
+        }
+
+        return outputs;
+    }
+
+    private nextDatumCoinbaserId(state: DatumClientState): number {
+        const id = state.nextCoinbaserId;
+        state.nextCoinbaserId = state.nextCoinbaserId >= 254 ? 1 : state.nextCoinbaserId + 1;
+        return id;
+    }
+
+    private getDatumFallbackPayoutOutputs(rewardValue: number): AddressObject[] {
+        const payoutAddress = this.getDatumPoolPayoutAddress();
+        if (!payoutAddress) {
+            return [];
+        }
+        return [{ address: payoutAddress, amountSats: Math.max(0, Math.floor(rewardValue)) }];
+    }
+
+    private isIgnoredCoinbaseMetadataOutput(output: { value: bigint | number; script: Buffer }): boolean {
+        if (this.isWitnessCommitmentOutput(output.script)) {
+            return true;
+        }
+
+        return BigInt(output.value) === 0n
+            && output.script.length > 0
+            && output.script[0] === bitcoinjs.opcodes.OP_RETURN;
+    }
+
+    private isWitnessCommitmentOutput(script: Buffer): boolean {
+        return script.length === 38
+            && script[0] === bitcoinjs.opcodes.OP_RETURN
+            && script[1] === 0x24
+            && script.subarray(2, 6).equals(Buffer.from('aa21a9ed', 'hex'));
+    }
+
+    private logDatumCoinbaseMismatchOnce(
+        state: DatumClientState,
+        validation: DatumCoinbasePayoutValidation,
+    ): void {
+        if (state.coinbaseMismatchLogged) {
+            return;
+        }
+        state.coinbaseMismatchLogged = true;
+        console.warn(`[DATUM ${state.sessionId}] Coinbase payout mismatch (${validation.error}); expected=${this.describeDatumOutputs(validation.expectedOutputs)} submitted=${this.describeDatumOutputs(validation.submittedOutputs)}`);
+    }
+
+    private describeDatumOutputs(outputs: DatumPayoutOutput[]): string {
+        return outputs
+            .map(output => {
+                const address = this.tryOutputAddress(output.scriptPubKey);
+                return `${output.value.toString()}:${address ?? output.scriptPubKey.toString('hex')}`;
+            })
+            .join(',');
+    }
+
+    private tryOutputAddress(scriptPubKey: Buffer): string | null {
+        try {
+            return bitcoinjs.address.fromOutputScript(scriptPubKey, this.getNetwork());
+        } catch {
+            return null;
+        }
+    }
+
     private async sendShareResponse(
         socket: Socket,
         state: DatumClientState,
@@ -530,8 +745,33 @@ export class DatumService implements OnModuleInit {
             clientName: state.workerName,
             userAgent: state.userAgent,
             startTime: new Date(),
+            payoutMode: state.payoutMode,
             bestDifficulty: 0,
         });
+        await this.updateClientPresence(state, new Date());
+    }
+
+    private async updateClientPresence(state: DatumClientState, lastSeen: Date): Promise<void> {
+        if (state.clientEntity == null) {
+            return;
+        }
+
+        try {
+            await this.redisMessagingService?.setClientPresence({
+                clientId: state.clientEntity.id,
+                address: state.clientEntity.address,
+                clientName: state.clientEntity.clientName,
+                sessionId: state.clientEntity.sessionId,
+                payoutMode: state.payoutMode,
+                userAgent: state.clientEntity.userAgent,
+                startTime: new Date(state.clientEntity.startTime).toISOString(),
+                lastSeen: lastSeen.toISOString(),
+                hashRate: state.statistics.hashRate,
+                bestDifficulty: Number(state.clientEntity.bestDifficulty ?? 0),
+            });
+        } catch (error) {
+            console.error(`Failed to update DATUM client presence: ${error.message}`);
+        }
     }
 
     private async destroyClient(state: DatumClientState): Promise<void> {
@@ -612,9 +852,16 @@ export class DatumService implements OnModuleInit {
             || '';
     }
 
-    private getDatumShareDifficulty(): number {
+    private getConfiguredDatumShareDifficulty(): number {
         const configured = parseFloat(this.configService.get<string>('DATUM_SHARE_DIFFICULTY') ?? '');
         return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_DATUM_SHARE_DIFFICULTY;
+    }
+
+    private getDatumSubmittedShareDifficulty(pow: Pick<DatumPowSubmit, 'targetByte'>): number {
+        if (!Number.isInteger(pow.targetByte) || pow.targetByte < 0 || pow.targetByte > 63) {
+            return this.getConfiguredDatumShareDifficulty();
+        }
+        return Math.pow(2, pow.targetByte);
     }
 
     private mapDatumTemplateRejectReason(errorCode?: string): DatumRejectReason {
@@ -655,15 +902,11 @@ export class DatumService implements OnModuleInit {
         return DatumCryptoSession.generateKeyPairFromSeed(Buffer.from(seedHex, 'hex'));
     }
 
-    private getPorts(): number[] {
-        const configured = this.configService.get<string>('DATUM_PORTS');
-        if (!configured?.trim()) {
-            return [];
-        }
-        return Array.from(new Set(configured
-            .split(',')
-            .map(port => parseInt(port.trim(), 10))
-            .filter(port => Number.isInteger(port) && port > 0 && port <= 65535)));
+    private getPorts(): { port: number; payoutMode: PayoutMode }[] {
+        return parsePayoutModePorts(
+            this.configService.get<string>('DATUM_PORTS'),
+            this.configService.get<string>('PPLNS_DATUM_PORTS'),
+        );
     }
 
     private getNetwork(): bitcoinjs.networks.Network {
@@ -683,6 +926,7 @@ export class DatumService implements OnModuleInit {
 
 interface DatumClientState {
     sessionId: string;
+    payoutMode: PayoutMode;
     session: DatumCryptoSession;
     clientEntity: ClientEntity | null;
     address: string | null;
@@ -690,6 +934,17 @@ interface DatumClientState {
     userAgent: string;
     pingTimer: NodeJS.Timeout | null;
     datumJobs: Map<number, DatumJobCache>;
+    coinbaserPayoutContexts: Map<number, DatumCoinbaserPayoutContext>;
+    nextCoinbaserId: number;
+    statistics: StratumV1ClientStatistics;
+    coinbaseMismatchLogged?: boolean;
+}
+
+interface DatumCoinbaserPayoutContext {
+    payoutOutputs: DatumPayoutOutput[];
+    payoutSnapshotId?: string | null;
+    blockHeight?: number;
+    payoutMode?: PayoutMode;
 }
 
 interface DatumJobCache {
@@ -713,6 +968,15 @@ interface DatumJobCache {
     validationShortTxCrosscheck?: Buffer;
     validationTransactions?: Buffer[];
     validationError?: string;
+    expectedPayoutOutputs?: DatumPayoutOutput[];
+    payoutSnapshotId?: string | null;
+}
+
+interface DatumCoinbasePayoutValidation {
+    valid: boolean;
+    expectedOutputs: DatumPayoutOutput[];
+    submittedOutputs: DatumPayoutOutput[];
+    error?: string;
 }
 
 function uint32le(value: number): Buffer {

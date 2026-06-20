@@ -1,5 +1,6 @@
 import { Column, Entity } from 'typeorm';
 
+import { PayoutMode } from '../../types/payout-mode';
 import { PrimaryGeneratedBigIntColumn } from '../utils/PrimaryGeneratedBigIntColumn';
 import { TrackedEntity } from '../utils/TrackedEntity.entity';
 
@@ -18,6 +19,9 @@ export class BlocksEntity extends TrackedEntity {
     @Column()
     worker: string;
 
+    @Column({ length: 16, type: 'varchar', default: 'solo' })
+    payoutMode: PayoutMode;
+
     @Column({ length: 8, type: 'varchar' })
     sessionId: string;
 
@@ -31,6 +35,6 @@ export class BlocksEntity extends TrackedEntity {
     blockSubmissionResult?: string;
 
     @Column({ type: 'bigint', nullable: true })
-    payoutSnapshotId?: string;
+    payoutSnapshotId?: string | null;
 
 }

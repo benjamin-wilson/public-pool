@@ -1,13 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bitcoinjs from 'bitcoinjs-lib';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 
 import { BlocksEntity } from './blocks.entity';
+import { PayoutMode } from '../../types/payout-mode';
 
 
 @Injectable()
 export class BlocksService {
+
+    private static readonly PUBLIC_FOUND_BLOCK_RESULTS = ['SUCCESS!', 'datum-gateway-submit-expected'];
 
     constructor(
 
@@ -24,15 +27,35 @@ export class BlocksService {
         const existing = blockHash == null
             ? null
             : await this.blocksRepository.findOne({
-                select: { id: true, blockSubmissionResult: true, payoutSnapshotId: true },
+                select: {
+                    id: true,
+                    blockSubmissionResult: true,
+                    payoutSnapshotId: true,
+                    minerAddress: true,
+                    worker: true,
+                    sessionId: true,
+                    payoutMode: true,
+                },
                 where: { blockHash },
             });
         if (existing != null) {
+            const update: Partial<BlocksEntity> = {};
             if (this.isSuccessfulBlockSubmission(block.blockSubmissionResult)) {
-                await this.blocksRepository.update(existing.id, {
-                    blockSubmissionResult: 'SUCCESS!',
-                    payoutSnapshotId: block.payoutSnapshotId ?? existing.payoutSnapshotId,
-                });
+                update.blockSubmissionResult = 'SUCCESS!';
+                update.payoutSnapshotId = Object.prototype.hasOwnProperty.call(block, 'payoutSnapshotId')
+                    ? block.payoutSnapshotId ?? null
+                    : existing.payoutSnapshotId;
+            }
+            if (this.shouldReplaceAttribution(existing, block)) {
+                update.minerAddress = block.minerAddress;
+                update.worker = block.worker;
+                update.sessionId = block.sessionId;
+            }
+            if (block.payoutMode != null && existing.payoutMode !== block.payoutMode) {
+                update.payoutMode = block.payoutMode;
+            }
+            if (Object.keys(update).length > 0) {
+                await this.blocksRepository.update(existing.id, update);
             }
             return;
         }
@@ -43,20 +66,21 @@ export class BlocksService {
         });
     }
 
-    public async getFoundBlocks() {
+    public async getFoundBlocks(payoutMode?: PayoutMode) {
         const rows = await this.blocksRepository.find({
             select: {
                 height: true,
                 minerAddress: true,
                 worker: true,
                 sessionId: true,
+                payoutMode: true,
                 blockHash: true,
                 blockSubmissionResult: true,
                 createdAt: true,
             },
             where: [
-                { blockSubmissionResult: 'SUCCESS!' },
-                { blockSubmissionResult: IsNull() },
+                { ...(payoutMode == null ? {} : { payoutMode }), blockSubmissionResult: In(BlocksService.PUBLIC_FOUND_BLOCK_RESULTS) },
+                { ...(payoutMode == null ? {} : { payoutMode }), blockSubmissionResult: IsNull() },
             ],
             order: {
                 height: 'DESC',
@@ -66,20 +90,21 @@ export class BlocksService {
         return this.uniqueFoundBlocks(rows);
     }
 
-    public async getFoundBlocksByAddress(address: string) {
+    public async getFoundBlocksByAddress(address: string, payoutMode?: PayoutMode) {
         const rows = await this.blocksRepository.find({
             select: {
                 height: true,
                 minerAddress: true,
                 worker: true,
                 sessionId: true,
+                payoutMode: true,
                 blockHash: true,
                 blockSubmissionResult: true,
                 createdAt: true,
             },
             where: [
-                { minerAddress: address, blockSubmissionResult: 'SUCCESS!' },
-                { minerAddress: address, blockSubmissionResult: IsNull() },
+                { minerAddress: address, ...(payoutMode == null ? {} : { payoutMode }), blockSubmissionResult: In(BlocksService.PUBLIC_FOUND_BLOCK_RESULTS) },
+                { minerAddress: address, ...(payoutMode == null ? {} : { payoutMode }), blockSubmissionResult: IsNull() },
             ],
             order: {
                 height: 'DESC',
@@ -121,5 +146,20 @@ export class BlocksService {
 
     private isSuccessfulBlockSubmission(result?: string | null): boolean {
         return result == null || result === 'SUCCESS!';
+    }
+
+    private shouldReplaceAttribution(existing: Partial<BlocksEntity>, incoming: Partial<BlocksEntity>): boolean {
+        if (!incoming.minerAddress || !incoming.worker) {
+            return false;
+        }
+        if (this.isInternalAttribution(incoming)) {
+            return false;
+        }
+        return this.isInternalAttribution(existing);
+    }
+
+    private isInternalAttribution(block: Partial<BlocksEntity>): boolean {
+        const worker = block.worker?.toLowerCase();
+        return worker === 'tdp' || block.minerAddress === 'sv2-tdp';
     }
 }

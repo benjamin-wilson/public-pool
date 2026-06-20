@@ -85,8 +85,10 @@ describe('StratumV1Service', () => {
     it('should start Stratum listeners in worker processes', async () => {
         process.env.MASTER = 'false';
         process.env.STRATUM_PORTS = '3333,3334';
+        process.env.PPLNS_STRATUM_PORTS = '13333';
         process.env.STRATUM_SECURE = 'true';
         process.env.SECURE_STRATUM_PORTS = '4333';
+        process.env.PPLNS_SECURE_STRATUM_PORTS = '14333';
         const startSocketServerSpy = jest.spyOn(service as any, 'startSocketServer').mockImplementation(() => undefined);
         const startSecureSocketServerSpy = jest.spyOn(service as any, 'startSecureSocketServer').mockImplementation(() => undefined);
 
@@ -95,9 +97,11 @@ describe('StratumV1Service', () => {
 
         expect(clientService.deleteAll).not.toHaveBeenCalled();
         expect(userAgentReportService.refreshReport).not.toHaveBeenCalled();
-        expect(startSocketServerSpy).toHaveBeenCalledWith(3333);
-        expect(startSocketServerSpy).toHaveBeenCalledWith(3334);
-        expect(startSecureSocketServerSpy).toHaveBeenCalledWith(4333);
+        expect(startSocketServerSpy).toHaveBeenCalledWith(3333, 'solo');
+        expect(startSocketServerSpy).toHaveBeenCalledWith(3334, 'solo');
+        expect(startSocketServerSpy).toHaveBeenCalledWith(13333, 'pplns');
+        expect(startSecureSocketServerSpy).toHaveBeenCalledWith(4333, 'solo');
+        expect(startSecureSocketServerSpy).toHaveBeenCalledWith(14333, 'pplns');
     });
 
     it('should pause listeners when worker backpressure is high', () => {
@@ -105,6 +109,7 @@ describe('StratumV1Service', () => {
         (service as any).listeners.push({
             port: 3333,
             secure: false,
+            payoutMode: 'solo',
             server: { close },
             paused: false
         });

@@ -31,6 +31,7 @@ import { NotificationService } from './notification.service';
 import { StratumV2Service } from './stratum-v2.service';
 import { Sv2DeclaredMiningJob, Sv2JobDeclarationRegistryService } from './sv2-job-declaration-registry.service';
 import { TemplateProviderService } from './template-provider.service';
+import { parsePayoutModePorts, PayoutMode } from '../types/payout-mode';
 
 @Injectable()
 export class Sv2JobDeclarationService implements OnModuleInit {
@@ -59,12 +60,12 @@ export class Sv2JobDeclarationService implements OnModuleInit {
         }
 
         await this.stratumV2Service.ensureInitialized();
-        for (const port of ports) {
-            this.startServer(port);
+        for (const { port, payoutMode } of ports) {
+            this.startServer(port, payoutMode);
         }
     }
 
-    private startServer(port: number): void {
+    private startServer(port: number, payoutMode: PayoutMode): void {
         const server = new Server(socket => {
             void new Sv2JobDeclarationConnection(
                 socket,
@@ -78,10 +79,11 @@ export class Sv2JobDeclarationService implements OnModuleInit {
                 this.notificationService,
                 this.getPoolPayoutAddress(),
                 this.getNetwork(),
+                payoutMode,
             ).start();
         });
         server.on('error', error => console.error(`SV2 JDP server error on port ${port}: ${error.message}`));
-        server.listen(port, () => console.log(`SV2 Job Declaration server is listening on port ${port}`));
+        server.listen(port, () => console.log(`SV2 Job Declaration ${payoutMode} server is listening on port ${port}`));
         this.servers.push(server);
     }
 
@@ -93,15 +95,11 @@ export class Sv2JobDeclarationService implements OnModuleInit {
             || '';
     }
 
-    private getPorts(): number[] {
-        const configured = this.configService.get<string>('SV2_JDP_PORTS');
-        if (!configured?.trim()) {
-            return [];
-        }
-        return Array.from(new Set(configured
-            .split(',')
-            .map(port => parseInt(port.trim(), 10))
-            .filter(port => Number.isInteger(port) && port > 0 && port <= 65535)));
+    private getPorts(): { port: number; payoutMode: PayoutMode }[] {
+        return parsePayoutModePorts(
+            this.configService.get<string>('SV2_JDP_PORTS'),
+            this.configService.get<string>('PPLNS_SV2_JDP_PORTS'),
+        );
     }
 
     private getNetwork(): bitcoinjs.networks.Network {
@@ -148,6 +146,7 @@ export class Sv2JobDeclarationConnection {
         private readonly notificationService: NotificationService,
         private readonly poolPayoutAddress: string,
         private readonly network: bitcoinjs.networks.Network,
+        private readonly payoutMode: PayoutMode,
     ) {
         this.noiseSession = new Sv2NoiseSession(stratumV2Service.getNoiseConfig());
     }
@@ -239,8 +238,8 @@ export class Sv2JobDeclarationConnection {
 
     private async handleAllocateMiningJobToken(payload: Buffer): Promise<void> {
         const request = deserializeAllocateMiningJobToken(new BufferReader(payload));
-        const token = this.registry.allocateToken(
-            request.userIdentifier,
+            const token = this.registry.allocateToken(
+                request.userIdentifier,
             this.buildPoolCoinbaseOutputs(request.userIdentifier),
         );
         await this.sendFrame(Sv2MsgType.JDP_ALLOCATE_MINING_JOB_TOKEN_SUCCESS, serializeAllocateMiningJobTokenSuccess({
@@ -413,13 +412,19 @@ export class Sv2JobDeclarationConnection {
                 sessionId: declared.token.toString('hex').slice(0, 8),
                 blockData: blockHex,
                 blockSubmissionResult: result,
-                payoutSnapshotId: template.jobTemplate.blockData.payoutSnapshotId ?? null,
+                payoutSnapshotId: this.payoutMode === 'pplns'
+                    ? template.jobTemplate.blockData.payoutSnapshotId ?? null
+                    : null,
+                payoutMode: this.payoutMode,
             });
-            await this.payoutSnapshotService.finalizeSnapshotForBlock({
-                payoutSnapshotId: template.jobTemplate.blockData.payoutSnapshotId,
-                blockHeight: template.height,
-                blockSubmissionResult: result,
-            });
+            if (this.payoutMode === 'pplns') {
+                await this.payoutSnapshotService.finalizeSnapshotForBlock({
+                    payoutSnapshotId: template.jobTemplate.blockData.payoutSnapshotId,
+                    blockHeight: template.height,
+                    blockSubmissionResult: result,
+                    payoutMode: this.payoutMode,
+                });
+            }
             await this.notificationService.notifySubscribersBlockFound(address, template.height, block, result);
             console.log(`[SV2 JDP] PushSolution submitted block at height ${template.height}: ${result ?? 'accepted'}`);
         } catch (error) {
@@ -428,14 +433,32 @@ export class Sv2JobDeclarationConnection {
     }
 
     private buildPoolCoinbaseOutputs(userIdentifier: string): Buffer {
+        const snapshotOutputs = this.payoutMode === 'pplns'
+            ? this.templateProvider.getLatestTemplate()?.jobTemplate.blockData.payoutOutputs ?? []
+            : [];
+        if (snapshotOutputs.length > 0) {
+            return this.serializeCoinbaseOutputs(snapshotOutputs.map(output => ({
+                value: 0n,
+                scriptPubKey: bitcoinjs.address.toOutputScript(output.address, this.network),
+            })));
+        }
         const address = this.poolPayoutAddress || userIdentifier.split('.')[0];
         const script = bitcoinjs.address.toOutputScript(address, this.network);
-        const value = Buffer.alloc(8);
+        return this.serializeCoinbaseOutputs([{ value: 0n, scriptPubKey: script }]);
+    }
+
+    private serializeCoinbaseOutputs(outputs: Array<{ value: bigint; scriptPubKey: Buffer }>): Buffer {
         return Buffer.concat([
-            this.customWorkService.encodeBitcoinVarInt(1),
-            value,
-            this.customWorkService.encodeBitcoinVarInt(script.length),
-            script,
+            this.customWorkService.encodeBitcoinVarInt(outputs.length),
+            ...outputs.flatMap(output => {
+                const value = Buffer.alloc(8);
+                value.writeBigUInt64LE(output.value, 0);
+                return [
+                    value,
+                    this.customWorkService.encodeBitcoinVarInt(output.scriptPubKey.length),
+                    output.scriptPubKey,
+                ];
+            }),
         ]);
     }
 

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 
 import type { AddressObject } from '../../models/MiningJob';
+import { PayoutMode } from '../../types/payout-mode';
 import {
     buildPayoutDistribution,
     PayoutAddressWork,
@@ -23,6 +24,7 @@ export interface PayoutSnapshotForTemplate {
     distributedSats: string;
     unallocatedRemainderSats: string;
     payoutOutputs: AddressObject[];
+    payoutMode: PayoutMode;
 }
 
 export interface PayoutFinalizationResult {
@@ -33,17 +35,36 @@ export interface PayoutFinalizationResult {
     balanceRows?: number;
 }
 
+export interface ExpectedPayout {
+    snapshotId: string;
+    blockHeight: number;
+    payoutMode: PayoutMode;
+    payoutSats: number;
+    grossPayoutSats: number;
+    creditedDifficulty: number;
+    payoutWeight: number;
+    coinbaseValueSats: number;
+    distributedSats: number;
+    totalCreditedDifficulty: number;
+    includedOutputCount: number;
+    createdAt: Date;
+    percent: number;
+}
+
 const DEFAULT_MAX_COINBASE_OUTPUTS = 10;
 const DEFAULT_MIN_OUTPUT_SATS = 546;
 const DEFAULT_PAYOUT_METHOD = 'pplns';
 const DEFAULT_PAYOUT_WINDOW_FACTOR = 4;
 const DEFAULT_COINBASE_WEIGHT_BUDGET = 50_000;
+const DEFAULT_PAYOUT_BOOTSTRAP_WINDOW = true;
+const PPLNS_PAYOUT_MODE: PayoutMode = 'pplns';
 
 @Injectable()
 export class PayoutSnapshotService {
     private readonly snapshotsEnabled = this.readBoolean('PAYOUT_SNAPSHOT_ENABLED', true);
     private readonly method = process.env.PAYOUT_METHOD ?? DEFAULT_PAYOUT_METHOD;
     private readonly windowFactor = this.readPositiveNumber('PAYOUT_WINDOW_FACTOR', DEFAULT_PAYOUT_WINDOW_FACTOR);
+    private readonly bootstrapWindow = this.readBoolean('PAYOUT_BOOTSTRAP_WINDOW', DEFAULT_PAYOUT_BOOTSTRAP_WINDOW);
     private readonly maxCoinbaseOutputs = this.readPositiveInt('PAYOUT_MAX_COINBASE_OUTPUTS', DEFAULT_MAX_COINBASE_OUTPUTS);
     private readonly minOutputSats = this.readNonNegativeInt('PAYOUT_MIN_OUTPUT_SATS', DEFAULT_MIN_OUTPUT_SATS);
     private readonly feeAddress = process.env.PAYOUT_FEE_ADDRESS?.trim() ?? '';
@@ -64,7 +85,8 @@ export class PayoutSnapshotService {
         }
 
         return this.dataSource.transaction(async manager => {
-            const windowTargetDifficulty = input.networkDifficulty * this.windowFactor;
+            const effectiveWindowFactor = await this.getEffectiveWindowFactor(manager);
+            const windowTargetDifficulty = input.networkDifficulty * effectiveWindowFactor;
             const window = await this.getPplnsWindow(manager, windowTargetDifficulty);
             if (window == null || this.toNumber(window.totalCreditedDifficulty) <= 0) {
                 return null;
@@ -107,6 +129,7 @@ export class PayoutSnapshotService {
             const [snapshotRow] = await manager.query(`
                 INSERT INTO "payout_snapshot" (
                     "method",
+                    "payoutMode",
                     "status",
                     "blockHeight",
                     "coinbaseValueSats",
@@ -129,35 +152,37 @@ export class PayoutSnapshotService {
                     "unallocatedRemainderSats"
                 ) VALUES (
                     $1,
+                    $2,
                     'finalized',
-                    $2::bigint,
                     $3::bigint,
-                    $4::numeric,
+                    $4::bigint,
                     $5::numeric,
                     $6::numeric,
-                    NULLIF($7, ''),
-                    $8::bigint,
-                    $9::int,
+                    $7::numeric,
+                    NULLIF($8, ''),
+                    $9::bigint,
                     $10::int,
-                    $11::bigint,
+                    $11::int,
                     $12::bigint,
                     $13::bigint,
                     $14::bigint,
-                    $15::numeric,
-                    $16::bigint,
-                    $17::int,
+                    $15::bigint,
+                    $16::numeric,
+                    $17::bigint,
                     $18::int,
-                    $19::bigint,
-                    $20::bigint
+                    $19::int,
+                    $20::bigint,
+                    $21::bigint
                 )
                 RETURNING "id"::text AS "id"
             `, [
                 this.method,
+                PPLNS_PAYOUT_MODE,
                 input.blockHeight,
                 input.coinbaseValueSats.toString(),
                 input.networkDifficulty,
                 windowTargetDifficulty,
-                this.windowFactor,
+                effectiveWindowFactor,
                 this.feeAddress,
                 distribution.feeSats.toString(),
                 this.minOutputSats,
@@ -182,13 +207,35 @@ export class PayoutSnapshotService {
         });
     }
 
+    private async getEffectiveWindowFactor(manager: EntityManager): Promise<number> {
+        if (!this.bootstrapWindow) {
+            return this.windowFactor;
+        }
+
+        const paidBlockCount = await this.getFinalizedPayoutBlockCount(manager);
+        return Math.min(this.windowFactor, Math.max(1, paidBlockCount + 1));
+    }
+
+    private async getFinalizedPayoutBlockCount(manager: EntityManager): Promise<number> {
+        const [row] = await manager.query(`
+            SELECT COUNT(DISTINCT "blockHeight")::int AS "paidBlockCount"
+            FROM "payout_history"
+            WHERE "payoutMode" = $1
+        `, [PPLNS_PAYOUT_MODE]);
+        return this.toNumber(row?.paidBlockCount);
+    }
+
     public async finalizeSnapshotForBlock(input: {
         payoutSnapshotId?: string | null;
         blockHeight: number;
         blockSubmissionResult?: string | null;
+        payoutMode?: PayoutMode;
     }): Promise<PayoutFinalizationResult> {
         if (!this.snapshotsEnabled) {
             return { finalized: false, reason: 'disabled' };
+        }
+        if ((input.payoutMode ?? PPLNS_PAYOUT_MODE) !== PPLNS_PAYOUT_MODE) {
+            return { finalized: false, reason: 'missing-snapshot' };
         }
         if (!this.isSuccessfulBlockSubmission(input.blockSubmissionResult)) {
             return { finalized: false, reason: 'missing-snapshot' };
@@ -202,8 +249,9 @@ export class PayoutSnapshotService {
                 SELECT "id"::text AS "id", "coinbaseValueSats"::text AS "coinbaseValueSats"
                 FROM "payout_snapshot"
                 WHERE "id" = $1::bigint
+                  AND "payoutMode" = $2
                 LIMIT 1
-            `, [input.payoutSnapshotId]);
+            `, [input.payoutSnapshotId, PPLNS_PAYOUT_MODE]);
             if (snapshot == null) {
                 return { finalized: false, reason: 'missing-snapshot' };
             }
@@ -212,8 +260,9 @@ export class PayoutSnapshotService {
                 SELECT "id"::text AS "id"
                 FROM "payout_history"
                 WHERE "blockHeight" = $1::bigint
+                  AND "payoutMode" = $2
                 LIMIT 1
-            `, [input.blockHeight]);
+            `, [input.blockHeight, PPLNS_PAYOUT_MODE]);
             if (existing != null) {
                 return {
                     finalized: false,
@@ -233,8 +282,9 @@ export class PayoutSnapshotService {
                     "rowType"
                 FROM "payout_snapshot_entry"
                 WHERE "snapshotId" = $1::bigint
+                  AND "payoutMode" = $2
                 ORDER BY "rank"
-            `, [input.payoutSnapshotId]);
+            `, [input.payoutSnapshotId, PPLNS_PAYOUT_MODE]);
             if (entries.length === 0) {
                 return { finalized: false, reason: 'missing-snapshot' };
             }
@@ -283,6 +333,7 @@ export class PayoutSnapshotService {
                     INSERT INTO "payout_history" (
                         "blockHeight",
                         "payoutSnapshotId",
+                        "payoutMode",
                         "address",
                         "paidSats",
                         "percent",
@@ -293,16 +344,18 @@ export class PayoutSnapshotService {
                         $1::bigint,
                         $2::bigint,
                         $3,
-                        $4::bigint,
-                        $5::numeric,
-                        $6::bigint,
+                        $4,
+                        $5::bigint,
+                        $6::numeric,
                         $7::bigint,
-                        $8
+                        $8::bigint,
+                        $9
                     )
-                    ON CONFLICT ("blockHeight", "address") DO NOTHING
+                    ON CONFLICT ("payoutMode", "blockHeight", "address") DO NOTHING
                 `, [
                     input.blockHeight,
                     input.payoutSnapshotId,
+                    PPLNS_PAYOUT_MODE,
                     entry.address,
                     payoutSats.toString(),
                     coinbaseValue > 0 && isCoinbase ? (payoutSats / coinbaseValue) * 100 : 0,
@@ -336,13 +389,77 @@ export class PayoutSnapshotService {
             SELECT "id"::text AS "id"
             FROM "payout_snapshot"
             WHERE "status" = 'finalized'
+              AND "payoutMode" = $1
             ORDER BY "createdAt" DESC, "id" DESC
             LIMIT 1
-        `);
+        `, [PPLNS_PAYOUT_MODE]);
         if (snapshot?.id == null) {
             return null;
         }
         return this.dataSource.transaction(manager => this.getSnapshotById(manager, snapshot.id));
+    }
+
+    public async getLatestExpectedPayoutForAddress(address: string): Promise<ExpectedPayout | null> {
+        const [row] = await this.dataSource.query(`
+            WITH latest_snapshot AS (
+                SELECT
+                    "id",
+                    "blockHeight",
+                    "coinbaseValueSats",
+                    "distributedSats",
+                    "totalCreditedDifficulty",
+                    "includedOutputCount",
+                    "createdAt",
+                    "payoutMode"
+                FROM "payout_snapshot"
+                WHERE "status" = 'finalized'
+                  AND "payoutMode" = $2
+                ORDER BY "createdAt" DESC, "id" DESC
+                LIMIT 1
+            )
+            SELECT
+                s."id"::text AS "snapshotId",
+                s."blockHeight"::int AS "blockHeight",
+                s."coinbaseValueSats"::text AS "coinbaseValueSats",
+                s."distributedSats"::text AS "distributedSats",
+                s."totalCreditedDifficulty"::text AS "totalCreditedDifficulty",
+                s."includedOutputCount"::int AS "includedOutputCount",
+                s."createdAt" AS "createdAt",
+                e."payoutMode" AS "payoutMode",
+                e."payoutSats"::text AS "payoutSats",
+                e."grossPayoutSats"::text AS "grossPayoutSats",
+                e."creditedDifficulty"::text AS "creditedDifficulty",
+                e."payoutWeight"::text AS "payoutWeight"
+            FROM latest_snapshot s
+            JOIN "payout_snapshot_entry" e ON e."snapshotId" = s."id"
+            WHERE e."address" = $1
+              AND e."payoutMode" = $2
+              AND e."includedInCoinbase" = true
+              AND e."payoutSats" > 0
+            LIMIT 1
+        `, [address, PPLNS_PAYOUT_MODE]);
+
+        if (row == null) {
+            return null;
+        }
+
+        const payoutSats = this.toNumber(row.payoutSats);
+        const coinbaseValueSats = this.toNumber(row.coinbaseValueSats);
+        return {
+            snapshotId: row.snapshotId,
+            blockHeight: this.toNumber(row.blockHeight),
+            payoutMode: row.payoutMode,
+            payoutSats,
+            grossPayoutSats: this.toNumber(row.grossPayoutSats),
+            creditedDifficulty: this.toNumber(row.creditedDifficulty),
+            payoutWeight: this.toNumber(row.payoutWeight),
+            coinbaseValueSats,
+            distributedSats: this.toNumber(row.distributedSats),
+            totalCreditedDifficulty: this.toNumber(row.totalCreditedDifficulty),
+            includedOutputCount: this.toNumber(row.includedOutputCount),
+            createdAt: row.createdAt,
+            percent: coinbaseValueSats > 0 ? (payoutSats / coinbaseValueSats) * 100 : 0,
+        };
     }
 
     private async getPplnsWindow(manager: EntityManager, windowTargetDifficulty: number): Promise<{
@@ -370,6 +487,7 @@ export class PayoutSnapshotService {
                     ) AS "difficultyAfter"
                 FROM "share_rollup_batch"
                 WHERE "status" = 'finalized'
+                  AND "payoutMode" = $2
             ),
             selected AS MATERIALIZED (
                 SELECT *
@@ -384,7 +502,7 @@ export class PayoutSnapshotService {
                 COALESCE(SUM("creditedDifficulty"), 0)::numeric AS "totalCreditedDifficulty",
                 COALESCE(SUM("acceptedShareCount"), 0)::bigint AS "totalAcceptedShareCount"
             FROM selected
-        `, [windowTargetDifficulty]);
+        `, [windowTargetDifficulty, PPLNS_PAYOUT_MODE]);
 
         if (window?.startBatchId == null || window?.windowEndShareIndex == null) {
             return null;
@@ -404,6 +522,8 @@ export class PayoutSnapshotService {
             FROM "share_rollup_batch_summary" s
             JOIN "share_rollup_batch" b ON b."id" = s."batchId"
             WHERE b."status" = 'finalized'
+              AND b."payoutMode" = $3
+              AND s."payoutMode" = $3
               AND b."endShareIndex" >= $1::bigint
               AND b."endShareIndex" <= $2::bigint
             GROUP BY s."address"
@@ -411,6 +531,7 @@ export class PayoutSnapshotService {
         `, [
             window.windowStartShareIndex,
             window.windowEndShareIndex,
+            PPLNS_PAYOUT_MODE,
         ]);
         return rows.map(row => ({
             address: row.address,
@@ -439,6 +560,7 @@ export class PayoutSnapshotService {
             SELECT "id"::text AS "id"
             FROM "payout_snapshot"
             WHERE "method" = $1
+              AND "payoutMode" = $5
               AND "status" = 'finalized'
               AND "blockHeight" = $2::bigint
               AND "coinbaseValueSats" = $3::bigint
@@ -450,6 +572,7 @@ export class PayoutSnapshotService {
             input.blockHeight,
             input.coinbaseValueSats.toString(),
             input.windowEndShareIndex,
+            PPLNS_PAYOUT_MODE,
         ]);
 
         if (snapshot?.id == null) {
@@ -463,6 +586,7 @@ export class PayoutSnapshotService {
             SELECT
                 "id"::text AS "id",
                 "method",
+                "payoutMode",
                 "blockHeight"::int AS "blockHeight",
                 "coinbaseValueSats"::text AS "coinbaseValueSats",
                 "windowStartShareIndex"::text AS "windowStartShareIndex",
@@ -475,7 +599,8 @@ export class PayoutSnapshotService {
                 "unallocatedRemainderSats"::text AS "unallocatedRemainderSats"
             FROM "payout_snapshot"
             WHERE "id" = $1::bigint
-        `, [id]);
+              AND "payoutMode" = $2
+        `, [id, PPLNS_PAYOUT_MODE]);
         if (snapshot == null) {
             return null;
         }
@@ -486,14 +611,16 @@ export class PayoutSnapshotService {
                 "payoutSats"::text AS "payoutSats"
             FROM "payout_snapshot_entry"
             WHERE "snapshotId" = $1::bigint
+              AND "payoutMode" = $2
               AND "includedInCoinbase" = true
             ORDER BY "rank"
-        `, [id]);
+        `, [id, PPLNS_PAYOUT_MODE]);
         const coinbaseValue = Number(snapshot.coinbaseValueSats);
 
         return {
             id: snapshot.id,
             method: snapshot.method,
+            payoutMode: snapshot.payoutMode,
             blockHeight: this.toNumber(snapshot.blockHeight),
             coinbaseValueSats: snapshot.coinbaseValueSats,
             windowStartShareIndex: snapshot.windowStartShareIndex,
@@ -518,6 +645,7 @@ export class PayoutSnapshotService {
         await manager.query(`
             INSERT INTO "payout_snapshot_entry" (
                 "snapshotId",
+                "payoutMode",
                 "address",
                 "creditedDifficulty",
                 "acceptedShareCount",
@@ -532,19 +660,21 @@ export class PayoutSnapshotService {
             ) VALUES (
                 $1::bigint,
                 $2,
-                $3::numeric,
-                $4::bigint,
-                $5::numeric,
-                $6::bigint,
+                $3,
+                $4::numeric,
+                $5::bigint,
+                $6::numeric,
                 $7::bigint,
                 $8::bigint,
                 $9::bigint,
-                $10::boolean,
-                $11,
-                $12::int
+                $10::bigint,
+                $11::boolean,
+                $12,
+                $13::int
             )
         `, [
             snapshotId,
+            PPLNS_PAYOUT_MODE,
             entry.address,
             entry.creditedDifficulty,
             entry.acceptedShareCount,
@@ -561,7 +691,8 @@ export class PayoutSnapshotService {
 
     private limitCoinbaseOutputs(entries: PayoutDistributionEntry[]): PayoutDistributionEntry[] {
         let included = 0;
-        return entries.map(entry => {
+        let removedPayoutSats = 0;
+        const limitedEntries = entries.map(entry => {
             if (!entry.includedInCoinbase) {
                 return entry;
             }
@@ -569,6 +700,7 @@ export class PayoutSnapshotService {
             if (included <= this.maxCoinbaseOutputs) {
                 return entry;
             }
+            removedPayoutSats += entry.payoutSats;
             return {
                 ...entry,
                 payoutSats: 0,
@@ -576,6 +708,43 @@ export class PayoutSnapshotService {
                 includedInCoinbase: false,
             };
         });
+
+        if (removedPayoutSats <= 0) {
+            return limitedEntries;
+        }
+
+        const keptActive = limitedEntries
+            .filter(entry => entry.includedInCoinbase && entry.creditedDifficulty > 0);
+        const keptDifficulty = keptActive.reduce((sum, entry) => sum + entry.creditedDifficulty, 0);
+        if (keptDifficulty <= 0) {
+            return limitedEntries;
+        }
+
+        let assigned = 0;
+        const allocations = keptActive
+            .map(entry => {
+                const exact = (entry.creditedDifficulty * removedPayoutSats) / keptDifficulty;
+                const whole = Math.floor(exact);
+                assigned += whole;
+                return {
+                    entry,
+                    whole,
+                    fraction: exact - whole,
+                };
+            })
+            .sort((a, b) => b.fraction - a.fraction || b.entry.creditedDifficulty - a.entry.creditedDifficulty || a.entry.address.localeCompare(b.entry.address));
+
+        let residual = removedPayoutSats - assigned;
+        for (const allocation of allocations) {
+            const extra = allocation.whole + (residual > 0 ? 1 : 0);
+            if (residual > 0) {
+                residual--;
+            }
+            allocation.entry.payoutSats += extra;
+            allocation.entry.balanceAfterSats -= extra;
+        }
+
+        return limitedEntries;
     }
 
     private isSuccessfulBlockSubmission(result?: string | null): boolean {

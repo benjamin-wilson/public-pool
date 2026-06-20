@@ -21,6 +21,7 @@ lerna-debug.log*
 /.baseline-*.json
 /.test-artifacts
 /.profiles
+/.local-runtime
 
 # IDEs and editors
 /.idea

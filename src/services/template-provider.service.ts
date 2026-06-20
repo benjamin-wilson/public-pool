@@ -3,6 +3,7 @@ import * as bitcoinjs from 'bitcoinjs-lib';
 import { Subscription } from 'rxjs';
 
 import { IBlockTemplateTx } from '../models/bitcoin-rpc/IBlockTemplate';
+import { AddressObject } from '../models/MiningJob';
 import { Sv2DeclareMiningJob, Sv2PushSolution } from '../models/sv2/sv2-jdp-messages';
 import { hash256 } from '../utils/hash.utils';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
@@ -74,6 +75,18 @@ export interface TransactionDataValidationResult {
 export interface CoinbaseHeightValidationResult {
     valid: boolean;
     errorCode?: string;
+}
+
+export interface CoinbasePayoutOutput {
+    value: bigint;
+    scriptPubKey: Buffer;
+}
+
+export interface CoinbasePayoutValidationResult {
+    valid: boolean;
+    errorCode?: string;
+    expectedOutputs?: CoinbasePayoutOutput[];
+    submittedOutputs?: CoinbasePayoutOutput[];
 }
 
 const VERSION_ROLLING_MASK = 0x1fffe000;
@@ -211,10 +224,98 @@ export class TemplateProviderService implements OnModuleInit {
         return this.validateCoinbaseScriptHeight(tx.ins[0].script, height);
     }
 
+    public buildCoinbasePayoutOutputs(
+        payoutInformation: AddressObject[],
+        coinbaseValue: number | bigint,
+        network: bitcoinjs.networks.Network,
+    ): CoinbasePayoutOutput[] {
+        const rewardValue = typeof coinbaseValue === 'bigint' ? coinbaseValue : BigInt(Math.max(0, Math.floor(coinbaseValue)));
+        let rewardBalance = rewardValue;
+        const outputs = payoutInformation.map(recipientAddress => {
+            const value = recipientAddress.amountSats == null
+                ? BigInt(Math.floor(((recipientAddress.percent ?? 0) / 100) * Number(rewardValue)))
+                : BigInt(recipientAddress.amountSats);
+            rewardBalance -= value;
+            return {
+                value,
+                scriptPubKey: bitcoinjs.address.toOutputScript(recipientAddress.address, network),
+            };
+        });
+
+        if (outputs.length > 0 && rewardBalance !== 0n) {
+            outputs[0] = {
+                ...outputs[0],
+                value: outputs[0].value + rewardBalance,
+            };
+        }
+
+        return outputs;
+    }
+
+    public validateCoinbaseTransactionPayoutOutputs(input: {
+        coinbaseTx: Buffer;
+        payoutInformation: AddressObject[];
+        coinbaseValue: number | bigint;
+        network: bitcoinjs.networks.Network;
+    }): CoinbasePayoutValidationResult {
+        const expectedOutputs = this.buildCoinbasePayoutOutputs(
+            input.payoutInformation,
+            input.coinbaseValue,
+            input.network,
+        );
+        if (expectedOutputs.length === 0) {
+            return { valid: false, errorCode: 'missing-expected-coinbase-payouts', expectedOutputs, submittedOutputs: [] };
+        }
+
+        let tx: bitcoinjs.Transaction;
+        try {
+            tx = bitcoinjs.Transaction.fromBuffer(input.coinbaseTx);
+        } catch (error) {
+            return {
+                valid: false,
+                errorCode: `invalid-coinbase-transaction:${error instanceof Error ? error.message : String(error)}`,
+                expectedOutputs,
+                submittedOutputs: [],
+            };
+        }
+
+        const submittedOutputs = tx.outs
+            .filter(output => !this.isWitnessCommitmentOutput(output.script))
+            .filter(output => BigInt(output.value) !== 0n)
+            .map(output => ({
+                value: BigInt(output.value),
+                scriptPubKey: Buffer.from(output.script),
+            }));
+
+        if (submittedOutputs.length !== expectedOutputs.length) {
+            return {
+                valid: false,
+                errorCode: `coinbase-payout-output-count-mismatch:${expectedOutputs.length}:${submittedOutputs.length}`,
+                expectedOutputs,
+                submittedOutputs,
+            };
+        }
+
+        for (let i = 0; i < expectedOutputs.length; i++) {
+            const expected = expectedOutputs[i];
+            const submitted = submittedOutputs[i];
+            if (expected.value !== submitted.value || !expected.scriptPubKey.equals(submitted.scriptPubKey)) {
+                return {
+                    valid: false,
+                    errorCode: `coinbase-payout-output-mismatch:${i}`,
+                    expectedOutputs,
+                    submittedOutputs,
+                };
+            }
+        }
+
+        return { valid: true, expectedOutputs, submittedOutputs };
+    }
+
     public validateDeclaredCoinbasePrefixHeight(coinbaseTxPrefix: Buffer, height: number): CoinbaseHeightValidationResult {
         const scriptStart = this.getCoinbaseInputScriptStart(coinbaseTxPrefix);
         if (scriptStart == null) {
-            return { valid: false, errorCode: 'invalid-job-param-value-coinbase_tx_prefix' };
+            return this.validateCoinbaseScriptHeight(coinbaseTxPrefix, height);
         }
         const expected = this.buildCoinbaseHeightPrefix(height);
         if (coinbaseTxPrefix.length < scriptStart + expected.length) {
@@ -480,6 +581,13 @@ export class TemplateProviderService implements OnModuleInit {
             return { valid: false, errorCode: 'invalid-job-param-value-coinbase_tx_prefix' };
         }
         return { valid: true };
+    }
+
+    private isWitnessCommitmentOutput(script: Buffer): boolean {
+        return script.length === 38
+            && script[0] === bitcoinjs.opcodes.OP_RETURN
+            && script[1] === 0x24
+            && script.subarray(2, 6).equals(Buffer.from('aa21a9ed', 'hex'));
     }
 
     private getCoinbaseInputScriptStart(txPrefix: Buffer): number | null {

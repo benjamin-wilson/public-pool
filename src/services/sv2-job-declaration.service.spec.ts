@@ -3,9 +3,11 @@ import * as bitcoinjs from 'bitcoinjs-lib';
 import { BufferReader } from '../models/sv2/sv2-binary-codec';
 import { Sv2JdpSetupFlags, Sv2MsgType, Sv2Protocol } from '../models/sv2/sv2-constants';
 import {
+    deserializeAllocateMiningJobTokenSuccess,
     deserializeDeclareMiningJobError,
     deserializeDeclareMiningJobSuccess,
     deserializeProvideMissingTransactions,
+    serializeAllocateMiningJobToken,
     serializeDeclareMiningJob,
     serializeProvideMissingTransactionsSuccess,
     serializePushSolution,
@@ -58,6 +60,43 @@ describe('Sv2JobDeclarationConnection compliance', () => {
         expect(error.requestId).toBe(9);
         expect(error.errorCode).toBe('declare-tx-data-not-negotiated');
         expect(registry.declareJob).not.toHaveBeenCalled();
+    });
+
+    it('allocates a zero-value JDP token output while fixed payouts remain in the template', async () => {
+        const registry = new Sv2JobDeclarationRegistryService();
+        const payoutOutputs = [
+            { address: 'tb1q42vtlphyjjcun9wcv9f0d9pkhup9dcf5z9k4gh', amountSats: 391 },
+            { address: 'tb1q9r8gvnx3j4d6jvl0fqjrmy3dar4k4l3052af7q', amountSats: 110 },
+            { address: 'tb1qdyjakeepue4trak9d3hvyelrd0aw7mwju2d0c2', amountSats: 95 },
+        ];
+        const { connection, sentFrames } = createConnection({
+            registry,
+            templateProvider: {
+                getLatestTemplate: jest.fn().mockReturnValue({
+                    jobTemplate: {
+                        blockData: {
+                            coinbasevalue: 596,
+                            payoutOutputs,
+                        },
+                    },
+                }),
+            },
+        });
+
+        await (connection as any).handleAllocateMiningJobToken(serializeAllocateMiningJobToken({
+            requestId: 7,
+            userIdentifier: 'tb1qdyjakeepue4trak9d3hvyelrd0aw7mwju2d0c2.sri-jdc',
+        }));
+
+        const successFrame = sentFrames.find(frame => frame.msgType === Sv2MsgType.JDP_ALLOCATE_MINING_JOB_TOKEN_SUCCESS);
+        const success = deserializeAllocateMiningJobTokenSuccess(new BufferReader(successFrame.payload));
+
+        expect(success.requestId).toBe(7);
+        const tokenOutputs = readSerializedTxOutputs(success.coinbaseOutputs);
+        expect(tokenOutputs).toHaveLength(1);
+        expect(tokenOutputs[0].value).toBe(0);
+        expect(bitcoinjs.address.fromOutputScript(tokenOutputs[0].script, bitcoinjs.networks.testnet))
+            .toBe('tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4');
     });
 
     it('accepts DeclareMiningJob when all wtxids are known to the template provider', async () => {
@@ -208,6 +247,7 @@ describe('Sv2JobDeclarationConnection compliance', () => {
             blocksService,
             payoutSnapshotService,
             notificationService,
+            payoutMode: 'pplns',
         });
         (connection as any).latestDeclaredJob = {
             token: Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
@@ -241,6 +281,7 @@ describe('Sv2JobDeclarationConnection compliance', () => {
             payoutSnapshotId: '17',
             blockHeight: 4990255,
             blockSubmissionResult: null,
+            payoutMode: 'pplns',
         });
         expect(notificationService.notifySubscribersBlockFound).toHaveBeenCalledWith(
             'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
@@ -283,6 +324,7 @@ describe('Sv2JobDeclarationConnection compliance', () => {
             blocksService,
             payoutSnapshotService,
             notificationService,
+            payoutMode: 'pplns',
         });
         (connection as any).latestDeclaredJob = {
             token: Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
@@ -409,6 +451,7 @@ describe('Sv2JobDeclarationConnection compliance', () => {
         blocksService?: any;
         payoutSnapshotService?: any;
         notificationService?: any;
+        payoutMode?: 'solo' | 'pplns';
     } = {}): {
         connection: Sv2JobDeclarationConnection;
         sentFrames: any[];
@@ -428,6 +471,24 @@ describe('Sv2JobDeclarationConnection compliance', () => {
             declareJob: jest.fn(),
         };
         const templateProvider = {
+            getLatestTemplate: jest.fn().mockReturnValue(undefined),
+            buildCoinbasePayoutOutputs: jest.fn((payoutInformation, coinbaseValue, network) => {
+                let balance = BigInt(coinbaseValue);
+                const outputs = payoutInformation.map(recipient => {
+                    const value = recipient.amountSats == null
+                        ? BigInt(Math.floor(((recipient.percent ?? 0) / 100) * Number(coinbaseValue)))
+                        : BigInt(recipient.amountSats);
+                    balance -= value;
+                    return {
+                        value,
+                        scriptPubKey: bitcoinjs.address.toOutputScript(recipient.address, network),
+                    };
+                });
+                if (outputs.length > 0 && balance !== 0n) {
+                    outputs[0] = { ...outputs[0], value: outputs[0].value + balance };
+                }
+                return outputs;
+            }),
             validateDeclaredWtxids: jest.fn().mockReturnValue({ valid: false, errorCode: 'template-not-found' }),
             validateProvidedTransactions: jest.fn().mockReturnValue({ valid: false, errorCode: 'template-not-found' }),
             validateCoinbaseTransactionHeight: jest.fn().mockReturnValue({ valid: true }),
@@ -450,7 +511,9 @@ describe('Sv2JobDeclarationConnection compliance', () => {
                 }),
             } as any,
             registry as any,
-            {} as any,
+            {
+                encodeBitcoinVarInt: encodeBitcoinVarIntForTest,
+            } as any,
             templateProvider,
             overrides.bitcoinRpcService ?? {
                 SUBMIT_BLOCK: jest.fn().mockResolvedValue(null),
@@ -466,6 +529,7 @@ describe('Sv2JobDeclarationConnection compliance', () => {
             },
             'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
             bitcoinjs.networks.testnet,
+            overrides.payoutMode ?? 'solo',
         );
         const sentFrames: any[] = [];
         (connection as any).sendFrame = jest.fn((msgType: number, payload: Buffer) => {
@@ -499,5 +563,29 @@ describe('Sv2JobDeclarationConnection compliance', () => {
                 toBuffer: jest.fn().mockReturnValue(Buffer.from('0100000000', 'hex')),
             }],
         };
+    }
+
+    function readSerializedTxOutputs(outputs: Buffer): bitcoinjs.TxOutput[] {
+        const tx = bitcoinjs.Transaction.fromBuffer(Buffer.concat([
+            Buffer.from('0200000001', 'hex'),
+            Buffer.alloc(32),
+            Buffer.from('ffffffff00ffffffff', 'hex'),
+            outputs,
+            Buffer.from('00000000', 'hex'),
+        ]));
+        return tx.outs;
+    }
+
+    function encodeBitcoinVarIntForTest(value: number): Buffer {
+        if (value < 0xfd) {
+            return Buffer.from([value]);
+        }
+        if (value <= 0xffff) {
+            const result = Buffer.alloc(3);
+            result[0] = 0xfd;
+            result.writeUInt16LE(value, 1);
+            return result;
+        }
+        throw new RangeError(`Unsupported test varint ${value}`);
     }
 });

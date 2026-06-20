@@ -4,6 +4,7 @@ import { createClient, RedisClientType } from 'redis';
 
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { IMiningInfo } from '../models/bitcoin-rpc/IMiningInfo';
+import { normalizePayoutMode, PayoutMode } from '../types/payout-mode';
 
 const MINING_INFO_CHANNEL = 'mining-info.updated';
 const MINING_INFO_KEY = 'mining-info:latest';
@@ -20,6 +21,7 @@ export interface ClientPresence {
     address: string;
     clientName: string;
     sessionId: string;
+    payoutMode?: PayoutMode;
     userAgent?: string | null;
     startTime: string;
     lastSeen: string;
@@ -143,6 +145,7 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
 
         const serialized = JSON.stringify({
             ...presence,
+            payoutMode: normalizePayoutMode(presence.payoutMode),
             userAgent: presence.userAgent ?? null,
             hashRate: Number.isFinite(Number(presence.hashRate)) ? Number(presence.hashRate) : 0,
             bestDifficulty: Number.isFinite(Number(presence.bestDifficulty)) ? Number(presence.bestDifficulty) : 0,
@@ -267,6 +270,9 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
         if (clientIds.length === 0) {
             return [];
         }
+        const activeClientIds = setKey === CLIENT_PRESENCE_ALL_KEY
+            ? null
+            : new Set(await this.publisher.sMembers(CLIENT_PRESENCE_ALL_KEY));
 
         const presences: ClientPresence[] = [];
         const staleClientIds: string[] = [];
@@ -274,9 +280,14 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
             const chunk = clientIds.slice(i, i + 1000);
             const values = await this.publisher.mGet(chunk.map(clientPresenceKey));
             values.forEach((value, index) => {
+                const clientId = chunk[index];
+                if (activeClientIds != null && !activeClientIds.has(clientId)) {
+                    staleClientIds.push(clientId);
+                    return;
+                }
                 const presence = this.parseClientPresence(value);
                 if (presence == null) {
-                    staleClientIds.push(chunk[index]);
+                    staleClientIds.push(clientId);
                     return;
                 }
                 presences.push(presence);
@@ -312,6 +323,7 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
                 address: parsed.address,
                 clientName: parsed.clientName ?? 'default',
                 sessionId: parsed.sessionId ?? parsed.clientId,
+                payoutMode: normalizePayoutMode(parsed.payoutMode),
                 userAgent: parsed.userAgent ?? null,
                 startTime: parsed.startTime,
                 lastSeen: parsed.lastSeen,
