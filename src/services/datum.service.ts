@@ -44,6 +44,7 @@ import { parsePayoutModePorts, PayoutMode } from '../types/payout-mode';
 
 const DEFAULT_DATUM_SHARE_DIFFICULTY = 1;
 const DEFAULT_DATUM_PING_INTERVAL_MS = 30_000;
+const DEFAULT_CLIENT_HASHRATE_PERSIST_INTERVAL_MS = 60_000;
 
 @Injectable()
 export class DatumService implements OnModuleInit {
@@ -113,6 +114,7 @@ export class DatumService implements OnModuleInit {
             coinbaserPayoutContexts: new Map(),
             nextCoinbaserId: 1,
             statistics: new StratumV1ClientStatistics(this.getConfiguredDatumShareDifficulty()),
+            lastHashRatePersistedAt: 0,
         };
         console.log(`[DATUM ${state.sessionId}] connection accepted from ${socket.remoteAddress}:${socket.remotePort}`);
 
@@ -389,6 +391,7 @@ export class DatumService implements OnModuleInit {
 
         await state.statistics.addShares(state.clientEntity, creditedDifficulty);
         state.clientEntity.hashRate = state.statistics.hashRate;
+        await this.persistClientHashRate(state, new Date());
         if (submissionDifficulty > Number(state.clientEntity.bestDifficulty ?? 0)) {
             await this.clientService.updateBestDifficultyIfHigher(state.clientEntity.id, submissionDifficulty);
             state.clientEntity.bestDifficulty = submissionDifficulty;
@@ -774,6 +777,39 @@ export class DatumService implements OnModuleInit {
         }
     }
 
+    private async persistClientHashRate(state: DatumClientState, now: Date): Promise<void> {
+        if (state.clientEntity?.id == null) {
+            return;
+        }
+
+        const hashRate = Number(state.statistics?.hashRate ?? 0);
+        if (!Number.isFinite(hashRate) || hashRate <= 0) {
+            return;
+        }
+
+        const intervalMs = this.getHashRatePersistIntervalMs();
+        const nowMs = now.getTime();
+        if (state.lastHashRatePersistedAt > 0 && nowMs - state.lastHashRatePersistedAt < intervalMs) {
+            return;
+        }
+
+        state.lastHashRatePersistedAt = nowMs;
+        try {
+            await this.clientService.updateHashRate(state.clientEntity.id, hashRate, now);
+        } catch (error) {
+            console.error(`Failed to persist DATUM client hashrate: ${error.message}`);
+        }
+    }
+
+    private getHashRatePersistIntervalMs(): number {
+        const configured = Number(this.configService.get<string>('CLIENT_HASHRATE_PERSIST_INTERVAL_MS'));
+        if (Number.isFinite(configured) && configured >= 0) {
+            return configured;
+        }
+
+        return DEFAULT_CLIENT_HASHRATE_PERSIST_INTERVAL_MS;
+    }
+
     private async destroyClient(state: DatumClientState): Promise<void> {
         this.stopDatumPing(state);
         if (state.clientEntity?.id == null) {
@@ -937,6 +973,7 @@ interface DatumClientState {
     coinbaserPayoutContexts: Map<number, DatumCoinbaserPayoutContext>;
     nextCoinbaserId: number;
     statistics: StratumV1ClientStatistics;
+    lastHashRatePersistedAt: number;
     coinbaseMismatchLogged?: boolean;
 }
 

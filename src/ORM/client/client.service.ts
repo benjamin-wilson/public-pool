@@ -58,6 +58,10 @@ export class ClientService {
             .execute();
     }
 
+    public async updateHashRate(id: string, hashRate: number, updatedAt = new Date()) {
+        return await this.clientRepository.update({ id }, { hashRate, updatedAt });
+    }
+
     public async connectedClientCount(): Promise<number> {
         return await this.clientRepository.count();
     }

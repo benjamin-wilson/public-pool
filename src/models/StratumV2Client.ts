@@ -70,6 +70,7 @@ const DEFAULT_START_DIFFICULTY = 100000;
 const DEFAULT_MIN_DIFFICULTY = 0.001;
 const DEFAULT_TARGET_SHARES_PER_MINUTE = 2;
 const DEFAULT_DIFFICULTY_CHECK_INTERVAL_MS = 60 * 1000;
+const DEFAULT_CLIENT_HASHRATE_PERSIST_INTERVAL_MS = 60 * 1000;
 const FIXED_STANDARD_EXTRANONCE2 = '0000000000000000';
 const RETIRED_EXTENDED_JOB_RETENTION_MS = 5 * 60 * 1000;
 const SV2_AUTH_FAILURE_LOG_INTERVAL_MS = 60 * 1000;
@@ -133,6 +134,7 @@ export class StratumV2Client {
     private creatingEntity: Promise<void> = null;
     private readonly firstChunkSummary: string;
     private workSelectionEnabled = false;
+    private lastHashRatePersistedAt = 0;
 
     constructor(
         private readonly socket: Socket,
@@ -934,6 +936,7 @@ export class StratumV2Client {
         const now = new Date();
         this.clientEntity.updatedAt = now;
         this.clientEntity.hashRate = this.statistics.hashRate;
+        await this.persistClientHashRate(now);
         await this.updateClientPresence(now);
 
         if (submissionDifficulty > this.clientEntity.bestDifficulty) {
@@ -1341,6 +1344,39 @@ export class StratumV2Client {
         } catch (error) {
             console.error(`Failed to update SV2 client presence: ${error.message}`);
         }
+    }
+
+    private async persistClientHashRate(now: Date): Promise<void> {
+        if (this.clientEntity?.id == null) {
+            return;
+        }
+
+        const hashRate = Number(this.statistics?.hashRate ?? 0);
+        if (!Number.isFinite(hashRate) || hashRate <= 0) {
+            return;
+        }
+
+        const intervalMs = this.getHashRatePersistIntervalMs();
+        const nowMs = now.getTime();
+        if (this.lastHashRatePersistedAt > 0 && nowMs - this.lastHashRatePersistedAt < intervalMs) {
+            return;
+        }
+
+        this.lastHashRatePersistedAt = nowMs;
+        try {
+            await this.clientService.updateHashRate(this.clientEntity.id, hashRate, now);
+        } catch (error) {
+            console.error(`Failed to persist SV2 client hashrate: ${error.message}`);
+        }
+    }
+
+    private getHashRatePersistIntervalMs(): number {
+        const configured = Number(this.configService.get<string>('CLIENT_HASHRATE_PERSIST_INTERVAL_MS'));
+        if (Number.isFinite(configured) && configured >= 0) {
+            return configured;
+        }
+
+        return DEFAULT_CLIENT_HASHRATE_PERSIST_INTERVAL_MS;
     }
 
     private parseUserIdentity(userIdentity: string): { address: string; workerName: string } {

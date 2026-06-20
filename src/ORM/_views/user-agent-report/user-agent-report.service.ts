@@ -62,6 +62,9 @@ export class UserAgentReportService {
     private async buildLiveReport() {
         const presences = await this.redisMessagingService.getAllClientPresence();
         const activePresences = await this.filterActivePresences(presences);
+        if (activePresences.length === 0) {
+            return await this.userAgentReport.find();
+        }
         const rows = new Map<string, {
             userAgent: string;
             count: number;

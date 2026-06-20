@@ -179,6 +179,7 @@ describe('DatumService job validation', () => {
         jest.useFakeTimers().setSystemTime(new Date('2026-06-13T15:00:00.000Z'));
         const clientService = {
             updateBestDifficultyIfHigher: jest.fn().mockResolvedValue(undefined),
+            updateHashRate: jest.fn().mockResolvedValue(undefined),
         };
         const redisMessagingService = {
             setClientPresence: jest.fn().mockResolvedValue(undefined),
@@ -197,6 +198,7 @@ describe('DatumService job validation', () => {
                 hashRate: 0,
             },
             statistics: new StratumV1ClientStatistics(1),
+            lastHashRatePersistedAt: 0,
         };
 
         await service.updateAcceptedSharePresence(state, 'tb1qdatum', 'datum-worker', 10, 1);
@@ -220,6 +222,11 @@ describe('DatumService job validation', () => {
         const lastPresence = redisMessagingService.setClientPresence.mock.calls.at(-1)[0];
         expect(lastPresence.hashRate).toBeGreaterThan(0);
         expect(state.clientEntity.hashRate).toBe(lastPresence.hashRate);
+        expect(clientService.updateHashRate).toHaveBeenCalledWith(
+            '3db0db03-3a62-4e3b-91bc-243adff4b542',
+            lastPresence.hashRate,
+            new Date('2026-06-13T15:01:02.000Z'),
+        );
     });
 
     it('derives submitted share difficulty from DATUM target byte', () => {

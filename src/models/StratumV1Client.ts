@@ -37,6 +37,7 @@ const TRUE_DIFF_ONE = 2.695953529101131e67;
 const BLOCKED_USER_AGENT_LOG_INTERVAL_MS = 60 * 1000;
 const VALIDATION_ERROR_LOG_INTERVAL_MS = 60 * 1000;
 const DEFAULT_MIN_DIFFICULTY = 0.001;
+const DEFAULT_CLIENT_HASHRATE_PERSIST_INTERVAL_MS = 60 * 1000;
 
 export class StratumV1Client {
     private static blockedUserAgentLogState = new Map<string, { nextLogAt: number, suppressed: number }>();
@@ -68,6 +69,7 @@ export class StratumV1Client {
     private buffer: string = '';
     private connectionClosed = false;
     private lastSentMiningJobTimestamp: number = null;
+    private lastHashRatePersistedAt = 0;
 
     private miningSubmissionHashes = new Set<string>()
 
@@ -704,6 +706,7 @@ export class StratumV1Client {
                 const now = new Date();
                 this.clientEntity.updatedAt = now;
                 this.clientEntity.hashRate = this.statistics.hashRate;
+                await this.persistClientHashRate(now);
                 await this.updateClientPresence(now);
 
             } catch (e) {
@@ -850,6 +853,39 @@ export class StratumV1Client {
             suppressed: 0,
             sample
         });
+    }
+
+    private async persistClientHashRate(now: Date): Promise<void> {
+        if (this.clientEntity?.id == null) {
+            return;
+        }
+
+        const hashRate = Number(this.statistics?.hashRate ?? 0);
+        if (!Number.isFinite(hashRate) || hashRate <= 0) {
+            return;
+        }
+
+        const intervalMs = this.getHashRatePersistIntervalMs();
+        const nowMs = now.getTime();
+        if (this.lastHashRatePersistedAt > 0 && nowMs - this.lastHashRatePersistedAt < intervalMs) {
+            return;
+        }
+
+        this.lastHashRatePersistedAt = nowMs;
+        try {
+            await this.clientService.updateHashRate(this.clientEntity.id, hashRate, now);
+        } catch (error) {
+            console.error(`Failed to persist SV1 client hashrate: ${error.message}`);
+        }
+    }
+
+    private getHashRatePersistIntervalMs(): number {
+        const configured = Number(this.configService.get<string>('CLIENT_HASHRATE_PERSIST_INTERVAL_MS'));
+        if (Number.isFinite(configured) && configured >= 0) {
+            return configured;
+        }
+
+        return DEFAULT_CLIENT_HASHRATE_PERSIST_INTERVAL_MS;
     }
 
     private getValidationErrorSignature(errors: ValidationError[]): string {
