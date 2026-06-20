@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 
 import { ClientEntity } from '../../client/client.entity';
 import { UserAgentReportView } from './user-agent-report.view';
@@ -60,76 +60,28 @@ export class UserAgentReportService {
     }
 
     private async buildLiveReport() {
-        const presences = await this.redisMessagingService.getAllClientPresence();
-        const activePresences = await this.filterActivePresences(presences);
-        if (activePresences.length === 0) {
+        const rows = await this.clientRepository
+            .createQueryBuilder('client')
+            .select('COALESCE(NULLIF(client.userAgent, \'\'), \'Other\')', 'userAgent')
+            .addSelect('COUNT(*)', 'count')
+            .addSelect('MAX(client.bestDifficulty)', 'bestDifficulty')
+            .addSelect('COALESCE(SUM(client.hashRate), 0)', 'totalHashRate')
+            .where('client.deletedAt IS NULL')
+            .groupBy('COALESCE(NULLIF(client.userAgent, \'\'), \'Other\')')
+            .orderBy('"totalHashRate"', 'DESC')
+            .getRawMany<UserAgentReportView>();
+
+        if (rows.length === 0) {
             return await this.userAgentReport.find();
         }
-        const rows = new Map<string, {
-            userAgent: string;
-            count: number;
-            bestDifficulty: number;
-            totalHashRate: number;
-        }>();
-
-        activePresences.forEach(presence => {
-            const userAgent = presence.userAgent == null || presence.userAgent.length === 0
-                ? 'Other'
-                : presence.userAgent;
-            const row = rows.get(userAgent) ?? {
-                userAgent,
-                count: 0,
-                bestDifficulty: 0,
-                totalHashRate: 0,
-            };
-            row.count++;
-            row.bestDifficulty = Math.max(
-                row.bestDifficulty,
-                Number(presence.bestDifficulty ?? 0),
-            );
-            row.totalHashRate += Number(presence.hashRate ?? 0);
-            rows.set(userAgent, row);
-        });
-
-        const report = [...rows.values()]
-            .sort((left, right) => right.totalHashRate - left.totalHashRate)
-            .map(row => ({
-                userAgent: row.userAgent,
-                count: row.count.toString(),
-                bestDifficulty: row.bestDifficulty,
-                totalHashRate: row.totalHashRate.toString(),
-            }));
 
         await this.redisMessagingService
-            .setJsonCache(this.liveReportCacheKey, report, 60 * 1000)
+            .setJsonCache(this.liveReportCacheKey, rows, 60 * 1000)
             .catch(error => {
                 console.error(`Live user-agent report cache write failed: ${error.message}`);
             });
 
-        return report;
-    }
-
-    private async filterActivePresences(presences: Awaited<ReturnType<RedisMessagingService['getAllClientPresence']>>) {
-        if (presences.length === 0) {
-            return [];
-        }
-
-        const activeClients = await this.clientRepository.find({
-            select: {
-                id: true,
-            },
-            where: {
-                id: In(presences.map(presence => presence.clientId)),
-            },
-        });
-        const activeIds = new Set(activeClients.map(client => client.id));
-        const stalePresences = presences.filter(presence => !activeIds.has(presence.clientId));
-        void Promise.all(stalePresences.map(presence => {
-            return this.redisMessagingService.removeClientPresence(presence.clientId, presence.address)
-                .catch(() => undefined);
-        }));
-
-        return presences.filter(presence => activeIds.has(presence.clientId));
+        return rows;
     }
 
     public async refreshReport() {

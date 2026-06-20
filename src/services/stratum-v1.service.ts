@@ -81,7 +81,6 @@ export class StratumV1Service implements OnModuleInit {
 
         if (process.env.MASTER == 'true') {
             await this.clientService.deleteAll();
-            await this.redisMessagingService?.clearClientPresence();
             await this.userAgentReportService.refreshReport();
             console.log('Master process skipping Stratum socket listeners');
             return;

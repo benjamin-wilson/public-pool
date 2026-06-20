@@ -31,9 +31,7 @@ describe('StratumV1Service', () => {
             ensureInitialized: jest.fn().mockResolvedValue(undefined),
             createClient: jest.fn()
         };
-        redisMessagingService = {
-            clearClientPresence: jest.fn().mockResolvedValue(undefined)
-        };
+        redisMessagingService = {};
         service = new StratumV1Service(
             {} as any,
             clientService,
@@ -75,7 +73,6 @@ describe('StratumV1Service', () => {
         jest.runOnlyPendingTimers();
 
         expect(clientService.deleteAll).toHaveBeenCalled();
-        expect(redisMessagingService.clearClientPresence).toHaveBeenCalled();
         expect(userAgentReportService.refreshReport).toHaveBeenCalled();
         expect(startSocketServerSpy).not.toHaveBeenCalled();
         expect(startSecureSocketServerSpy).not.toHaveBeenCalled();

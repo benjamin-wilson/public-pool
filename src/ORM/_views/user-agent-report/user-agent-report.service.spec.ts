@@ -11,7 +11,7 @@ describe('UserAgentReportService', () => {
         }
     });
 
-    it('uses Redis live presence in API-only processes when workers are connected', async () => {
+    it('uses active database clients for live API-only reports', async () => {
         process.env.API_ONLY = 'true';
         const userAgentReport = {
             find: jest.fn().mockResolvedValue([
@@ -23,26 +23,17 @@ describe('UserAgentReportService', () => {
                 },
             ]),
         };
-        const clientRepository = {
-            find: jest.fn().mockResolvedValue([{ id: 'client-1' }]),
-        };
+        const clientRepository = createClientRepository([
+            {
+                userAgent: 'unknown/sv2',
+                count: '1',
+                bestDifficulty: 456,
+                totalHashRate: '123',
+            },
+        ]);
         const redisMessagingService = {
             getJsonCache: jest.fn().mockResolvedValue(null),
-            getAllClientPresence: jest.fn().mockResolvedValue([
-                {
-                    clientId: 'client-1',
-                    address: 'tb1qworker',
-                    clientName: 'sv2gateway',
-                    sessionId: 'session',
-                    userAgent: 'unknown/sv2',
-                    startTime: '2026-01-01T00:00:00.000Z',
-                    lastSeen: '2026-01-01T00:00:10.000Z',
-                    hashRate: 123,
-                    bestDifficulty: 456,
-                },
-            ]),
             setJsonCache: jest.fn().mockResolvedValue(undefined),
-            removeClientPresence: jest.fn().mockResolvedValue(undefined),
         };
         const service = new UserAgentReportService(
             userAgentReport as any,
@@ -59,9 +50,10 @@ describe('UserAgentReportService', () => {
             },
         ]);
         expect(userAgentReport.find).not.toHaveBeenCalled();
+        expect(clientRepository.createQueryBuilder).toHaveBeenCalled();
     });
 
-    it('falls back to the materialized view in API-only processes when live presence is empty', async () => {
+    it('falls back to the materialized view when no active database clients exist', async () => {
         process.env.API_ONLY = 'true';
         const viewRows = [
             {
@@ -74,14 +66,10 @@ describe('UserAgentReportService', () => {
         const userAgentReport = {
             find: jest.fn().mockResolvedValue(viewRows),
         };
-        const clientRepository = {
-            find: jest.fn().mockResolvedValue([]),
-        };
+        const clientRepository = createClientRepository([]);
         const redisMessagingService = {
             getJsonCache: jest.fn().mockResolvedValue([]),
-            getAllClientPresence: jest.fn().mockResolvedValue([]),
             setJsonCache: jest.fn().mockResolvedValue(undefined),
-            removeClientPresence: jest.fn().mockResolvedValue(undefined),
         };
         const service = new UserAgentReportService(
             userAgentReport as any,
@@ -92,42 +80,23 @@ describe('UserAgentReportService', () => {
         await expect(service.getReport()).resolves.toEqual(viewRows);
     });
 
-    it('filters and removes stale Redis presence rows with no active database client', async () => {
+    it('returns a non-empty cached live report before querying the database', async () => {
         process.env.API_ONLY = 'true';
+        const cachedRows = [
+            {
+                userAgent: 'cached',
+                count: '2',
+                bestDifficulty: 8,
+                totalHashRate: '16',
+            },
+        ];
         const userAgentReport = {
-            find: jest.fn().mockResolvedValue([]),
+            find: jest.fn(),
         };
-        const clientRepository = {
-            find: jest.fn().mockResolvedValue([{ id: 'active-client' }]),
-        };
+        const clientRepository = createClientRepository([]);
         const redisMessagingService = {
-            getJsonCache: jest.fn().mockResolvedValue(null),
-            getAllClientPresence: jest.fn().mockResolvedValue([
-                {
-                    clientId: 'active-client',
-                    address: 'tb1qactive',
-                    clientName: 'worker',
-                    sessionId: 'active',
-                    userAgent: 'bitaxe',
-                    startTime: '2026-01-01T00:00:00.000Z',
-                    lastSeen: '2026-01-01T00:00:10.000Z',
-                    hashRate: 100,
-                    bestDifficulty: 200,
-                },
-                {
-                    clientId: 'stale-client',
-                    address: 'tb1qstale',
-                    clientName: 'worker',
-                    sessionId: 'stale',
-                    userAgent: 'bitaxe',
-                    startTime: '2026-01-01T00:00:00.000Z',
-                    lastSeen: '2026-01-01T00:00:10.000Z',
-                    hashRate: 300,
-                    bestDifficulty: 400,
-                },
-            ]),
+            getJsonCache: jest.fn().mockResolvedValue(cachedRows),
             setJsonCache: jest.fn().mockResolvedValue(undefined),
-            removeClientPresence: jest.fn().mockResolvedValue(undefined),
         };
         const service = new UserAgentReportService(
             userAgentReport as any,
@@ -135,15 +104,22 @@ describe('UserAgentReportService', () => {
             redisMessagingService as any,
         );
 
-        await expect(service.getReport()).resolves.toEqual([
-            {
-                userAgent: 'bitaxe',
-                count: '1',
-                bestDifficulty: 200,
-                totalHashRate: '100',
-            },
-        ]);
-        expect(redisMessagingService.removeClientPresence)
-            .toHaveBeenCalledWith('stale-client', 'tb1qstale');
+        await expect(service.getReport()).resolves.toEqual(cachedRows);
+        expect(clientRepository.createQueryBuilder).not.toHaveBeenCalled();
     });
 });
+
+function createClientRepository(rows: unknown[]) {
+    const queryBuilder = {
+        select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        groupBy: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getRawMany: jest.fn().mockResolvedValue(rows),
+    };
+
+    return {
+        createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
+    };
+}

@@ -396,22 +396,6 @@ export class DatumService implements OnModuleInit {
             await this.clientService.updateBestDifficultyIfHigher(state.clientEntity.id, submissionDifficulty);
             state.clientEntity.bestDifficulty = submissionDifficulty;
         }
-
-        await this.redisMessagingService?.setClientPresence({
-            clientId: state.clientEntity.id,
-            address,
-            clientName: workerName,
-            sessionId: state.sessionId,
-            payoutMode: state.payoutMode,
-            userAgent: state.userAgent,
-            startTime: new Date(state.clientEntity.startTime).toISOString(),
-            lastSeen: new Date().toISOString(),
-            hashRate: state.statistics.hashRate,
-            bestDifficulty: Math.max(
-                Number(state.clientEntity.bestDifficulty ?? 0),
-                submissionDifficulty,
-            ),
-        });
     }
 
     private updateDatumJobCache(state: DatumClientState, pow: DatumPowSubmit): DatumJobCache {
@@ -751,30 +735,6 @@ export class DatumService implements OnModuleInit {
             payoutMode: state.payoutMode,
             bestDifficulty: 0,
         });
-        await this.updateClientPresence(state, new Date());
-    }
-
-    private async updateClientPresence(state: DatumClientState, lastSeen: Date): Promise<void> {
-        if (state.clientEntity == null) {
-            return;
-        }
-
-        try {
-            await this.redisMessagingService?.setClientPresence({
-                clientId: state.clientEntity.id,
-                address: state.clientEntity.address,
-                clientName: state.clientEntity.clientName,
-                sessionId: state.clientEntity.sessionId,
-                payoutMode: state.payoutMode,
-                userAgent: state.clientEntity.userAgent,
-                startTime: new Date(state.clientEntity.startTime).toISOString(),
-                lastSeen: lastSeen.toISOString(),
-                hashRate: state.statistics.hashRate,
-                bestDifficulty: Number(state.clientEntity.bestDifficulty ?? 0),
-            });
-        } catch (error) {
-            console.error(`Failed to update DATUM client presence: ${error.message}`);
-        }
     }
 
     private async persistClientHashRate(state: DatumClientState, now: Date): Promise<void> {
@@ -815,7 +775,6 @@ export class DatumService implements OnModuleInit {
         if (state.clientEntity?.id == null) {
             return;
         }
-        await this.redisMessagingService?.removeClientPresence(state.clientEntity.id, state.clientEntity.address);
         await this.clientService.delete(state.clientEntity.id);
         state.clientEntity = null;
     }

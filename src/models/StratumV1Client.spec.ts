@@ -41,7 +41,7 @@ describe('StratumV1Client', () => {
     let configService: ConfigService;
     let addressSettings: AddressSettingsService;
     let shareAccountingService: { recordAcceptedShare: jest.Mock };
-    let redisMessagingService: { setClientPresence: jest.Mock; removeClientPresence: jest.Mock };
+    let redisMessagingService: Record<string, never>;
 
     let client: StratumV1Client;
 
@@ -80,6 +80,7 @@ describe('StratumV1Client', () => {
             }),
             connectedClientCount: jest.fn(async () => clients.size),
             updateBestDifficultyIfHigher: jest.fn().mockResolvedValue({ affected: 1 }),
+            updateHashRate: jest.fn().mockResolvedValue(undefined),
         } as any;
 
         configService = {
@@ -132,10 +133,7 @@ describe('StratumV1Client', () => {
         shareAccountingService = {
             recordAcceptedShare: jest.fn().mockResolvedValue(undefined),
         };
-        redisMessagingService = {
-            setClientPresence: jest.fn().mockResolvedValue(undefined),
-            removeClientPresence: jest.fn().mockResolvedValue(undefined),
-        };
+        redisMessagingService = {};
 
 
         client = new StratumV1Client(
@@ -185,11 +183,6 @@ describe('StratumV1Client', () => {
 
         await Promise.all([client.destroy(), client.destroy()]);
 
-        expect(redisMessagingService.removeClientPresence).toHaveBeenCalledTimes(1);
-        expect(redisMessagingService.removeClientPresence).toHaveBeenCalledWith(
-            '00000000-0000-4000-8000-000000000001',
-            'tb1qcleanup',
-        );
         expect(clientService.delete).toHaveBeenCalledTimes(1);
         expect(clientService.delete).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000001');
         expect(unsubscribe).toHaveBeenCalledTimes(1);
@@ -415,13 +408,6 @@ describe('StratumV1Client', () => {
             creditedDifficulty: 0,
             isBlockCandidate: false,
         }));
-        expect(redisMessagingService.setClientPresence).toHaveBeenCalledWith(expect.objectContaining({
-            address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
-            clientName: 'bitaxe3',
-            sessionId: MockRecording1.EXTRA_NONCE,
-        }));
-
-
     });
 
     it('should use the header-only fast path for non-block submissions', async () => {

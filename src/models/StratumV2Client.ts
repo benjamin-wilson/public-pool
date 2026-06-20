@@ -191,7 +191,6 @@ export class StratumV2Client {
         }
         this.channels.clear();
         if (this.clientEntity?.id != null) {
-            await this.redisMessagingService?.removeClientPresence(this.clientEntity.id, this.clientEntity.address);
             await this.clientService.delete(this.clientEntity.id);
         }
     }
@@ -937,7 +936,6 @@ export class StratumV2Client {
         this.clientEntity.updatedAt = now;
         this.clientEntity.hashRate = this.statistics.hashRate;
         await this.persistClientHashRate(now);
-        await this.updateClientPresence(now);
 
         if (submissionDifficulty > this.clientEntity.bestDifficulty) {
             await this.clientService.updateBestDifficultyIfHigher(this.clientEntity.id, submissionDifficulty);
@@ -947,7 +945,6 @@ export class StratumV2Client {
                 submissionDifficulty,
                 this.userAgent,
             );
-            await this.updateClientPresence(new Date());
         }
     }
 
@@ -1316,34 +1313,10 @@ export class StratumV2Client {
                     payoutMode: this.payoutMode,
                     bestDifficulty: 0,
                 });
-                await this.updateClientPresence(new Date());
             })();
         }
 
         await this.creatingEntity;
-    }
-
-    private async updateClientPresence(lastSeen: Date): Promise<void> {
-        if (this.clientEntity == null) {
-            return;
-        }
-
-        try {
-            await this.redisMessagingService?.setClientPresence({
-                clientId: this.clientEntity.id,
-                address: this.clientEntity.address,
-                clientName: this.clientEntity.clientName,
-                sessionId: this.clientEntity.sessionId,
-                payoutMode: this.payoutMode,
-                userAgent: this.clientEntity.userAgent,
-                startTime: new Date(this.clientEntity.startTime).toISOString(),
-                lastSeen: lastSeen.toISOString(),
-                hashRate: this.statistics.hashRate,
-                bestDifficulty: Number(this.clientEntity.bestDifficulty ?? 0),
-            });
-        } catch (error) {
-            console.error(`Failed to update SV2 client presence: ${error.message}`);
-        }
     }
 
     private async persistClientHashRate(now: Date): Promise<void> {

@@ -5,7 +5,6 @@ import { ClientStatisticsService } from '../../ORM/client-statistics/client-stat
 import { ClientService } from '../../ORM/client/client.service';
 import { PayoutSnapshotService } from '../../ORM/payout-snapshot/payout-snapshot.service';
 import { ShareAccountingService } from '../../ORM/share-accounting/share-accounting.service';
-import { RedisMessagingService } from '../../services/redis-messaging.service';
 import { normalizePayoutMode, PayoutMode } from '../../types/payout-mode';
 
 
@@ -18,7 +17,6 @@ export class ClientController {
         private readonly addressSettingsService: AddressSettingsService,
         private readonly shareAccountingService: ShareAccountingService,
         private readonly payoutSnapshotService: PayoutSnapshotService,
-        private readonly redisMessagingService: RedisMessagingService
     ) { }
 
 
@@ -179,14 +177,20 @@ export class ClientController {
     }
 
     private async getActiveAddressWorkers(address: string, payoutMode?: PayoutMode) {
-        const workers = await this.redisMessagingService.getClientPresenceByAddress(address);
-        const activeIds = await this.clientService.getActiveIds(workers.map(worker => worker.clientId));
-        const staleWorkers = workers.filter(worker => !activeIds.has(worker.clientId));
-        void Promise.all(staleWorkers.map(worker => {
-            return this.redisMessagingService.removeClientPresence(worker.clientId, worker.address)
-                .catch(() => undefined);
-        }));
-
-        return workers.filter(worker => activeIds.has(worker.clientId) && (payoutMode == null || worker.payoutMode === payoutMode));
+        const workers = await this.clientService.getByAddress(address);
+        return workers
+            .filter(worker => payoutMode == null || worker.payoutMode === payoutMode)
+            .map(worker => ({
+                clientId: worker.id,
+                address: worker.address,
+                clientName: worker.clientName,
+                sessionId: worker.sessionId,
+                payoutMode: worker.payoutMode,
+                userAgent: worker.userAgent,
+                startTime: worker.startTime,
+                lastSeen: worker.updatedAt,
+                hashRate: Number(worker.hashRate ?? 0),
+                bestDifficulty: Number(worker.bestDifficulty ?? 0),
+            }));
     }
 }

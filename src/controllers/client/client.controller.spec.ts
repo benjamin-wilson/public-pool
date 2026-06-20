@@ -5,12 +5,11 @@ import { ClientStatisticsService } from '../../ORM/client-statistics/client-stat
 import { ClientService } from '../../ORM/client/client.service';
 import { PayoutSnapshotService } from '../../ORM/payout-snapshot/payout-snapshot.service';
 import { ShareAccountingService } from '../../ORM/share-accounting/share-accounting.service';
-import { RedisMessagingService } from '../../services/redis-messaging.service';
 import { ClientController } from './client.controller';
 
 describe('ClientController', () => {
   let controller: ClientController;
-  let clientService: { getBySessionId: jest.Mock; getActiveIds: jest.Mock };
+  let clientService: { getByAddress: jest.Mock; getBySessionId: jest.Mock };
   let addressSettingsService: { getSettings: jest.Mock };
   let shareAccountingService: {
     getAddressSummary: jest.Mock;
@@ -19,7 +18,6 @@ describe('ClientController', () => {
     getSessionSummaries: jest.Mock;
   };
   let payoutSnapshotService: { getLatestExpectedPayoutForAddress: jest.Mock };
-  let redisMessagingService: { getClientPresenceByAddress: jest.Mock; removeClientPresence: jest.Mock };
 
     beforeEach(async () => {
         const module: TestingModule = await Test.createTestingModule({
@@ -28,10 +26,9 @@ describe('ClientController', () => {
                 {
                     provide: ClientService,
                     useValue: {
-                        getByAddress: jest.fn(),
+                        getByAddress: jest.fn().mockResolvedValue([]),
                         getByName: jest.fn(),
                         getBySessionId: jest.fn(),
-                        getActiveIds: jest.fn(async (ids: string[]) => new Set(ids)),
                     },
                 },
                 {
@@ -63,13 +60,6 @@ describe('ClientController', () => {
                         getLatestExpectedPayoutForAddress: jest.fn().mockResolvedValue(null),
                     },
                 },
-                {
-                    provide: RedisMessagingService,
-                    useValue: {
-                        getClientPresenceByAddress: jest.fn().mockResolvedValue([]),
-                        removeClientPresence: jest.fn().mockResolvedValue(undefined),
-                    },
-                },
             ],
 
         }).compile();
@@ -79,7 +69,6 @@ describe('ClientController', () => {
     addressSettingsService = module.get(AddressSettingsService);
     shareAccountingService = module.get(ShareAccountingService);
     payoutSnapshotService = module.get(PayoutSnapshotService);
-    redisMessagingService = module.get(RedisMessagingService);
   });
 
   it('should be defined', () => {
@@ -87,9 +76,9 @@ describe('ClientController', () => {
   });
 
   it('should expose the existing address best difficulty in accounting when rollup best is empty', async () => {
-    redisMessagingService.getClientPresenceByAddress.mockResolvedValue([
+    clientService.getByAddress.mockResolvedValue([
       {
-        clientId: '92f5302f-5e32-487e-af67-f56fd78b13c7',
+        id: '92f5302f-5e32-487e-af67-f56fd78b13c7',
         sessionId: 'abcd1234',
         clientName: 'worker',
         bestDifficulty: 64,
@@ -97,6 +86,7 @@ describe('ClientController', () => {
         startTime: '2026-06-08T12:00:00.000Z',
         lastSeen: '2026-06-08T12:10:00.000Z',
         address: 'bc1qtest',
+        payoutMode: 'pplns',
       },
     ]);
     addressSettingsService.getSettings.mockResolvedValue({ bestDifficulty: 4096 });
@@ -154,30 +144,31 @@ describe('ClientController', () => {
     expect(payoutSnapshotService.getLatestExpectedPayoutForAddress).not.toHaveBeenCalled();
   });
 
-  it('should hide stale Redis workers that are no longer active in the database', async () => {
-    redisMessagingService.getClientPresenceByAddress.mockResolvedValue([
+  it('should expose active database workers for an address', async () => {
+    clientService.getByAddress.mockResolvedValue([
       {
-        clientId: 'active-client',
+        id: 'active-client',
         address: 'bc1qtest',
         sessionId: 'active1',
         clientName: 'active-worker',
+        payoutMode: 'pplns',
         bestDifficulty: 64,
         hashRate: 1024,
         startTime: '2026-06-08T12:00:00.000Z',
-        lastSeen: '2026-06-08T12:10:00.000Z',
+        updatedAt: '2026-06-08T12:10:00.000Z',
       },
       {
-        clientId: 'stale-client',
+        id: 'solo-client',
         address: 'bc1qtest',
-        sessionId: 'stale1',
-        clientName: 'stale-worker',
+        sessionId: 'solo1',
+        clientName: 'solo-worker',
+        payoutMode: 'solo',
         bestDifficulty: 128,
         hashRate: 2048,
         startTime: '2026-06-08T12:00:00.000Z',
-        lastSeen: '2026-06-08T12:10:00.000Z',
+        updatedAt: '2026-06-08T12:10:00.000Z',
       },
     ]);
-    clientService.getActiveIds.mockResolvedValue(new Set(['active-client']));
     addressSettingsService.getSettings.mockResolvedValue(null);
     shareAccountingService.getSessionSummaries.mockResolvedValue(new Map());
     shareAccountingService.getAddressSummary.mockResolvedValue({
@@ -186,16 +177,16 @@ describe('ClientController', () => {
       bestSubmissionDifficulty: 0,
     });
 
-    await expect(controller.getClientInfo('bc1qtest')).resolves.toMatchObject({
+    await expect(controller.getClientInfo('bc1qtest', 'pplns')).resolves.toMatchObject({
       workersCount: 1,
       workers: [
         {
           sessionId: 'active1',
           name: 'active-worker',
+          payoutMode: 'pplns',
+          hashRate: 1024,
         },
       ],
     });
-    expect(redisMessagingService.removeClientPresence)
-      .toHaveBeenCalledWith('stale-client', 'bc1qtest');
   });
 });

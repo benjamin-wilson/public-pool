@@ -175,16 +175,13 @@ describe('DatumService job validation', () => {
         expect(socket.write).not.toHaveBeenCalled();
     });
 
-    it('publishes DATUM client presence with smoothed hashrate after accepted shares', async () => {
+    it('persists DATUM client hashrate after accepted shares', async () => {
         jest.useFakeTimers().setSystemTime(new Date('2026-06-13T15:00:00.000Z'));
         const clientService = {
             updateBestDifficultyIfHigher: jest.fn().mockResolvedValue(undefined),
             updateHashRate: jest.fn().mockResolvedValue(undefined),
         };
-        const redisMessagingService = {
-            setClientPresence: jest.fn().mockResolvedValue(undefined),
-        };
-        const service = createService({ clientService, redisMessagingService }) as any;
+        const service = createService({ clientService }) as any;
         const state = {
             sessionId: 'datum-session',
             userAgent: 'datum/test',
@@ -211,20 +208,10 @@ describe('DatumService job validation', () => {
             '3db0db03-3a62-4e3b-91bc-243adff4b542',
             30,
         );
-        expect(redisMessagingService.setClientPresence).toHaveBeenLastCalledWith(expect.objectContaining({
-            clientId: '3db0db03-3a62-4e3b-91bc-243adff4b542',
-            address: 'tb1qdatum',
-            clientName: 'datum-worker',
-            sessionId: 'datum-session',
-            hashRate: expect.any(Number),
-            bestDifficulty: 30,
-        }));
-        const lastPresence = redisMessagingService.setClientPresence.mock.calls.at(-1)[0];
-        expect(lastPresence.hashRate).toBeGreaterThan(0);
-        expect(state.clientEntity.hashRate).toBe(lastPresence.hashRate);
+        expect(state.clientEntity.hashRate).toBeGreaterThan(0);
         expect(clientService.updateHashRate).toHaveBeenCalledWith(
             '3db0db03-3a62-4e3b-91bc-243adff4b542',
-            lastPresence.hashRate,
+            state.clientEntity.hashRate,
             new Date('2026-06-13T15:01:02.000Z'),
         );
     });

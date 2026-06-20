@@ -87,7 +87,10 @@ export class ClientService {
         return await this.clientRepository.find({
             where: {
                 address
-            }
+            },
+            order: {
+                updatedAt: 'DESC',
+            },
         })
     }
 

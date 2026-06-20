@@ -4,45 +4,22 @@ import { createClient, RedisClientType } from 'redis';
 
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { IMiningInfo } from '../models/bitcoin-rpc/IMiningInfo';
-import { normalizePayoutMode, PayoutMode } from '../types/payout-mode';
 
 const MINING_INFO_CHANNEL = 'mining-info.updated';
 const MINING_INFO_KEY = 'mining-info:latest';
 const BLOCK_TEMPLATE_LATEST_KEY = 'block-template:latest';
-const CLIENT_PRESENCE_TTL_SECONDS = 180;
 const blockTemplateKey = (height: number) => `block-template:${height}`;
-const CLIENT_PRESENCE_ALL_KEY = 'client-presence:all';
-const clientPresenceKey = (clientId: string) => `client-presence:${clientId}`;
-const clientPresenceAddressKey = (address: string) => `client-presence:address:${address}`;
 const jsonCacheKey = (key: string) => `json-cache:${key}`;
-
-export interface ClientPresence {
-    clientId: string;
-    address: string;
-    clientName: string;
-    sessionId: string;
-    payoutMode?: PayoutMode;
-    userAgent?: string | null;
-    startTime: string;
-    lastSeen: string;
-    hashRate: number;
-    bestDifficulty: number;
-}
 
 @Injectable()
 export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
     private publisher: RedisClientType;
     private subscriber: RedisClientType;
     private connected = false;
-    private readonly clientPresenceTtlSeconds: number;
-    private readonly clientPresenceEnabled: boolean;
 
     constructor(
         private readonly configService: ConfigService,
-    ) {
-        this.clientPresenceTtlSeconds = this.readPositiveInt('CLIENT_PRESENCE_TTL_SECONDS', CLIENT_PRESENCE_TTL_SECONDS);
-        this.clientPresenceEnabled = this.configService.get<string>('CLIENT_PRESENCE_ENABLED') !== 'false';
-    }
+    ) { }
 
     public async onModuleInit() {
         await this.connect().catch(error => {
@@ -140,108 +117,6 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
         return value == null ? null : JSON.parse(value as string);
     }
 
-    public async setClientPresence(presence: ClientPresence): Promise<void> {
-        if (!this.clientPresenceEnabled) {
-            return;
-        }
-        if (!await this.ensureConnected()) {
-            return;
-        }
-
-        const serialized = JSON.stringify({
-            ...presence,
-            payoutMode: normalizePayoutMode(presence.payoutMode),
-            userAgent: presence.userAgent ?? null,
-            hashRate: Number.isFinite(Number(presence.hashRate)) ? Number(presence.hashRate) : 0,
-            bestDifficulty: Number.isFinite(Number(presence.bestDifficulty)) ? Number(presence.bestDifficulty) : 0,
-        });
-
-        await Promise.all([
-            this.publisher.setEx(clientPresenceKey(presence.clientId), this.clientPresenceTtlSeconds, serialized),
-            this.publisher.sAdd(CLIENT_PRESENCE_ALL_KEY, presence.clientId),
-            this.publisher.sAdd(clientPresenceAddressKey(presence.address), presence.clientId),
-        ]);
-    }
-
-    public async removeClientPresence(clientId: string, address?: string): Promise<void> {
-        if (!this.clientPresenceEnabled) {
-            return;
-        }
-        if (!await this.ensureConnected()) {
-            return;
-        }
-
-        let resolvedAddress = address;
-        if (resolvedAddress == null) {
-            const presence = await this.getClientPresence(clientId);
-            resolvedAddress = presence?.address;
-        }
-
-        const removals: Promise<unknown>[] = [
-            this.publisher.del(clientPresenceKey(clientId)),
-            this.publisher.sRem(CLIENT_PRESENCE_ALL_KEY, clientId),
-        ];
-        if (resolvedAddress != null) {
-            removals.push(this.publisher.sRem(clientPresenceAddressKey(resolvedAddress), clientId));
-        }
-
-        await Promise.all(removals);
-    }
-
-    public async getClientPresence(clientId: string): Promise<ClientPresence | null> {
-        if (!this.clientPresenceEnabled) {
-            return null;
-        }
-        if (!await this.ensureConnected()) {
-            return null;
-        }
-
-        const value = await this.publisher.get(clientPresenceKey(clientId));
-        return this.parseClientPresence(value);
-    }
-
-    public async getClientPresenceByAddress(address: string): Promise<ClientPresence[]> {
-        if (!this.clientPresenceEnabled) {
-            return [];
-        }
-        if (!await this.ensureConnected()) {
-            return [];
-        }
-
-        return this.getPresenceFromSet(clientPresenceAddressKey(address));
-    }
-
-    public async getAllClientPresence(): Promise<ClientPresence[]> {
-        if (!this.clientPresenceEnabled) {
-            return [];
-        }
-        if (!await this.ensureConnected()) {
-            return [];
-        }
-
-        return this.getPresenceFromSet(CLIENT_PRESENCE_ALL_KEY);
-    }
-
-    public async clearClientPresence(): Promise<void> {
-        if (!this.clientPresenceEnabled) {
-            return;
-        }
-        if (!await this.ensureConnected()) {
-            return;
-        }
-
-        const batch: string[] = [];
-        for await (const keyOrKeys of (this.publisher as any).scanIterator({ MATCH: 'client-presence*', COUNT: 1000 })) {
-            const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
-            batch.push(...keys.map(key => key as string));
-            if (batch.length >= 500) {
-                await this.deleteKeys(batch.splice(0));
-            }
-        }
-
-        await this.deleteKeys(batch);
-    }
-
     public async getJsonCache<T>(key: string): Promise<T | null> {
         if (!await this.ensureConnected()) {
             return null;
@@ -285,86 +160,4 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
         return true;
     }
 
-    private async getPresenceFromSet(setKey: string): Promise<ClientPresence[]> {
-        const clientIds = await this.publisher.sMembers(setKey);
-        if (clientIds.length === 0) {
-            return [];
-        }
-        const activeClientIds = setKey === CLIENT_PRESENCE_ALL_KEY
-            ? null
-            : new Set(await this.publisher.sMembers(CLIENT_PRESENCE_ALL_KEY));
-
-        const presences: ClientPresence[] = [];
-        const staleClientIds: string[] = [];
-        for (let i = 0; i < clientIds.length; i += 1000) {
-            const chunk = clientIds.slice(i, i + 1000);
-            const values = await this.publisher.mGet(chunk.map(clientPresenceKey));
-            values.forEach((value, index) => {
-                const clientId = chunk[index];
-                if (activeClientIds != null && !activeClientIds.has(clientId)) {
-                    staleClientIds.push(clientId);
-                    return;
-                }
-                const presence = this.parseClientPresence(value);
-                if (presence == null) {
-                    staleClientIds.push(clientId);
-                    return;
-                }
-                presences.push(presence);
-            });
-        }
-
-        for (let i = 0; i < staleClientIds.length; i += 1000) {
-            const staleChunk = staleClientIds.slice(i, i + 1000);
-            if (staleChunk.length === 0) {
-                continue;
-            }
-            await this.publisher.sRem(setKey, staleChunk);
-            if (setKey !== CLIENT_PRESENCE_ALL_KEY) {
-                await this.publisher.sRem(CLIENT_PRESENCE_ALL_KEY, staleChunk);
-            }
-        }
-
-        return presences;
-    }
-
-    private parseClientPresence(value: unknown): ClientPresence | null {
-        if (value == null) {
-            return null;
-        }
-
-        try {
-            const parsed = JSON.parse(value as string);
-            if (parsed?.clientId == null || parsed?.address == null) {
-                return null;
-            }
-            return {
-                clientId: parsed.clientId,
-                address: parsed.address,
-                clientName: parsed.clientName ?? 'default',
-                sessionId: parsed.sessionId ?? parsed.clientId,
-                payoutMode: normalizePayoutMode(parsed.payoutMode),
-                userAgent: parsed.userAgent ?? null,
-                startTime: parsed.startTime,
-                lastSeen: parsed.lastSeen,
-                hashRate: Number(parsed.hashRate ?? 0),
-                bestDifficulty: Number(parsed.bestDifficulty ?? 0),
-            };
-        } catch (error) {
-            console.error(`Invalid Redis client presence: ${error.message}`);
-            return null;
-        }
-    }
-
-    private readPositiveInt(name: string, defaultValue: number): number {
-        const value = Number(this.configService.get<string>(name) ?? process.env[name]);
-        return Number.isInteger(value) && value > 0 ? value : defaultValue;
-    }
-
-    private async deleteKeys(keys: string[]): Promise<void> {
-        if (keys.length === 0) {
-            return;
-        }
-        await (this.publisher as any).del(...keys);
-    }
 }

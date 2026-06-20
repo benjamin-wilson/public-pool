@@ -124,8 +124,6 @@ export class StratumV1Client {
 
         if (this.clientEntity?.id) {
             const clientId = this.clientEntity.id;
-            const address = this.clientEntity.address;
-            await this.redisMessagingService?.removeClientPresence(clientId, address);
             await this.clientService.delete(clientId);
         }
     }
@@ -527,34 +525,10 @@ export class StratumV1Client {
                     payoutMode: this.payoutMode,
                     bestDifficulty: 0
                 });
-                await this.updateClientPresence(new Date());
             })();
         }
 
         await this.creatingEntity;
-    }
-
-    private async updateClientPresence(lastSeen: Date): Promise<void> {
-        if (this.clientEntity == null) {
-            return;
-        }
-
-        try {
-            await this.redisMessagingService?.setClientPresence({
-                clientId: this.clientEntity.id,
-                address: this.clientEntity.address,
-                clientName: this.clientEntity.clientName,
-                sessionId: this.clientEntity.sessionId,
-                payoutMode: this.payoutMode,
-                userAgent: this.clientEntity.userAgent,
-                startTime: new Date(this.clientEntity.startTime).toISOString(),
-                lastSeen: lastSeen.toISOString(),
-                hashRate: this.statistics?.hashRate ?? 0,
-                bestDifficulty: Number(this.clientEntity.bestDifficulty ?? 0),
-            });
-        } catch (error) {
-            console.error(`Failed to update SV1 client presence: ${error.message}`);
-        }
     }
 
     private async handleMiningSubmission(submission: MiningSubmitMessage) {
@@ -707,7 +681,6 @@ export class StratumV1Client {
                 this.clientEntity.updatedAt = now;
                 this.clientEntity.hashRate = this.statistics.hashRate;
                 await this.persistClientHashRate(now);
-                await this.updateClientPresence(now);
 
             } catch (e) {
                 console.log(e);
@@ -717,7 +690,6 @@ export class StratumV1Client {
                 await this.clientService.updateBestDifficultyIfHigher(this.clientEntity.id, submissionDifficulty);
                 this.clientEntity.bestDifficulty = submissionDifficulty;
                 await this.addressSettingsService.updateBestDifficultyIfHigher(this.clientAuthorization.address, submissionDifficulty, this.clientEntity.userAgent);
-                await this.updateClientPresence(new Date());
             }
 
 

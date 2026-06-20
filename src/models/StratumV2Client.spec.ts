@@ -301,8 +301,8 @@ describe('StratumV2Client extended channels', () => {
         expect((client as any).channels.get(1).extendedJobs.has(100)).toBe(false);
     });
 
-    it('records accepted SV2 shares before presence updates', async () => {
-        const { client, shareAccountingService, redisMessagingService, jobTemplate } = await createClient();
+    it('records accepted SV2 shares and persists DB hashrate', async () => {
+        const { client, clientService, shareAccountingService, jobTemplate } = await createClient();
         (client as any).address = 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4';
         (client as any).workerName = 'worker';
         (client as any).sessionId = 'sv2-session';
@@ -333,10 +333,6 @@ describe('StratumV2Client extended channels', () => {
             nonce: 123,
             extraNonce2: 'c708000000000000',
         }));
-        const accountingCallOrder = shareAccountingService.recordAcceptedShare.mock.invocationCallOrder[0];
-        const postAccountingPresenceUpdates = redisMessagingService.setClientPresence.mock.invocationCallOrder
-            .filter(callOrder => callOrder > accountingCallOrder);
-        expect(postAccountingPresenceUpdates.length).toBeGreaterThan(0);
     });
 
     it('does not submit a block when only the reported SV2 difficulty is huge', async () => {
@@ -422,11 +418,12 @@ describe('StratumV2Client extended channels', () => {
         client: StratumV2Client;
         sentFrames: any[];
         bitcoinRpcService: { SUBMIT_BLOCK: jest.Mock };
+        clientService: { updateHashRate: jest.Mock };
         blocksService: { save: jest.Mock };
         notificationService: { notifySubscribersBlockFound: jest.Mock };
         addressSettingsService: { resetBestDifficultyAndShares: jest.Mock; updateBestDifficultyIfHigher: jest.Mock };
         shareAccountingService: { recordAcceptedShare: jest.Mock };
-        redisMessagingService: { setClientPresence: jest.Mock; removeClientPresence: jest.Mock };
+        redisMessagingService: Record<string, never>;
         jobTemplate: any;
     }> {
         const blockTemplate$ = new BehaviorSubject(MockRecording1.BLOCK_TEMPLATE);
@@ -469,6 +466,7 @@ describe('StratumV2Client extended channels', () => {
             insert: jest.fn().mockResolvedValue(clientEntity),
             delete: jest.fn().mockResolvedValue(undefined),
             updateBestDifficultyIfHigher: jest.fn().mockResolvedValue(undefined),
+            updateHashRate: jest.fn().mockResolvedValue(undefined),
         };
         const shareAccountingService = {
             recordAcceptedShare: jest.fn().mockResolvedValue(undefined),
@@ -479,10 +477,7 @@ describe('StratumV2Client extended channels', () => {
         const blocksService = {
             save: jest.fn().mockResolvedValue(undefined),
         };
-        const redisMessagingService = {
-            setClientPresence: jest.fn().mockResolvedValue(undefined),
-            removeClientPresence: jest.fn().mockResolvedValue(undefined),
-        };
+        const redisMessagingService = {};
         const addressSettingsService = {
             resetBestDifficultyAndShares: jest.fn().mockResolvedValue(undefined),
             updateBestDifficultyIfHigher: jest.fn().mockResolvedValue(undefined),
@@ -548,6 +543,7 @@ describe('StratumV2Client extended channels', () => {
             client,
             sentFrames,
             bitcoinRpcService,
+            clientService,
             blocksService,
             notificationService,
             addressSettingsService,

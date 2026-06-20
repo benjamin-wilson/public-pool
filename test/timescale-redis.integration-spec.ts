@@ -55,7 +55,6 @@ describe('TimescaleDB and Redis integration', () => {
     await dataSource.query(`DELETE FROM blocks_entity`);
     await dataSource.query(`DELETE FROM client_entity`);
     await dataSource.query(`REFRESH MATERIALIZED VIEW user_agent_report_view`);
-    await redisMessagingService.clearClientPresence();
     await (redisMessagingService as any).publisher.del('json-cache:presence:user-agent-report');
   });
 
@@ -613,7 +612,7 @@ describe('TimescaleDB and Redis integration', () => {
       bestDifficulty: 11,
       hashRate: 0,
     });
-    await repository.save({
+    const staleClient = await repository.save({
       address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
       clientName: 'stale-live-worker',
       sessionId: '92b2c3d4',
@@ -622,18 +621,7 @@ describe('TimescaleDB and Redis integration', () => {
       bestDifficulty: 22,
       hashRate: 200,
     });
-
-    await redisMessagingService.setClientPresence({
-      clientId: activeClient.id,
-      address: activeClient.address,
-      clientName: activeClient.clientName,
-      sessionId: activeClient.sessionId,
-      userAgent,
-      startTime: activeClient.startTime.toISOString(),
-      lastSeen: new Date().toISOString(),
-      bestDifficulty: Number(activeClient.bestDifficulty),
-      hashRate: 0,
-    });
+    await repository.softDelete(staleClient.id);
 
     const rows = await reportService.getReport();
     expect(rows).toEqual(expect.arrayContaining([{
