@@ -296,11 +296,15 @@ export class DatumService implements OnModuleInit {
             await this.sendShareResponse(socket, state, DatumShareResponseStatus.REJECTED, DatumRejectReason.OTHER, pow.nonce, pow.targetByte, pow.jobId);
             return;
         }
-        const payoutValidation = this.validateDatumCoinbasePayouts(coinbase, pow, latestTemplate, datumJob.coinbaseValue, datumJob.expectedPayoutOutputs, state.payoutMode);
-        if (!payoutValidation.valid) {
-            this.logDatumCoinbaseMismatchOnce(state, payoutValidation);
+        const payoutValidation = this.validateDatumCoinbasePayoutContext(coinbase, pow, latestTemplate, datumJob, state);
+        if (!payoutValidation.validation.valid) {
+            this.logDatumCoinbaseMismatchOnce(state, payoutValidation.validation);
             await this.sendShareResponse(socket, state, DatumShareResponseStatus.REJECTED, DatumRejectReason.BAD_COINBASER_ID, pow.nonce, pow.targetByte, pow.jobId);
             return;
+        }
+        if (payoutValidation.context != null) {
+            datumJob.expectedPayoutOutputs = payoutValidation.context.payoutOutputs;
+            datumJob.payoutSnapshotId = payoutValidation.context.payoutSnapshotId;
         }
 
         const shareDifficulty = this.getDatumSubmittedShareDifficulty(pow);
@@ -621,6 +625,52 @@ export class DatumService implements OnModuleInit {
             submittedOutputs,
             error: valid ? undefined : 'output-mismatch',
         };
+    }
+
+    private validateDatumCoinbasePayoutContext(
+        coinbase: { coinb1: Buffer; coinb2: Buffer },
+        pow: DatumPowSubmit,
+        latestTemplate: IJobTemplate,
+        datumJob: DatumJobCache,
+        state: DatumClientState,
+    ): { validation: DatumCoinbasePayoutValidation; context?: DatumCoinbaserPayoutContext } {
+        const primaryValidation = this.validateDatumCoinbasePayouts(
+            coinbase,
+            pow,
+            latestTemplate,
+            datumJob.coinbaseValue,
+            datumJob.expectedPayoutOutputs,
+            state.payoutMode,
+        );
+        if (primaryValidation.valid) {
+            return { validation: primaryValidation };
+        }
+
+        for (const context of state.coinbaserPayoutContexts.values()) {
+            if (context.payoutMode != null && context.payoutMode !== state.payoutMode) {
+                continue;
+            }
+            if (context.blockHeight != null && datumJob.height != null && context.blockHeight !== datumJob.height) {
+                continue;
+            }
+            if (context.payoutOutputs === datumJob.expectedPayoutOutputs) {
+                continue;
+            }
+
+            const validation = this.validateDatumCoinbasePayouts(
+                coinbase,
+                pow,
+                latestTemplate,
+                datumJob.coinbaseValue,
+                context.payoutOutputs,
+                state.payoutMode,
+            );
+            if (validation.valid) {
+                return { validation, context };
+            }
+        }
+
+        return { validation: primaryValidation };
     }
 
     private getDatumPayoutOutputs(latestTemplate: { blockData?: { payoutOutputs?: AddressObject[] } }, rewardValue: number, payoutMode: PayoutMode = 'solo'): DatumPayoutOutput[] {

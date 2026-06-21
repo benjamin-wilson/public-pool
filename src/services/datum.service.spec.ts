@@ -389,6 +389,109 @@ describe('DatumService job validation', () => {
         ).valid).toBe(true);
     });
 
+    it('accepts DATUM coinbases matching another recent pool-issued coinbaser context for the same height', () => {
+        const service = createService() as any;
+        const extranonce = Buffer.alloc(12, 1);
+        const staleOutputs = (service as any).getDatumPayoutOutputs({
+            blockData: {
+                payoutOutputs: [{ address: 'tb1q42vtlphyjjcun9wcv9f0d9pkhup9dcf5z9k4gh', amountSats: 596 }],
+            },
+        }, 596, 'pplns');
+        const submittedOutputs = (service as any).getDatumPayoutOutputs({
+            blockData: {
+                payoutOutputs: [{ address: 'tb1q9r8gvnx3j4d6jvl0fqjrmy3dar4k4l3052af7q', amountSats: 596 }],
+            },
+        }, 596, 'pplns');
+        const coinbase = createDatumCoinbaseSplit([
+            { address: 'tb1q9r8gvnx3j4d6jvl0fqjrmy3dar4k4l3052af7q', amountSats: 596 },
+        ], extranonce);
+        const latestTemplate = {
+            blockData: {
+                coinbasevalue: 596,
+                payoutOutputs: [{ address: 'tb1q42vtlphyjjcun9wcv9f0d9pkhup9dcf5z9k4gh', amountSats: 596 }],
+            },
+        };
+        const datumJob = {
+            height: 4991366,
+            coinbaseValue: 596n,
+            expectedPayoutOutputs: staleOutputs,
+            coinbasePairs: new Map(),
+        };
+        const state = {
+            payoutMode: 'pplns',
+            coinbaserPayoutContexts: new Map([
+                [1, {
+                    payoutOutputs: staleOutputs,
+                    payoutSnapshotId: 'stale',
+                    blockHeight: 4991366,
+                    payoutMode: 'pplns',
+                }],
+                [2, {
+                    payoutOutputs: submittedOutputs,
+                    payoutSnapshotId: 'submitted',
+                    blockHeight: 4991366,
+                    payoutMode: 'pplns',
+                }],
+            ]),
+        };
+
+        const result = service.validateDatumCoinbasePayoutContext(
+            coinbase,
+            { extranonce, targetByte: 0 },
+            latestTemplate,
+            datumJob,
+            state,
+        );
+
+        expect(result.validation.valid).toBe(true);
+        expect(result.context?.payoutSnapshotId).toBe('submitted');
+    });
+
+    it('still rejects DATUM coinbases that do not match any pool-issued coinbaser context', () => {
+        const service = createService() as any;
+        const extranonce = Buffer.alloc(12, 1);
+        const poolOutputs = (service as any).getDatumPayoutOutputs({
+            blockData: {
+                payoutOutputs: [{ address: 'tb1q42vtlphyjjcun9wcv9f0d9pkhup9dcf5z9k4gh', amountSats: 596 }],
+            },
+        }, 596, 'pplns');
+        const soloCoinbase = createDatumCoinbaseSplit([
+            { address: 'tb1qdyjakeepue4trak9d3hvyelrd0aw7mwju2d0c2', amountSats: 596 },
+        ], extranonce);
+        const latestTemplate = {
+            blockData: {
+                coinbasevalue: 596,
+                payoutOutputs: [{ address: 'tb1q42vtlphyjjcun9wcv9f0d9pkhup9dcf5z9k4gh', amountSats: 596 }],
+            },
+        };
+        const datumJob = {
+            height: 4991366,
+            coinbaseValue: 596n,
+            expectedPayoutOutputs: poolOutputs,
+            coinbasePairs: new Map(),
+        };
+        const state = {
+            payoutMode: 'pplns',
+            coinbaserPayoutContexts: new Map([[1, {
+                payoutOutputs: poolOutputs,
+                payoutSnapshotId: 'pool',
+                blockHeight: 4991366,
+                payoutMode: 'pplns',
+            }]]),
+        };
+
+        const result = service.validateDatumCoinbasePayoutContext(
+            soloCoinbase,
+            { extranonce, targetByte: 0 },
+            latestTemplate,
+            datumJob,
+            state,
+        );
+
+        expect(result.validation.valid).toBe(false);
+        expect(result.validation.error).toBe('output-mismatch');
+    });
+
     it('carries the coinbaser payout snapshot id into the DATUM job cache', () => {
         const service = createService() as any;
         const payoutOutputs = [{

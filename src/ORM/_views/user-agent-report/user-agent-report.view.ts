@@ -13,6 +13,7 @@ import { ClientEntity } from '../../client/client.entity';
             .addSelect('SUM(client.hashRate)', 'totalHashRate')
             .from(ClientEntity, 'client')
             .where('client.deletedAt IS NULL')
+            .andWhere('client.hashRate > 0')
             .groupBy('client.userAgent')
             .orderBy('"totalHashRate"', 'DESC')
 })

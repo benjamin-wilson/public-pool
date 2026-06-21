@@ -603,14 +603,23 @@ describe('TimescaleDB and Redis integration', () => {
       redisMessagingService,
     );
 
-    const activeClient = await repository.save({
+    await repository.save({
       address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
-      clientName: 'active-live-worker',
+      clientName: 'idle-live-worker',
       sessionId: '91b2c3d4',
       userAgent,
       startTime: new Date(),
       bestDifficulty: 11,
       hashRate: 0,
+    });
+    const activeClient = await repository.save({
+      address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
+      clientName: 'active-live-worker',
+      sessionId: '93b2c3d4',
+      userAgent,
+      startTime: new Date(),
+      bestDifficulty: 33,
+      hashRate: 300,
     });
     const staleClient = await repository.save({
       address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
@@ -628,7 +637,7 @@ describe('TimescaleDB and Redis integration', () => {
       userAgent,
       count: '1',
       bestDifficulty: Number(activeClient.bestDifficulty),
-      totalHashRate: '0',
+      totalHashRate: String(activeClient.hashRate),
     }]));
   });
 
