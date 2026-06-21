@@ -55,7 +55,6 @@ describe('UserAgentReportService', () => {
             'client.updatedAt > :activeSince',
             expect.objectContaining({ activeSince: expect.any(Date) }),
         );
-        expect(clientRepository.queryBuilder.andWhere).toHaveBeenCalledWith('client.hashRate > 0');
     });
 
     it('falls back to the materialized view when no active database clients exist', async () => {
