@@ -105,6 +105,34 @@ describe('ClientController', () => {
     }));
   });
 
+  it('should read address best difficulty in API-only mode', async () => {
+    const originalApiOnly = process.env.API_ONLY;
+    process.env.API_ONLY = 'true';
+    try {
+      addressSettingsService.getSettings.mockResolvedValue({ bestDifficulty: 8192 });
+      shareAccountingService.getSessionSummaries.mockResolvedValue(new Map());
+      shareAccountingService.getAddressSummary.mockResolvedValue({
+        totalAcceptedShares: 10,
+        totalCreditedDifficulty: 100,
+        bestSubmissionDifficulty: 0,
+      });
+
+      await expect(controller.getClientInfo('bc1qtest')).resolves.toEqual(expect.objectContaining({
+        bestDifficulty: 8192,
+        accounting: expect.objectContaining({
+          bestSubmissionDifficulty: 8192,
+        }),
+      }));
+      expect(addressSettingsService.getSettings).toHaveBeenCalledWith('bc1qtest', false);
+    } finally {
+      if (originalApiOnly == null) {
+        delete process.env.API_ONLY;
+      } else {
+        process.env.API_ONLY = originalApiOnly;
+      }
+    }
+  });
+
   it('should expose the latest current PPLNS expected payout for an address', async () => {
     addressSettingsService.getSettings.mockResolvedValue(null);
     shareAccountingService.getAddressSummary.mockResolvedValue({

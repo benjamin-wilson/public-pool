@@ -28,9 +28,7 @@ export class ClientController {
         const workers = await this.getActiveAddressWorkers(address, mode);
         const sessionSummaries = await this.shareAccountingService.getSessionSummaries(workers.map(worker => worker.clientId));
 
-        const addressSettings = process.env.API_ONLY === 'true'
-            ? null
-            : await this.addressSettingsService.getSettings(address, false);
+        const addressSettings = await this.addressSettingsService.getSettings(address, false);
         const bestDifficulty = addressSettings?.bestDifficulty ?? workers.reduce((best, worker) => {
             return Math.max(best, Number(worker.bestDifficulty ?? 0));
         }, 0);
