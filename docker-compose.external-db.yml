@@ -108,11 +108,11 @@ services:
       PAYOUT_METHOD: ${PAYOUT_METHOD:-pplns}
       PAYOUT_WINDOW_FACTOR: ${PAYOUT_WINDOW_FACTOR:-4}
       PAYOUT_BOOTSTRAP_WINDOW: ${PAYOUT_BOOTSTRAP_WINDOW:-true}
-      PAYOUT_MAX_COINBASE_OUTPUTS: ${PAYOUT_MAX_COINBASE_OUTPUTS:-10}
+      PAYOUT_MAX_COINBASE_OUTPUTS: ${PAYOUT_MAX_COINBASE_OUTPUTS:-200}
       PAYOUT_MIN_OUTPUT_SATS: ${PAYOUT_MIN_OUTPUT_SATS:-546}
       PAYOUT_FEE_ADDRESS: ${PAYOUT_FEE_ADDRESS:-}
       PAYOUT_FEE_PERCENT: ${PAYOUT_FEE_PERCENT:-0}
-      PAYOUT_COINBASE_WEIGHT_BUDGET: ${PAYOUT_COINBASE_WEIGHT_BUDGET:-50000}
+      PAYOUT_COINBASE_WEIGHT_BUDGET: ${PAYOUT_COINBASE_WEIGHT_BUDGET:-26000}
     healthcheck:
       test: ["CMD-SHELL", "node -e \"const http=require('http'); const https=require('https'); const secure=process.env.API_SECURE==='true'; const client=secure?https:http; const req=client.get({hostname:'127.0.0.1',port:process.env.API_PORT||3334,path:'/api/network',rejectUnauthorized:false},res=>process.exit(res.statusCode<500?0:1)); req.on('error',()=>process.exit(1)); req.setTimeout(5000,()=>{req.destroy(); process.exit(1);});\""]
       interval: 30s

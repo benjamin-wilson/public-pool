@@ -329,6 +329,49 @@ describe('DatumService job validation', () => {
         expect(validation.error).toBe('output-count-mismatch');
     });
 
+    it('rejects DATUM PPLNS coinbases that only fit a smaller profile and add a pool remainder', () => {
+        const configService = {
+            get: jest.fn((key: string) => {
+                if (key === 'NETWORK') {
+                    return 'testnet';
+                }
+                if (key === 'DATUM_POOL_PAYOUT_ADDRESS') {
+                    return 'tb1qdyjakeepue4trak9d3hvyelrd0aw7mwju2d0c2';
+                }
+                return undefined;
+            }),
+        };
+        const service = createService({ configService }) as any;
+        const extranonce = Buffer.alloc(12, 1);
+        const expectedOutputs = [
+            { address: 'tb1q42vtlphyjjcun9wcv9f0d9pkhup9dcf5z9k4gh', amountSats: 421 },
+            { address: 'tb1q9r8gvnx3j4d6jvl0fqjrmy3dar4k4l3052af7q', amountSats: 133 },
+            { address: 'tb1qdyjakeepue4trak9d3hvyelrd0aw7mwju2d0c2', amountSats: 42 },
+        ];
+        const coinbase = createDatumCoinbaseSplit([
+            { address: 'tb1q42vtlphyjjcun9wcv9f0d9pkhup9dcf5z9k4gh', amountSats: 421 },
+            { address: 'tb1qdyjakeepue4trak9d3hvyelrd0aw7mwju2d0c2', amountSats: 175 },
+        ], extranonce);
+        const latestTemplate = {
+            blockData: {
+                coinbasevalue: 596,
+                payoutOutputs: expectedOutputs,
+            },
+        };
+
+        const validation = service.validateDatumCoinbasePayouts(
+            coinbase,
+            { extranonce, targetByte: 0 },
+            latestTemplate,
+            596n,
+            undefined,
+            'pplns',
+        );
+
+        expect(validation.valid).toBe(false);
+        expect(validation.error).toBe('output-count-mismatch');
+    });
+
     it('rejects DATUM coinbases that do not pay the pool snapshot outputs', () => {
         const service = createService() as any;
         const extranonce = Buffer.alloc(12, 1);
