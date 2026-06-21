@@ -51,6 +51,15 @@ export interface ExpectedPayout {
     percent: number;
 }
 
+export interface CreatePayoutSnapshotInput {
+    blockHeight: number;
+    coinbaseValueSats: number;
+    networkDifficulty: number;
+    method?: string;
+    maxCoinbaseOutputs?: number;
+    coinbaseWeightBudget?: number;
+}
+
 const DEFAULT_MAX_COINBASE_OUTPUTS = 10;
 const DEFAULT_MIN_OUTPUT_SATS = 546;
 const DEFAULT_PAYOUT_METHOD = 'pplns';
@@ -75,14 +84,14 @@ export class PayoutSnapshotService {
         private readonly dataSource: DataSource,
     ) { }
 
-    public async createSnapshotForTemplate(input: {
-        blockHeight: number;
-        coinbaseValueSats: number;
-        networkDifficulty: number;
-    }): Promise<PayoutSnapshotForTemplate | null> {
+    public async createSnapshotForTemplate(input: CreatePayoutSnapshotInput): Promise<PayoutSnapshotForTemplate | null> {
         if (!this.snapshotsEnabled || input.coinbaseValueSats <= 0 || input.networkDifficulty <= 0) {
             return null;
         }
+
+        const method = this.normalizeMethod(input.method);
+        const maxCoinbaseOutputs = this.resolvePositiveInt(input.maxCoinbaseOutputs, this.maxCoinbaseOutputs);
+        const coinbaseWeightBudget = this.resolvePositiveInt(input.coinbaseWeightBudget, this.coinbaseWeightBudget);
 
         return this.dataSource.transaction(async manager => {
             const effectiveWindowFactor = await this.getEffectiveWindowFactor(manager);
@@ -93,6 +102,7 @@ export class PayoutSnapshotService {
             }
 
             const existing = await this.getExistingSnapshot(manager, {
+                method,
                 blockHeight: input.blockHeight,
                 coinbaseValueSats: input.coinbaseValueSats,
                 windowEndShareIndex: window.windowEndShareIndex,
@@ -114,9 +124,9 @@ export class PayoutSnapshotService {
                 feeAddress: this.feeAddress,
                 feePercent: this.feePercent,
                 minOutputSats: this.minOutputSats,
-                coinbaseWeightBudget: this.coinbaseWeightBudget,
+                coinbaseWeightBudget,
             });
-            const entries = this.limitCoinbaseOutputs(distribution.entries);
+            const entries = this.limitCoinbaseOutputs(distribution.entries, maxCoinbaseOutputs);
             if (entries.every(entry => !entry.includedInCoinbase)) {
                 return null;
             }
@@ -176,7 +186,7 @@ export class PayoutSnapshotService {
                 )
                 RETURNING "id"::text AS "id"
             `, [
-                this.method,
+                method,
                 PPLNS_PAYOUT_MODE,
                 input.blockHeight,
                 input.coinbaseValueSats.toString(),
@@ -186,7 +196,7 @@ export class PayoutSnapshotService {
                 this.feeAddress,
                 distribution.feeSats.toString(),
                 this.minOutputSats,
-                this.coinbaseWeightBudget,
+                coinbaseWeightBudget,
                 window.startBatchId,
                 window.endBatchId,
                 window.windowStartShareIndex,
@@ -390,9 +400,10 @@ export class PayoutSnapshotService {
             FROM "payout_snapshot"
             WHERE "status" = 'finalized'
               AND "payoutMode" = $1
+              AND "method" = $2
             ORDER BY "createdAt" DESC, "id" DESC
             LIMIT 1
-        `, [PPLNS_PAYOUT_MODE]);
+        `, [PPLNS_PAYOUT_MODE, this.method]);
         if (snapshot?.id == null) {
             return null;
         }
@@ -414,6 +425,7 @@ export class PayoutSnapshotService {
                 FROM "payout_snapshot"
                 WHERE "status" = 'finalized'
                   AND "payoutMode" = $2
+                  AND "method" = $3
                 ORDER BY "createdAt" DESC, "id" DESC
                 LIMIT 1
             )
@@ -437,7 +449,7 @@ export class PayoutSnapshotService {
               AND e."includedInCoinbase" = true
               AND e."payoutSats" > 0
             LIMIT 1
-        `, [address, PPLNS_PAYOUT_MODE]);
+        `, [address, PPLNS_PAYOUT_MODE, this.method]);
 
         if (row == null) {
             return null;
@@ -554,7 +566,7 @@ export class PayoutSnapshotService {
 
     private async getExistingSnapshot(
         manager: EntityManager,
-        input: { blockHeight: number; coinbaseValueSats: number; windowEndShareIndex: string },
+        input: { method: string; blockHeight: number; coinbaseValueSats: number; windowEndShareIndex: string },
     ): Promise<PayoutSnapshotForTemplate | null> {
         const [snapshot] = await manager.query(`
             SELECT "id"::text AS "id"
@@ -568,7 +580,7 @@ export class PayoutSnapshotService {
             ORDER BY "id" DESC
             LIMIT 1
         `, [
-            this.method,
+            input.method,
             input.blockHeight,
             input.coinbaseValueSats.toString(),
             input.windowEndShareIndex,
@@ -689,7 +701,7 @@ export class PayoutSnapshotService {
         ]);
     }
 
-    private limitCoinbaseOutputs(entries: PayoutDistributionEntry[]): PayoutDistributionEntry[] {
+    private limitCoinbaseOutputs(entries: PayoutDistributionEntry[], maxCoinbaseOutputs: number): PayoutDistributionEntry[] {
         let included = 0;
         let removedPayoutSats = 0;
         const limitedEntries = entries.map(entry => {
@@ -697,7 +709,7 @@ export class PayoutSnapshotService {
                 return entry;
             }
             included++;
-            if (included <= this.maxCoinbaseOutputs) {
+            if (included <= maxCoinbaseOutputs) {
                 return entry;
             }
             removedPayoutSats += entry.payoutSats;
@@ -759,6 +771,17 @@ export class PayoutSnapshotService {
     private readPositiveInt(name: string, defaultValue: number): number {
         const value = Number(process.env[name]);
         return Number.isInteger(value) && value > 0 ? value : defaultValue;
+    }
+
+    private resolvePositiveInt(value: number | undefined, defaultValue: number): number {
+        return Number.isInteger(value) && value > 0 ? value : defaultValue;
+    }
+
+    private normalizeMethod(method?: string): string {
+        const normalized = method?.trim();
+        return normalized == null || normalized.length === 0
+            ? this.method
+            : normalized.slice(0, 32);
     }
 
     private readNonNegativeInt(name: string, defaultValue: number): number {

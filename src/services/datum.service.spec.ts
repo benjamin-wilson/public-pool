@@ -9,6 +9,7 @@ function createService(overrides: {
     configService?: any;
     clientService?: any;
     redisMessagingService?: any;
+    payoutSnapshotService?: any;
 } = {}): DatumService {
     const configService = overrides.configService ?? {
         get: jest.fn((key: string) => {
@@ -43,6 +44,7 @@ function createService(overrides: {
         {} as any,
         templateProvider as unknown as TemplateProviderService,
         overrides.redisMessagingService,
+        overrides.payoutSnapshotService,
     );
 }
 
@@ -387,6 +389,60 @@ describe('DatumService job validation', () => {
             expectedPayoutOutputs,
             'pplns',
         ).valid).toBe(true);
+    });
+
+    it('creates DATUM-sized payout snapshots for PPLNS coinbaser fetches', async () => {
+        const payoutSnapshotService = {
+            createSnapshotForTemplate: jest.fn().mockResolvedValue({
+                id: 'datum-snapshot-1',
+                payoutOutputs: [
+                    { address: 'tb1q42vtlphyjjcun9wcv9f0d9pkhup9dcf5z9k4gh', amountSats: 596 },
+                ],
+            }),
+        };
+        const configService = {
+            get: jest.fn((key: string) => {
+                if (key === 'NETWORK') {
+                    return 'testnet';
+                }
+                if (key === 'DATUM_PAYOUT_MAX_COINBASE_OUTPUTS') {
+                    return '6';
+                }
+                if (key === 'DATUM_PAYOUT_COINBASE_WEIGHT_BUDGET') {
+                    return '1500';
+                }
+                return undefined;
+            }),
+        };
+        const service = createService({ configService, payoutSnapshotService }) as any;
+
+        const result = await service.getDatumCoinbaserPayoutContext({
+            blockData: {
+                height: 5010000,
+                networkDifficulty: 42,
+                payoutSnapshotId: 'template-snapshot',
+                payoutOutputs: [
+                    { address: 'tb1q9r8gvnx3j4d6jvl0fqjrmy3dar4k4l3052af7q', amountSats: 596 },
+                ],
+            },
+        }, 596, 'pplns');
+
+        expect(payoutSnapshotService.createSnapshotForTemplate).toHaveBeenCalledWith({
+            blockHeight: 5010000,
+            coinbaseValueSats: 596,
+            networkDifficulty: 42,
+            method: 'pplns-datum',
+            maxCoinbaseOutputs: 6,
+            coinbaseWeightBudget: 1500,
+        });
+        expect(result.payoutSnapshotId).toBe('datum-snapshot-1');
+        expect(result.payoutOutputs).toEqual([{
+            value: 596n,
+            scriptPubKey: bitcoinjs.address.toOutputScript(
+                'tb1q42vtlphyjjcun9wcv9f0d9pkhup9dcf5z9k4gh',
+                bitcoinjs.networks.testnet,
+            ),
+        }]);
     });
 
     it('accepts DATUM coinbases matching another recent pool-issued coinbaser context for the same height', () => {
