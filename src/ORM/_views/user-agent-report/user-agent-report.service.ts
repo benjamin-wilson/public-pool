@@ -72,6 +72,7 @@ export class UserAgentReportService {
             .addSelect('COALESCE(SUM(client.hashRate), 0)', 'totalHashRate')
             .where('client.deletedAt IS NULL')
             .andWhere('client.updatedAt > :activeSince', { activeSince })
+            .andWhere('client.hashRate > 0')
             .groupBy('COALESCE(NULLIF(client.userAgent, \'\'), \'Other\')')
             .orderBy('"totalHashRate"', 'DESC')
             .getRawMany<UserAgentReportView>();
