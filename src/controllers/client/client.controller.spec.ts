@@ -145,6 +145,8 @@ describe('ClientController', () => {
   });
 
   it('should expose active database workers for an address', async () => {
+    const recent = new Date(Date.now() - 60 * 1000).toISOString();
+    const stale = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     clientService.getByAddress.mockResolvedValue([
       {
         id: 'active-client',
@@ -155,7 +157,7 @@ describe('ClientController', () => {
         bestDifficulty: 64,
         hashRate: 1024,
         startTime: '2026-06-08T12:00:00.000Z',
-        updatedAt: '2026-06-08T12:10:00.000Z',
+        updatedAt: recent,
       },
       {
         id: 'solo-client',
@@ -166,7 +168,41 @@ describe('ClientController', () => {
         bestDifficulty: 128,
         hashRate: 2048,
         startTime: '2026-06-08T12:00:00.000Z',
-        updatedAt: '2026-06-08T12:10:00.000Z',
+        updatedAt: recent,
+      },
+      {
+        id: 'stale-client',
+        address: 'bc1qtest',
+        sessionId: 'stale1',
+        clientName: 'stale-worker',
+        payoutMode: 'pplns',
+        bestDifficulty: 256,
+        hashRate: 4096,
+        startTime: '2026-06-08T12:00:00.000Z',
+        updatedAt: stale,
+      },
+      {
+        id: 'idle-client',
+        address: 'bc1qtest',
+        sessionId: 'idle1',
+        clientName: 'idle-worker',
+        payoutMode: 'pplns',
+        bestDifficulty: 512,
+        hashRate: 0,
+        startTime: '2026-06-08T12:00:00.000Z',
+        updatedAt: recent,
+      },
+      {
+        id: 'deleted-client',
+        address: 'bc1qtest',
+        sessionId: 'deleted1',
+        clientName: 'deleted-worker',
+        payoutMode: 'pplns',
+        bestDifficulty: 1024,
+        hashRate: 8192,
+        startTime: '2026-06-08T12:00:00.000Z',
+        updatedAt: recent,
+        deletedAt: recent,
       },
     ]);
     addressSettingsService.getSettings.mockResolvedValue(null);

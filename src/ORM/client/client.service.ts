@@ -4,10 +4,11 @@ import { In, Repository } from 'typeorm';
 
 import { ClientEntity } from './client.entity';
 
-
+const DEFAULT_CLIENT_ACTIVE_WINDOW_MS = 30 * 60 * 1000;
 
 @Injectable()
 export class ClientService {
+    private readonly activeWindowMs = this.readPositiveInt('CLIENT_REPORT_ACTIVE_WINDOW_MS', DEFAULT_CLIENT_ACTIVE_WINDOW_MS);
 
     constructor(
         @InjectRepository(ClientEntity)
@@ -84,14 +85,15 @@ export class ClientService {
     }
 
     public async getByAddress(address: string): Promise<ClientEntity[]> {
-        return await this.clientRepository.find({
-            where: {
-                address
-            },
-            order: {
-                updatedAt: 'DESC',
-            },
-        })
+        const activeSince = new Date(Date.now() - this.activeWindowMs);
+        return await this.clientRepository
+            .createQueryBuilder('client')
+            .where('client.address = :address', { address })
+            .andWhere('client.deletedAt IS NULL')
+            .andWhere('client.updatedAt > :activeSince', { activeSince })
+            .andWhere('client.hashRate > 0')
+            .orderBy('client.updatedAt', 'DESC')
+            .getMany();
     }
 
 
@@ -134,5 +136,13 @@ export class ClientService {
     //         .getRawMany();
     //     return result;
     // }
+
+    private readPositiveInt(name: string, defaultValue: number): number {
+        const value = Number(process.env[name]);
+        if (Number.isInteger(value) && value > 0) {
+            return value;
+        }
+        return defaultValue;
+    }
 
 }

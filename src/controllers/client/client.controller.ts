@@ -7,9 +7,11 @@ import { PayoutSnapshotService } from '../../ORM/payout-snapshot/payout-snapshot
 import { ShareAccountingService } from '../../ORM/share-accounting/share-accounting.service';
 import { normalizePayoutMode, PayoutMode } from '../../types/payout-mode';
 
+const DEFAULT_CLIENT_ACTIVE_WINDOW_MS = 30 * 60 * 1000;
 
 @Controller('client')
 export class ClientController {
+    private readonly activeWindowMs = this.readPositiveInt('CLIENT_REPORT_ACTIVE_WINDOW_MS', DEFAULT_CLIENT_ACTIVE_WINDOW_MS);
 
     constructor(
         private readonly clientService: ClientService,
@@ -178,8 +180,15 @@ export class ClientController {
 
     private async getActiveAddressWorkers(address: string, payoutMode?: PayoutMode) {
         const workers = await this.clientService.getByAddress(address);
+        const activeSince = Date.now() - this.activeWindowMs;
         return workers
             .filter(worker => payoutMode == null || worker.payoutMode === payoutMode)
+            .filter(worker => worker.deletedAt == null)
+            .filter(worker => Number(worker.hashRate ?? 0) > 0)
+            .filter(worker => {
+                const updatedAt = worker.updatedAt == null ? 0 : new Date(worker.updatedAt).getTime();
+                return Number.isFinite(updatedAt) && updatedAt > activeSince;
+            })
             .map(worker => ({
                 clientId: worker.id,
                 address: worker.address,
@@ -192,5 +201,13 @@ export class ClientController {
                 hashRate: Number(worker.hashRate ?? 0),
                 bestDifficulty: Number(worker.bestDifficulty ?? 0),
             }));
+    }
+
+    private readPositiveInt(name: string, defaultValue: number): number {
+        const value = Number(process.env[name]);
+        if (Number.isInteger(value) && value > 0) {
+            return value;
+        }
+        return defaultValue;
     }
 }
