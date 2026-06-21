@@ -51,6 +51,10 @@ describe('UserAgentReportService', () => {
         ]);
         expect(userAgentReport.find).not.toHaveBeenCalled();
         expect(clientRepository.createQueryBuilder).toHaveBeenCalled();
+        expect(clientRepository.queryBuilder.andWhere).toHaveBeenCalledWith(
+            'client.updatedAt > :activeSince',
+            expect.objectContaining({ activeSince: expect.any(Date) }),
+        );
     });
 
     it('falls back to the materialized view when no active database clients exist', async () => {
@@ -114,6 +118,7 @@ function createClientRepository(rows: unknown[]) {
         select: jest.fn().mockReturnThis(),
         addSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
         groupBy: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
         getRawMany: jest.fn().mockResolvedValue(rows),
@@ -121,5 +126,6 @@ function createClientRepository(rows: unknown[]) {
 
     return {
         createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
+        queryBuilder,
     };
 }

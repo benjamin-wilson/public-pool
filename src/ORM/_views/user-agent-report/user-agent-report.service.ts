@@ -6,9 +6,12 @@ import { ClientEntity } from '../../client/client.entity';
 import { UserAgentReportView } from './user-agent-report.view';
 import { RedisMessagingService } from '../../../services/redis-messaging.service';
 
+const DEFAULT_CLIENT_REPORT_ACTIVE_WINDOW_MS = 30 * 60 * 1000;
+
 @Injectable()
 export class UserAgentReportService {
     private readonly liveReportCacheKey = 'presence:user-agent-report';
+    private readonly activeWindowMs = this.readPositiveInt('CLIENT_REPORT_ACTIVE_WINDOW_MS', DEFAULT_CLIENT_REPORT_ACTIVE_WINDOW_MS);
     private liveRefreshPromise: Promise<UserAgentReportView[]> | null = null;
 
     constructor(
@@ -60,6 +63,7 @@ export class UserAgentReportService {
     }
 
     private async buildLiveReport() {
+        const activeSince = new Date(Date.now() - this.activeWindowMs);
         const rows = await this.clientRepository
             .createQueryBuilder('client')
             .select('COALESCE(NULLIF(client.userAgent, \'\'), \'Other\')', 'userAgent')
@@ -67,6 +71,7 @@ export class UserAgentReportService {
             .addSelect('MAX(client.bestDifficulty)', 'bestDifficulty')
             .addSelect('COALESCE(SUM(client.hashRate), 0)', 'totalHashRate')
             .where('client.deletedAt IS NULL')
+            .andWhere('client.updatedAt > :activeSince', { activeSince })
             .groupBy('COALESCE(NULLIF(client.userAgent, \'\'), \'Other\')')
             .orderBy('"totalHashRate"', 'DESC')
             .getRawMany<UserAgentReportView>();
@@ -93,5 +98,13 @@ export class UserAgentReportService {
             console.log(e)
         }
 
+    }
+
+    private readPositiveInt(name: string, defaultValue: number): number {
+        const value = Number(process.env[name]);
+        if (Number.isInteger(value) && value > 0) {
+            return value;
+        }
+        return defaultValue;
     }
 }
