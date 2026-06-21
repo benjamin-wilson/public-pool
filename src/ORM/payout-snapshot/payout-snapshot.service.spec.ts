@@ -95,63 +95,6 @@ describe('PayoutSnapshotService', () => {
         expect(manager.query.mock.calls[0][1]).toEqual([100, 'pplns']);
     });
 
-    it('should allow protocol-specific snapshot methods and coinbase limits', async () => {
-        manager.query
-            .mockResolvedValueOnce([{
-                startBatchId: '10',
-                endBatchId: '12',
-                windowStartShareIndex: '1000',
-                windowEndShareIndex: '2000',
-                totalCreditedDifficulty: '100',
-                totalAcceptedShareCount: '5',
-            }])
-            .mockResolvedValueOnce([])
-            .mockResolvedValueOnce([
-                { address: ADDRESS_A, creditedDifficulty: 60, acceptedShareCount: 3 },
-                { address: ADDRESS_B, creditedDifficulty: 40, acceptedShareCount: 2 },
-            ])
-            .mockResolvedValueOnce([])
-            .mockResolvedValueOnce([{ id: '57' }])
-            .mockResolvedValueOnce([])
-            .mockResolvedValueOnce([])
-            .mockResolvedValueOnce([{
-                id: '57',
-                method: 'pplns-datum',
-                blockHeight: 900002,
-                coinbaseValueSats: '1000',
-                windowStartShareIndex: '1000',
-                windowEndShareIndex: '2000',
-                totalCreditedDifficulty: 100,
-                totalAcceptedShareCount: '5',
-                eligibleAddressCount: 2,
-                includedOutputCount: 1,
-                distributedSats: '1000',
-                unallocatedRemainderSats: '0',
-            }])
-            .mockResolvedValueOnce([
-                { address: ADDRESS_A, payoutSats: '1000' },
-            ]);
-
-        const snapshot = await service.createSnapshotForTemplate({
-            blockHeight: 900002,
-            coinbaseValueSats: 1000,
-            networkDifficulty: 25,
-            method: 'pplns-datum',
-            maxCoinbaseOutputs: 1,
-            coinbaseWeightBudget: 2000,
-        });
-
-        expect(snapshot).toEqual(expect.objectContaining({
-            id: '57',
-            method: 'pplns-datum',
-            includedOutputCount: 1,
-        }));
-        expect(manager.query.mock.calls[1][1][0]).toBe('pplns-datum');
-        expect(manager.query.mock.calls[4][1][0]).toBe('pplns-datum');
-        expect(manager.query.mock.calls[4][1][10]).toBe(2000);
-        expect(manager.query.mock.calls[4][1][18]).toBe(1);
-    });
-
     it('should bootstrap the PPLNS window from paid block count up to the configured factor', async () => {
         process.env.PAYOUT_BOOTSTRAP_WINDOW = 'true';
         service = new PayoutSnapshotService(dataSource as unknown as DataSource);
@@ -360,7 +303,7 @@ describe('PayoutSnapshotService', () => {
             createdAt: new Date('2026-06-16T12:00:00.000Z'),
             percent: 60,
         });
-        expect(dataSource.query.mock.calls[0][1]).toEqual([ADDRESS_A, 'pplns', 'pplns']);
+        expect(dataSource.query.mock.calls[0][1]).toEqual([ADDRESS_A, 'pplns']);
         expect(dataSource.query.mock.calls[0][0]).toContain('WITH latest_snapshot AS');
     });
 

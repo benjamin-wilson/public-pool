@@ -45,9 +45,6 @@ import { parsePayoutModePorts, PayoutMode } from '../types/payout-mode';
 const DEFAULT_DATUM_SHARE_DIFFICULTY = 1;
 const DEFAULT_DATUM_PING_INTERVAL_MS = 30_000;
 const DEFAULT_CLIENT_HASHRATE_PERSIST_INTERVAL_MS = 60_000;
-const DEFAULT_DATUM_PAYOUT_MAX_COINBASE_OUTPUTS = 10;
-const DEFAULT_DATUM_PAYOUT_COINBASE_WEIGHT_BUDGET = 2_000;
-const DATUM_PAYOUT_METHOD = 'pplns-datum';
 
 @Injectable()
 export class DatumService implements OnModuleInit {
@@ -224,8 +221,7 @@ export class DatumService implements OnModuleInit {
     private async handleCoinbaserFetch(socket: Socket, state: DatumClientState, payload: Buffer): Promise<void> {
         const fetch = deserializeDatumCoinbaserFetch(payload);
         const latestTemplate = await firstValueFrom(this.jobsService.newMiningJob$);
-        const payoutContext = await this.getDatumCoinbaserPayoutContext(latestTemplate, Number(fetch.rewardValue), state.payoutMode);
-        const payoutOutputs = payoutContext.payoutOutputs;
+        const payoutOutputs = this.getDatumPayoutOutputs(latestTemplate, Number(fetch.rewardValue), state.payoutMode);
         if (payoutOutputs.length === 0) {
             throw new Error('DATUM_POOL_PAYOUT_ADDRESS or DEV_FEE_ADDRESS must be set before DATUM coinbaser fetches can be served');
         }
@@ -233,7 +229,7 @@ export class DatumService implements OnModuleInit {
         const coinbaserId = this.nextDatumCoinbaserId(state);
         state.coinbaserPayoutContexts.set(coinbaserId, {
             payoutOutputs,
-            payoutSnapshotId: payoutContext.payoutSnapshotId,
+            payoutSnapshotId: latestTemplate.blockData.payoutSnapshotId ?? null,
             blockHeight: latestTemplate.blockData.height,
             payoutMode: state.payoutMode,
         });
@@ -246,40 +242,6 @@ export class DatumService implements OnModuleInit {
 
         const response = serializeDatumCoinbaserFetchResponse(fetch.rewardValue, payoutOutputs, coinbaserId);
         await this.writeRaw(socket, state.session.encryptChannelFrame(DatumProtocolCommand.MINING, response));
-    }
-
-    private async getDatumCoinbaserPayoutContext(
-        latestTemplate: IJobTemplate,
-        rewardValue: number,
-        payoutMode: PayoutMode,
-    ): Promise<{ payoutOutputs: DatumPayoutOutput[]; payoutSnapshotId?: string | null }> {
-        if (payoutMode === 'pplns' && this.payoutSnapshotService != null) {
-            try {
-                const snapshot = await this.payoutSnapshotService.createSnapshotForTemplate({
-                    blockHeight: latestTemplate.blockData.height,
-                    coinbaseValueSats: rewardValue,
-                    networkDifficulty: latestTemplate.blockData.networkDifficulty,
-                    method: DATUM_PAYOUT_METHOD,
-                    maxCoinbaseOutputs: this.getDatumPayoutMaxCoinbaseOutputs(),
-                    coinbaseWeightBudget: this.getDatumPayoutCoinbaseWeightBudget(),
-                });
-                if (snapshot?.payoutOutputs?.length > 0) {
-                    return {
-                        payoutOutputs: this.getDatumPayoutOutputs({ blockData: { payoutOutputs: snapshot.payoutOutputs } }, rewardValue, payoutMode),
-                        payoutSnapshotId: snapshot.id,
-                    };
-                }
-            } catch (error) {
-                console.error(`[DATUM] Error creating DATUM payout snapshot: ${error.message}`);
-            }
-        }
-
-        return {
-            payoutOutputs: this.getDatumPayoutOutputs(latestTemplate, rewardValue, payoutMode),
-            payoutSnapshotId: payoutMode === 'pplns'
-                ? latestTemplate.blockData.payoutSnapshotId ?? null
-                : null,
-        };
     }
 
     private async handlePowSubmit(socket: Socket, state: DatumClientState, payload: Buffer): Promise<void> {
@@ -945,20 +907,6 @@ export class DatumService implements OnModuleInit {
             return this.getConfiguredDatumShareDifficulty();
         }
         return Math.pow(2, pow.targetByte);
-    }
-
-    private getDatumPayoutMaxCoinbaseOutputs(): number {
-        const configured = Number(this.configService.get<string>('DATUM_PAYOUT_MAX_COINBASE_OUTPUTS'));
-        return Number.isInteger(configured) && configured > 0
-            ? configured
-            : DEFAULT_DATUM_PAYOUT_MAX_COINBASE_OUTPUTS;
-    }
-
-    private getDatumPayoutCoinbaseWeightBudget(): number {
-        const configured = Number(this.configService.get<string>('DATUM_PAYOUT_COINBASE_WEIGHT_BUDGET'));
-        return Number.isInteger(configured) && configured > 0
-            ? configured
-            : DEFAULT_DATUM_PAYOUT_COINBASE_WEIGHT_BUDGET;
     }
 
     private mapDatumTemplateRejectReason(errorCode?: string): DatumRejectReason {
