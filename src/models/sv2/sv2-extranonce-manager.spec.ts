@@ -1,4 +1,7 @@
-import { Sv2ExtranonceManager } from './sv2-extranonce-manager';
+import {
+  resolveSv2ProcessNamespace,
+  Sv2ExtranonceManager,
+} from './sv2-extranonce-manager';
 
 
 describe('Sv2ExtranonceManager', () => {
@@ -112,6 +115,70 @@ describe('Sv2ExtranonceManager', () => {
     expect(mgr.allocatedCount).toBe(1);
     mgr.release(2);
     expect(mgr.allocatedCount).toBe(0);
+  });
+
+  it('partitions prefixes deterministically across PM2 workers and reload generations', () => {
+    const worker0 = resolveSv2ProcessNamespace({
+      NODE_APP_INSTANCE: '0',
+      restart_time: '0',
+    });
+    const worker1 = resolveSv2ProcessNamespace({
+      NODE_APP_INSTANCE: '1',
+      restart_time: '0',
+    });
+    const worker0Reload = resolveSv2ProcessNamespace({
+      NODE_APP_INSTANCE: '0',
+      restart_time: '1',
+    });
+    const prefixes = [worker0, worker1, worker0Reload].map(namespace => (
+      new Sv2ExtranonceManager(4, 14, namespace).allocate(1).toString('hex')
+    ));
+
+    expect([worker0, worker1, worker0Reload]).toEqual([0, 2, 1]);
+    expect(new Set(prefixes).size).toBe(3);
+    expect(prefixes).toEqual(['00000001', '02000001', '01000001']);
+  });
+
+  it('offsets PM2 worker lanes with an explicit deployment namespace base', () => {
+    expect(resolveSv2ProcessNamespace({
+      SV2_EXTRANONCE_NAMESPACE_BASE: '32',
+      NODE_APP_INSTANCE: '3',
+      restart_time: '5',
+    })).toBe(39);
+  });
+
+  it('falls back to pm_id when NODE_APP_INSTANCE is unavailable', () => {
+    expect(resolveSv2ProcessNamespace({
+      pm_id: '7',
+      restart_time: '2',
+    })).toBe(14);
+  });
+
+  it('fails closed for managed workers without a unique process identifier', () => {
+    expect(() => resolveSv2ProcessNamespace({ PM2_ENABLED: 'true' }))
+      .toThrow('cannot allocate collision-free extranonces');
+  });
+
+  it('fails when the worker namespace cannot fit in the four-byte prefix', () => {
+    expect(() => resolveSv2ProcessNamespace({
+      NODE_APP_INSTANCE: '128',
+      restart_time: '0',
+    })).toThrow('does not fit in one byte');
+    expect(() => new Sv2ExtranonceManager(4, 14, 256))
+      .toThrow('must fit in one byte');
+  });
+
+  it('rejects prefix and total sizes that cannot preserve the namespace', () => {
+    expect(() => new Sv2ExtranonceManager(1, 14, 0))
+      .toThrow('between 2 and 4 bytes');
+    expect(() => new Sv2ExtranonceManager(4, 3, 0))
+      .toThrow('must include the pool prefix');
+  });
+
+  it('rejects channel identifiers that cannot be represented by SV2', () => {
+    const mgr = new Sv2ExtranonceManager();
+    expect(() => mgr.allocate(0)).toThrow('unsigned non-zero 32-bit integer');
+    expect(() => mgr.allocate(0x1_0000_0000)).toThrow('unsigned non-zero 32-bit integer');
   });
 
 });

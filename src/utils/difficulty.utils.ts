@@ -19,7 +19,60 @@ export class DifficultyUtils {
     }
 
     public static meetsTarget(hashBuffer: Buffer, target: Buffer): boolean {
+        if (hashBuffer.length !== 32) {
+            throw new Error('Hash must be 32 bytes');
+        }
+        if (target.length !== 32) {
+            throw new Error('Target must be 32 bytes');
+        }
         return DifficultyUtils.compareLe256(hashBuffer, target) <= 0;
+    }
+
+    /**
+     * Decode Bitcoin's compact nBits value to the 32-byte little-endian target
+     * representation used by raw double-SHA256 digests in this service.
+     * Returns null for zero, negative, overflowing, or non-uint32 encodings.
+     */
+    public static compactToTarget(nBits: number): Buffer | null {
+        if (!Number.isInteger(nBits) || nBits < 0 || nBits > 0xffffffff) {
+            return null;
+        }
+
+        const size = nBits >>> 24;
+        let word = nBits & 0x007fffff;
+        if (size <= 3) {
+            word >>>= 8 * (3 - size);
+        }
+
+        const negative = word !== 0 && (nBits & 0x00800000) !== 0;
+        const overflow = word !== 0 && (
+            size > 34
+            || (word > 0xff && size > 33)
+            || (word > 0xffff && size > 32)
+        );
+        if (word === 0 || negative || overflow) {
+            return null;
+        }
+
+        const target = Buffer.alloc(32);
+        const offset = size <= 3 ? 0 : size - 3;
+        for (let byte = 0; byte < 3 && offset + byte < target.length; byte++) {
+            target[offset + byte] = (word >>> (byte * 8)) & 0xff;
+        }
+        return target;
+    }
+
+    /**
+     * Compare a raw, internal-byte-order block hash against a compact target.
+     * Invalid nBits never match.
+     */
+    public static meetsCompactTarget(hashBuffer: Buffer, nBits: number): boolean {
+        if (hashBuffer.length !== 32) {
+            throw new Error('Hash must be 32 bytes');
+        }
+
+        const target = DifficultyUtils.compactToTarget(nBits);
+        return target != null && DifficultyUtils.compareLe256(hashBuffer, target) <= 0;
     }
 
     public static difficultyToTarget(difficulty: number): Buffer {

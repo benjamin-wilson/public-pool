@@ -1,7 +1,8 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import { Server, Socket } from 'net';
+import { Subscription } from 'rxjs';
 
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
 import { BlocksService } from '../ORM/blocks/blocks.service';
@@ -9,8 +10,16 @@ import { ClientService } from '../ORM/client/client.service';
 import { PayoutSnapshotService } from '../ORM/payout-snapshot/payout-snapshot.service';
 import { ShareAccountingService } from '../ORM/share-accounting/share-accounting.service';
 import { StratumV2Client } from '../models/StratumV2Client';
+import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { encodeSv2AuthorityPublicKey } from '../models/sv2/sv2-authority-key';
-import { Sv2ExtranonceManager } from '../models/sv2/sv2-extranonce-manager';
+import {
+    resolveSv2ProcessNamespace,
+    Sv2ExtranonceManager,
+} from '../models/sv2/sv2-extranonce-manager';
+import {
+    EXTRANONCE1_SIZE_BYTES,
+    SV2_EXTENDED_TOTAL_EXTRANONCE_SIZE_BYTES,
+} from '../models/stratum.constants';
 import {
     createSignatureNoiseMessage,
     generateServerKeypair,
@@ -22,7 +31,7 @@ import { BitcoinRpcService } from './bitcoin-rpc.service';
 import { CustomWorkService } from './custom-work.service';
 import { NotificationService } from './notification.service';
 import { RedisMessagingService } from './redis-messaging.service';
-import { StratumV1JobsService } from './stratum-v1-jobs.service';
+import { IJobTemplate, StratumV1JobsService } from './stratum-v1-jobs.service';
 import { Sv2JobDeclarationRegistryService } from './sv2-job-declaration-registry.service';
 import { parsePayoutModePorts, PayoutMode } from '../types/payout-mode';
 
@@ -30,15 +39,21 @@ const DEFAULT_SOCKET_TIMEOUT_MS = 1000 * 60 * 60;
 const DEFAULT_TCP_KEEPALIVE_INITIAL_DELAY_MS = 1000 * 60;
 
 @Injectable()
-export class StratumV2Service implements OnModuleInit {
+export class StratumV2Service implements OnModuleInit, OnModuleDestroy {
     private readonly servers: Server[] = [];
+    private readonly clients = new Set<StratumV2Client>();
+    private readonly latestCanonicalJobs = new Map<PayoutMode | 'all', IJobTemplate>();
+    private canonicalJobSubscription: Subscription = null;
+    private workActivationSubscription: Subscription = null;
+    private latestWorkActivationTemplate: IBlockTemplate = null;
+    private latestWorkActivationKey: string = null;
     private authorityPrivKey: Buffer;
     private authorityPublicKeyXOnly: Buffer;
     private authorityKeyConfigured = false;
     private serverKeypair: Sv2ServerKeypair;
     private noiseConfig: Sv2NoiseConfig;
     private channelIdCounter = 1;
-    private readonly extranonceManager = new Sv2ExtranonceManager();
+    private extranonceManager: Sv2ExtranonceManager = null;
 
     constructor(
         private readonly bitcoinRpcService: BitcoinRpcService,
@@ -65,6 +80,10 @@ export class StratumV2Service implements OnModuleInit {
             return;
         }
 
+        this.getExtranonceManager();
+        this.startCanonicalJobBroadcaster();
+        this.startWorkActivationBroadcaster();
+
         const ports = this.getPorts();
         if (ports.length === 0) {
             return;
@@ -72,6 +91,23 @@ export class StratumV2Service implements OnModuleInit {
 
         await this.ensureInitialized();
         ports.forEach(({ port, payoutMode }) => this.startSocketServer(port, payoutMode));
+    }
+
+    public async onModuleDestroy(): Promise<void> {
+        this.canonicalJobSubscription?.unsubscribe();
+        this.canonicalJobSubscription = null;
+        this.workActivationSubscription?.unsubscribe();
+        this.workActivationSubscription = null;
+
+        const clients = Array.from(this.clients);
+        this.clients.clear();
+        await Promise.allSettled(clients.map(client => client.destroy()));
+
+        for (const server of this.servers) {
+            if (server.listening) {
+                server.close();
+            }
+        }
     }
 
     public async ensureInitialized(): Promise<void> {
@@ -87,7 +123,7 @@ export class StratumV2Service implements OnModuleInit {
             throw new Error('Stratum V2 service is not initialized');
         }
 
-        return new StratumV2Client(
+        const client = new StratumV2Client(
             socket,
             firstChunk,
             this,
@@ -105,6 +141,26 @@ export class StratumV2Service implements OnModuleInit {
             this.payoutSnapshotService,
             payoutMode,
         );
+        this.registerClient(client);
+        return client;
+    }
+
+    public registerClient(client: StratumV2Client): void {
+        this.clients.add(client);
+    }
+
+    public unregisterClient(client: StratumV2Client): void {
+        this.clients.delete(client);
+    }
+
+    public getLatestCanonicalJob(payoutMode: PayoutMode): IJobTemplate | null {
+        return this.latestCanonicalJobs.get(payoutMode)
+            ?? this.latestCanonicalJobs.get('all')
+            ?? this.stratumV1JobsService.getLatestJobTemplate(payoutMode);
+    }
+
+    public getLatestWorkActivationTemplate(): IBlockTemplate | null {
+        return this.latestWorkActivationTemplate;
     }
 
     public getNoiseConfig(): Sv2NoiseConfig {
@@ -121,30 +177,120 @@ export class StratumV2Service implements OnModuleInit {
     }
 
     public getNextChannelId(): number {
+        if (this.channelIdCounter > 0xffffffff) {
+            throw new Error('SV2 channel ID space exhausted');
+        }
         return this.channelIdCounter++;
     }
 
-    public generateExtranoncePrefix(): Buffer {
-        const prefix = Buffer.alloc(4);
-        prefix.writeUInt16BE(this.channelIdCounter & 0xffff, 0);
-        crypto.randomBytes(2).copy(prefix, 2);
-        return prefix;
+    public generateExtranoncePrefix(channelId: number): Buffer {
+        return this.getExtranonceManager().allocate(channelId);
     }
 
     public allocateExtendedExtranoncePrefix(channelId: number): Buffer {
-        return this.extranonceManager.allocate(channelId);
+        return this.getExtranonceManager().allocate(channelId);
+    }
+
+    public releaseExtranoncePrefix(channelId: number): void {
+        this.extranonceManager?.release(channelId);
     }
 
     public releaseExtendedExtranoncePrefix(channelId: number): void {
-        this.extranonceManager.release(channelId);
+        this.releaseExtranoncePrefix(channelId);
     }
 
     public getExtendedMinerExtranonceSize(): number {
-        return this.extranonceManager.minerExtranonceSize;
+        return this.getExtranonceManager().minerExtranonceSize;
     }
 
     public getExtendedTotalExtranonceSize(): number {
-        return this.extranonceManager.totalSize;
+        return this.getExtranonceManager().totalSize;
+    }
+
+    private getExtranonceManager(): Sv2ExtranonceManager {
+        if (this.extranonceManager == null) {
+            const clusterWorkerId = (require('cluster') as { worker?: { id?: number } }).worker?.id;
+            const clusterWorkerIndex = clusterWorkerId == null
+                ? undefined
+                : clusterWorkerId - 1;
+            const processNamespace = resolveSv2ProcessNamespace(
+                process.env,
+                clusterWorkerIndex,
+            );
+            this.extranonceManager = new Sv2ExtranonceManager(
+                EXTRANONCE1_SIZE_BYTES,
+                SV2_EXTENDED_TOTAL_EXTRANONCE_SIZE_BYTES,
+                processNamespace,
+            );
+            console.log(`SV2 extranonce namespace ${processNamespace} initialized`);
+        }
+        return this.extranonceManager;
+    }
+
+    private startCanonicalJobBroadcaster(): void {
+        if (this.canonicalJobSubscription != null) {
+            return;
+        }
+
+        this.canonicalJobSubscription = this.stratumV1JobsService.newMiningJob$.subscribe({
+            next: jobTemplate => this.broadcastCanonicalJob(jobTemplate),
+            error: error => console.error(`SV2 canonical job subscription failed: ${error.message}`),
+        });
+    }
+
+    private broadcastCanonicalJob(jobTemplate: IJobTemplate): void {
+        this.latestCanonicalJobs.set(jobTemplate.blockData.payoutMode, jobTemplate);
+        if (jobTemplate.blockData.payoutMode === 'all') {
+            this.latestCanonicalJobs.set('solo', jobTemplate);
+            this.latestCanonicalJobs.set('pplns', jobTemplate);
+        }
+
+        for (const client of this.clients) {
+            try {
+                void client.enqueueCanonicalJob(jobTemplate).catch(error => {
+                    console.error(`SV2 canonical job enqueue failed: ${error.message}`);
+                    this.unregisterClient(client);
+                    void client.destroy();
+                });
+            } catch (error) {
+                console.error(`SV2 canonical job enqueue failed: ${error.message}`);
+                this.unregisterClient(client);
+                void client.destroy();
+            }
+        }
+    }
+
+    private startWorkActivationBroadcaster(): void {
+        if (this.workActivationSubscription != null || this.bitcoinRpcService.workActivationTemplate$ == null) {
+            return;
+        }
+
+        this.workActivationSubscription = this.bitcoinRpcService.workActivationTemplate$.subscribe({
+            next: template => this.broadcastWorkActivation(template),
+            error: error => console.error(`SV2 work activation subscription failed: ${error.message}`),
+        });
+    }
+
+    private broadcastWorkActivation(template: IBlockTemplate): void {
+        const activationKey = `${template.height}:${template.previousblockhash}`;
+        if (activationKey === this.latestWorkActivationKey) {
+            return;
+        }
+        this.latestWorkActivationKey = activationKey;
+        this.latestWorkActivationTemplate = template;
+        for (const client of this.clients) {
+            try {
+                void client.enqueueWorkActivation(template).catch(error => {
+                    console.error(`SV2 work activation enqueue failed: ${error.message}`);
+                    this.unregisterClient(client);
+                    void client.destroy();
+                });
+            } catch (error) {
+                console.error(`SV2 work activation enqueue failed: ${error.message}`);
+                this.unregisterClient(client);
+                void client.destroy();
+            }
+        }
     }
 
     private async initializeNoiseConfig(): Promise<void> {

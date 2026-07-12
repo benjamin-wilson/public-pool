@@ -2,6 +2,7 @@ import { AddressType, getAddressInfo } from 'bitcoin-address-validation';
 import * as bitcoinjs from 'bitcoinjs-lib';
 
 import { IJobTemplate } from '../services/stratum-v1-jobs.service';
+import { PayoutMode } from '../types/payout-mode';
 import { hash256 } from '../utils/hash.utils';
 import { eResponseMethod } from './enums/eResponseMethod';
 import { IMiningNotify } from './stratum-messages/IMiningNotify';
@@ -13,7 +14,16 @@ export interface AddressObject {
     percent?: number;
     amountSats?: number;
 }
+
+export interface MiningJobOwnership {
+    payoutMode: PayoutMode;
+    payoutIdentity: string;
+}
+
 export class MiningJob {
+
+    private static readonly paymentScriptCache = new Map<string, Buffer>();
+    private static readonly paymentScriptCacheMaxEntries = 250_000;
 
     private coinbaseTransaction: bitcoinjs.Transaction;
     private coinbasePart1: string;
@@ -21,8 +31,11 @@ export class MiningJob {
     private coinbasePart1Buffer: Buffer;
     private coinbasePart2Buffer: Buffer;
     private merkleBranchBuffers: Buffer[];
+    private miningNotifyResponse: string;
+    private miningNotifyResponseBuffer: Buffer;
 
     public jobTemplateId: string;
+    public tipKey: string;
     public networkDifficulty: number;
     public creation: number;
 
@@ -30,11 +43,13 @@ export class MiningJob {
         private network: bitcoinjs.networks.Network,
         public jobId: string,
         payoutInformation: AddressObject[],
-        jobTemplate: IJobTemplate
+        jobTemplate: IJobTemplate,
+        public readonly ownership?: MiningJobOwnership,
     ) {
 
         this.creation = new Date().getTime();
         this.jobTemplateId = jobTemplate.blockData.id;
+        this.tipKey = jobTemplate.blockData.tipKey;
         this.merkleBranchBuffers = jobTemplate.merkle_branch.map(branch => Buffer.from(branch, 'hex'));
 
         this.coinbaseTransaction = this.createCoinbaseTransaction(payoutInformation, jobTemplate.blockData.coinbasevalue);
@@ -49,18 +64,15 @@ export class MiningJob {
         //    39th byte onwards: Optional data with no consensus meaning
         const extra = Buffer.from('Public-Pool');
 
-        // Encode the block height
-        // https://github.com/bitcoin/bips/blob/master/bip-0034.mediawiki
-        const blockHeightEncoded = bitcoinjs.script.number.encode(jobTemplate.blockData.height);
+        // BIP34 uses Bitcoin Script's minimally encoded integer push. Heights
+        // 1..16 are OP_1..OP_16, not a one-byte PUSHDATA operation. Keeping the
+        // extranonce padding independent of the height width also prevents a
+        // future four-byte height from consuming part of the pool tag.
+        const blockHeightPrefix = this.encodeCoinbaseHeight(jobTemplate.blockData.height);
+        const padding = Buffer.alloc(TOTAL_EXTRANONCE_SIZE_BYTES, 0);
 
-        // Get the length of the block height encoding
-        const blockHeightLengthByte = Buffer.from([blockHeightEncoded.length]);
-
-        // generate padding and take length of encode blockHeight into account
-        const padding = Buffer.alloc(TOTAL_EXTRANONCE_SIZE_BYTES + (3 - blockHeightEncoded.length), 0)
-
-        // build the script
-        this.coinbaseTransaction.ins[0].script = Buffer.concat([blockHeightLengthByte, blockHeightEncoded, extra, padding])
+        // Build the script with the extranonce placeholder at the very end.
+        this.coinbaseTransaction.ins[0].script = Buffer.concat([blockHeightPrefix, extra, padding]);
 
         this.coinbaseTransaction.addOutput(bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, jobTemplate.block.witnessCommit])]), 0);
 
@@ -92,22 +104,61 @@ export class MiningJob {
         return Buffer.from(this.coinbasePart2Buffer);
     }
 
-    public buildHeaderBuffer(jobTemplate: IJobTemplate, versionMask: number, nonce: number, extraNonce: string, extraNonce2: string, timestamp: number): Buffer {
+    public buildCoinbaseMerkleRoot(extraNonce: string, extraNonce2: string): Buffer {
         const coinbaseBuffer = Buffer.concat([
             this.coinbasePart1Buffer,
             Buffer.from(`${extraNonce}${extraNonce2}`, 'hex'),
             this.coinbasePart2Buffer,
         ]);
-        const coinbaseHash = hash256(coinbaseBuffer);
-        const merkleRoot = this.calculateMerkleRootHash(coinbaseHash, this.merkleBranchBuffers);
+        return MiningJob.calculateMerkleRootFromCoinbaseHash(
+            hash256(coinbaseBuffer),
+            this.merkleBranchBuffers,
+        );
+    }
 
-        let version = jobTemplate.block.version;
-        if (versionMask !== undefined && versionMask != 0) {
-            version = version ^ versionMask;
+    public static calculateMerkleRootFromCoinbaseHash(
+        coinbaseHash: Buffer,
+        merkleBranches: readonly Buffer[],
+    ): Buffer {
+        let merkleRoot = coinbaseHash;
+        const bothMerkles = Buffer.alloc(64);
+        for (const merkleBranch of merkleBranches) {
+            bothMerkles.set(merkleRoot, 0);
+            bothMerkles.set(merkleBranch, 32);
+            merkleRoot = hash256(bothMerkles);
         }
+        return merkleRoot;
+    }
+
+    public static applyVersionRolling(jobVersion: number, versionBits: number, mask: number): number {
+        const unsignedJobVersion = jobVersion >>> 0;
+        const unsignedVersionBits = versionBits >>> 0;
+        const unsignedMask = mask >>> 0;
+        return (
+            (unsignedJobVersion & (~unsignedMask >>> 0))
+            | (unsignedVersionBits & unsignedMask)
+        ) >>> 0;
+    }
+
+    public buildHeaderBuffer(
+        jobTemplate: IJobTemplate,
+        versionBits: number,
+        nonce: number,
+        extraNonce: string,
+        extraNonce2: string,
+        timestamp: number,
+        versionRollingMask?: number,
+    ): Buffer {
+        const merkleRoot = this.buildCoinbaseMerkleRoot(extraNonce, extraNonce2);
+
+        const version = versionRollingMask == null
+            // SV2 standard-channel reconstruction passes an XOR delta because
+            // its submit message contains the complete version field.
+            ? (jobTemplate.block.version ^ versionBits) >>> 0
+            : MiningJob.applyVersionRolling(jobTemplate.block.version, versionBits, versionRollingMask);
 
         const header = Buffer.alloc(80);
-        header.writeInt32LE(version, 0);
+        header.writeUInt32LE(version, 0);
         jobTemplate.block.prevHash.copy(header, 4);
         merkleRoot.copy(header, 36);
         header.writeUInt32LE(timestamp, 68);
@@ -117,21 +168,40 @@ export class MiningJob {
         return header;
     }
 
-    public copyAndUpdateBlock(jobTemplate: IJobTemplate, versionMask: number, nonce: number, extraNonce: string, extraNonce2: string, timestamp: number): bitcoinjs.Block {
+    public copyAndUpdateBlock(
+        jobTemplate: IJobTemplate,
+        versionBits: number,
+        nonce: number,
+        extraNonce: string,
+        extraNonce2: string,
+        timestamp: number,
+        versionRollingMask?: number,
+    ): bitcoinjs.Block {
 
         const testBlock = Object.assign(new bitcoinjs.Block(), jobTemplate.block);
-        testBlock.transactions = jobTemplate.block.transactions.map(tx => {
-            return Object.assign(new bitcoinjs.Transaction(), tx);
-        });
-
-        testBlock.transactions[0] = this.cloneCoinbaseTransaction();
+        const rawTransactions = jobTemplate.blockData.transactions;
+        testBlock.transactions = [
+            this.cloneCoinbaseTransaction(),
+            ...(rawTransactions == null
+                ? jobTemplate.block.transactions.slice(1).map(tx =>
+                    Object.assign(new bitcoinjs.Transaction(), tx))
+                : rawTransactions.map((rawTransaction, index) => {
+                    const transaction = bitcoinjs.Transaction.fromHex(rawTransaction.data);
+                    if (transaction.getId().toLowerCase() !== rawTransaction.txid.toLowerCase()) {
+                        throw new Error(`transactions[${index}] data does not match its txid`);
+                    }
+                    return transaction;
+                })),
+        ];
 
         testBlock.nonce = nonce;
 
-        // recompute version mask
-        if (versionMask !== undefined && versionMask != 0) {
-            testBlock.version = (testBlock.version ^ versionMask);
-        }
+        const version = versionRollingMask == null
+            ? (testBlock.version ^ versionBits) >>> 0
+            : MiningJob.applyVersionRolling(testBlock.version, versionBits, versionRollingMask);
+        // bitcoinjs-lib serializes Block.version as a signed int32, while the
+        // protocol and bit-mask arithmetic use the corresponding uint32 bits.
+        testBlock.version = version | 0;
 
         // set the nonces
         const nonceScript = testBlock.transactions[0].ins[0].script.toString('hex');
@@ -139,28 +209,15 @@ export class MiningJob {
         testBlock.transactions[0].ins[0].script = Buffer.from(`${nonceScript.substring(0, nonceScript.length - (TOTAL_EXTRANONCE_SIZE_BYTES * 2))}${extraNonce}${extraNonce2}`, 'hex');
 
         //recompute the root since we updated the coinbase script with the nonces
-        testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].getHash(false), this.merkleBranchBuffers);
+        testBlock.merkleRoot = MiningJob.calculateMerkleRootFromCoinbaseHash(
+            testBlock.transactions[0].getHash(false),
+            this.merkleBranchBuffers,
+        );
 
 
         testBlock.timestamp = timestamp;
 
         return testBlock;
-    }
-
-
-    private calculateMerkleRootHash(newRoot: Buffer, merkleBranches: Buffer[]): Buffer {
-
-        const bothMerkles = Buffer.alloc(64);
-
-        bothMerkles.set(newRoot);
-
-        for (let i = 0; i < merkleBranches.length; i++) {
-            bothMerkles.set(merkleBranches[i], 32);
-            newRoot = hash256(bothMerkles);
-            bothMerkles.set(newRoot);
-        }
-
-        return bothMerkles.subarray(0, 32)
     }
 
 
@@ -196,31 +253,75 @@ export class MiningJob {
         return coinbaseTransaction;
     }
 
+    private encodeCoinbaseHeight(height: number): Buffer {
+        if (!Number.isSafeInteger(height) || height < 0) {
+            throw new Error('Coinbase height must be a non-negative safe integer');
+        }
+        if (height === 0) {
+            return Buffer.from([bitcoinjs.opcodes.OP_0]);
+        }
+        if (height <= 16) {
+            return Buffer.from([bitcoinjs.opcodes.OP_1 + height - 1]);
+        }
+
+        const encoded = bitcoinjs.script.number.encode(height);
+        if (encoded.length >= bitcoinjs.opcodes.OP_PUSHDATA1) {
+            throw new Error('Coinbase height encoding is unexpectedly large');
+        }
+        return Buffer.concat([Buffer.from([encoded.length]), encoded]);
+    }
+
     private getPaymentScript(address: string): Buffer {
+        const cacheKey = `${this.network.bech32}:${this.network.pubKeyHash}:${this.network.scriptHash}:${address}`;
+        const cached = MiningJob.paymentScriptCache.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+
         const addressInfo = getAddressInfo(address);
+        let paymentScript: Buffer;
         switch (addressInfo.type) {
             case AddressType.p2wpkh: {
-                return bitcoinjs.payments.p2wpkh({ address, network: this.network }).output;
+                paymentScript = bitcoinjs.payments.p2wpkh({ address, network: this.network }).output;
+                break;
             }
             case AddressType.p2pkh: {
-                return bitcoinjs.payments.p2pkh({ address, network: this.network }).output;
+                paymentScript = bitcoinjs.payments.p2pkh({ address, network: this.network }).output;
+                break;
             }
             case AddressType.p2sh: {
-                return bitcoinjs.payments.p2sh({ address, network: this.network }).output;
+                paymentScript = bitcoinjs.payments.p2sh({ address, network: this.network }).output;
+                break;
             }
             case AddressType.p2tr: {
-                return bitcoinjs.payments.p2tr({ address, network: this.network }).output;
+                paymentScript = bitcoinjs.payments.p2tr({ address, network: this.network }).output;
+                break;
             }
             case AddressType.p2wsh: {
-                return bitcoinjs.payments.p2wsh({ address, network: this.network }).output;
+                paymentScript = bitcoinjs.payments.p2wsh({ address, network: this.network }).output;
+                break;
             }
             default: {
-                return Buffer.alloc(0);
+                paymentScript = Buffer.alloc(0);
+                break;
             }
         }
+
+        MiningJob.paymentScriptCache.set(cacheKey, paymentScript);
+        if (MiningJob.paymentScriptCache.size > MiningJob.paymentScriptCacheMaxEntries) {
+            const oldest = MiningJob.paymentScriptCache.keys().next().value;
+            if (oldest != null) {
+                MiningJob.paymentScriptCache.delete(oldest);
+            }
+        }
+        return paymentScript;
     }
 
     public response(jobTemplate: IJobTemplate): string {
+
+        if (this.miningNotifyResponse != null) {
+            return this.miningNotifyResponse;
+        }
 
         const job: IMiningNotify = {
             id: null,
@@ -238,7 +339,16 @@ export class MiningJob {
             ]
         };
 
-        return JSON.stringify(job) + '\n';
+        this.miningNotifyResponse = JSON.stringify(job) + '\n';
+        this.miningNotifyResponseBuffer = Buffer.from(this.miningNotifyResponse);
+        return this.miningNotifyResponse;
+    }
+
+    public responseBuffer(jobTemplate: IJobTemplate): Buffer {
+        if (this.miningNotifyResponseBuffer == null) {
+            this.response(jobTemplate);
+        }
+        return this.miningNotifyResponseBuffer;
     }
 
 

@@ -62,6 +62,30 @@ describe('MiningSubmitMessage', () => {
 
             expect(errors.some(error => error.property === 'extraNonce2')).toBe(true);
         });
+
+        it.each([
+            { field: 'extraNonce2', index: 2, value: '990200000000000g' },
+            { field: 'ntime', index: 3, value: '64b1f10ftrailing' },
+            { field: 'nonce', index: 4, value: '2402812g' },
+            { field: 'versionMask', index: 5, value: '00006000trailing' },
+        ])('should reject a non-canonical hexadecimal $field', async ({ field, index, value }) => {
+            const parsed = JSON.parse(MINING_SUBMIT_MESSAGE);
+            parsed.params[index] = value;
+            const invalidMessage = plainToInstance(MiningSubmitMessage, parsed);
+
+            const errors = await validate(invalidMessage);
+
+            expect(errors.some(error => error.property === field)).toBe(true);
+        });
+
+        it('should normalize an omitted version mask to eight zeroes', async () => {
+            const parsed = JSON.parse(MINING_SUBMIT_MESSAGE);
+            parsed.params.pop();
+            const noVersionMask = plainToInstance(MiningSubmitMessage, parsed);
+
+            expect(noVersionMask.versionMask).toBe('00000000');
+            await expect(validate(noVersionMask)).resolves.toEqual([]);
+        });
     });
 
 

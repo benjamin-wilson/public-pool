@@ -1,5 +1,5 @@
 import { Expose, Transform } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsString, Length } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsString, Length, Matches } from 'class-validator';
 
 import { eRequestMethod } from '../enums/eRequestMethod';
 import { EXTRANONCE2_SIZE_BYTES } from '../stratum.constants';
@@ -29,18 +29,23 @@ export class MiningSubmitMessage extends StratumBaseMessage {
     @Expose()
     @IsString()
     @Length(EXTRANONCE2_SIZE_BYTES * 2, EXTRANONCE2_SIZE_BYTES * 2)
+    @Matches(/^[0-9a-fA-F]+$/)
     @Transform(({ value, key, obj, type }) => {
         return obj.params[2];
     })
     public extraNonce2: string;
     @Expose()
     @IsString()
+    @Length(8, 8)
+    @Matches(/^[0-9a-fA-F]{8}$/)
     @Transform(({ value, key, obj, type }) => {
         return obj.params[3];
     })
     public ntime: string;
     @Expose()
     @IsString()
+    @Length(8, 8)
+    @Matches(/^[0-9a-fA-F]{8}$/)
     @Transform(({ value, key, obj, type }) => {
         return obj.params[4];
     })
@@ -48,8 +53,10 @@ export class MiningSubmitMessage extends StratumBaseMessage {
 
     @Expose()
     @IsString()
+    @Length(8, 8)
+    @Matches(/^[0-9a-fA-F]{8}$/)
     @Transform(({ value, key, obj, type }) => {
-        return obj.params[5] == null ? '0' : obj.params[5];
+        return obj.params[5] == null ? '00000000' : obj.params[5];
     })
     public versionMask?: string | null;
 

@@ -104,7 +104,7 @@ export class TemplateProviderService implements OnModuleInit {
     ) {}
 
     public onModuleInit(): void {
-        if (this.subscription != null) {
+        if (this.subscription != null || process.env.API_ONLY === 'true' || process.env.MASTER === 'true') {
             return;
         }
         this.subscription = this.jobsService.newMiningJob$.subscribe(template => {

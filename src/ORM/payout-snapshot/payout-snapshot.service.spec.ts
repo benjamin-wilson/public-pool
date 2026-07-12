@@ -1,5 +1,6 @@
 import { DataSource, EntityManager } from 'typeorm';
 
+import type { PayoutDistributionEntry } from './payout-distribution';
 import { PayoutSnapshotService } from './payout-snapshot.service';
 
 const ADDRESS_A = 'bc1qs29kyaqqc0fkvj897ke9e5xa9utljjey0y5jjn';
@@ -52,7 +53,6 @@ describe('PayoutSnapshotService', () => {
             .mockResolvedValueOnce([])
             .mockResolvedValueOnce([{ id: '55' }])
             .mockResolvedValueOnce([])
-            .mockResolvedValueOnce([])
             .mockResolvedValueOnce([{
                 id: '55',
                 method: 'pplns',
@@ -91,8 +91,106 @@ describe('PayoutSnapshotService', () => {
             { address: ADDRESS_A, amountSats: 600, percent: 60 },
             { address: ADDRESS_B, amountSats: 400, percent: 40 },
         ]);
-        expect(manager.query).toHaveBeenCalledTimes(9);
+        expect(manager.query).toHaveBeenCalledTimes(8);
         expect(manager.query.mock.calls[0][1]).toEqual([100, 'pplns']);
+
+        const entryInsertCalls = manager.query.mock.calls.filter(([sql]) => (
+            sql.includes('INSERT INTO "payout_snapshot_entry"')
+        ));
+        expect(entryInsertCalls).toHaveLength(1);
+        expect(entryInsertCalls[0][0]).toContain('FROM UNNEST(');
+        expect(entryInsertCalls[0][0]).toContain('WITH ORDINALITY');
+        expect(entryInsertCalls[0][0]).toContain('ORDER BY entry."ordinality"');
+        expect(entryInsertCalls[0][1]).toEqual([
+            '55',
+            'pplns',
+            [ADDRESS_A, ADDRESS_B],
+            [60, 40],
+            [3, 2],
+            [0.6, 0.4],
+            [600, 400],
+            [600, 400],
+            [0, 0],
+            [0, 0],
+            [true, true],
+            ['coinbase', 'coinbase'],
+            [1, 2],
+        ]);
+    });
+
+    it('should bound and chunk set-based snapshot entry inserts without changing values', async () => {
+        const entries: PayoutDistributionEntry[] = Array.from({ length: 1_001 }, (_, index) => {
+            const includedInCoinbase = index % 3 !== 0;
+            const balanceBeforeSats = 200 + index;
+            const grossPayoutSats = 10_000 + index;
+            return {
+                address: `test-address-${index}`,
+                creditedDifficulty: index + 0.5,
+                acceptedShareCount: index + 1,
+                payoutWeight: (index + 1) / 1_001,
+                grossPayoutSats,
+                payoutSats: includedInCoinbase ? 1_000 + index : 0,
+                balanceBeforeSats,
+                balanceAfterSats: includedInCoinbase
+                    ? balanceBeforeSats
+                    : balanceBeforeSats + grossPayoutSats,
+                includedInCoinbase,
+                rank: 1_001 - index,
+            };
+        });
+        const insertSnapshotEntries = Reflect.get(service, 'insertSnapshotEntries') as (
+            manager: EntityManager,
+            snapshotId: string,
+            entries: PayoutDistributionEntry[],
+        ) => Promise<void>;
+        let resolveFirstInsert: () => void = () => {
+            throw new Error('First insert did not start');
+        };
+        manager.query
+            .mockImplementationOnce(() => new Promise<void>(resolve => {
+                resolveFirstInsert = () => resolve();
+            }))
+            .mockResolvedValueOnce([]);
+
+        const insertion = insertSnapshotEntries.call(
+            service,
+            manager as unknown as EntityManager,
+            '77',
+            entries,
+        );
+
+        expect(manager.query).toHaveBeenCalledTimes(1);
+        resolveFirstInsert();
+        await insertion;
+        expect(manager.query).toHaveBeenCalledTimes(2);
+        const calls = manager.query.mock.calls;
+        expect(calls.map(([, parameters]) => parameters.length)).toEqual([13, 13]);
+        expect(calls.map(([, parameters]) => parameters[2].length)).toEqual([1_000, 1]);
+        for (const [sql, parameters] of calls) {
+            expect(sql).toContain('FROM UNNEST(');
+            expect(sql).toContain('ORDER BY entry."ordinality"');
+            for (const values of parameters.slice(2)) {
+                expect(values.length).toBeLessThanOrEqual(1_000);
+            }
+        }
+
+        const expectedParameters = (batch: PayoutDistributionEntry[]) => [
+            '77',
+            'pplns',
+            batch.map(entry => entry.address),
+            batch.map(entry => entry.creditedDifficulty),
+            batch.map(entry => entry.acceptedShareCount),
+            batch.map(entry => entry.payoutWeight),
+            batch.map(entry => entry.grossPayoutSats),
+            batch.map(entry => entry.payoutSats),
+            batch.map(entry => entry.balanceBeforeSats),
+            batch.map(entry => entry.balanceAfterSats),
+            batch.map(entry => entry.includedInCoinbase),
+            batch.map(entry => entry.includedInCoinbase ? 'coinbase' : 'pending'),
+            batch.map(entry => entry.rank),
+        ];
+        expect(calls[0][1]).toEqual(expectedParameters(entries.slice(0, 1_000)));
+        expect(calls[1][1]).toEqual(expectedParameters(entries.slice(1_000)));
     });
 
     it('should bootstrap the PPLNS window from paid block count up to the configured factor', async () => {
@@ -115,7 +213,6 @@ describe('PayoutSnapshotService', () => {
             ])
             .mockResolvedValueOnce([])
             .mockResolvedValueOnce([{ id: '56' }])
-            .mockResolvedValueOnce([])
             .mockResolvedValueOnce([])
             .mockResolvedValueOnce([{
                 id: '56',
@@ -211,6 +308,56 @@ describe('PayoutSnapshotService', () => {
             { address: ADDRESS_B, amountSats: 400, percent: 40 },
         ]);
         expect(manager.query).toHaveBeenCalledTimes(4);
+    });
+
+    it('stores bridge seeds with a non-active status excluded from latest payout queries', async () => {
+        manager.query
+            .mockResolvedValueOnce([{
+                startBatchId: '10',
+                endBatchId: '12',
+                windowStartShareIndex: '1000',
+                windowEndShareIndex: '2000',
+                totalCreditedDifficulty: '100',
+                totalAcceptedShareCount: '5',
+            }])
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([
+                { address: ADDRESS_A, creditedDifficulty: 100, acceptedShareCount: 5 },
+            ])
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([{ id: 'seed-57' }])
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([{
+                id: 'seed-57',
+                method: 'pplns',
+                payoutMode: 'pplns',
+                blockHeight: 900002,
+                coinbaseValueSats: '1000',
+                windowStartShareIndex: '1000',
+                windowEndShareIndex: '2000',
+                totalCreditedDifficulty: 100,
+                totalAcceptedShareCount: '5',
+                eligibleAddressCount: 1,
+                includedOutputCount: 1,
+                distributedSats: '1000',
+                unallocatedRemainderSats: '0',
+            }])
+            .mockResolvedValueOnce([{ address: ADDRESS_A, payoutSats: '1000' }]);
+
+        await expect(service.createSnapshotForTemplate({
+            blockHeight: 900002,
+            coinbaseValueSats: 1000,
+            networkDifficulty: 25,
+            visibility: 'bridge_seed',
+        })).resolves.toEqual(expect.objectContaining({ id: 'seed-57' }));
+
+        const existingLookupSql = manager.query.mock.calls[1][0] as string;
+        const insertSql = manager.query.mock.calls[4][0] as string;
+        expect(existingLookupSql).toContain(`"status" = 'bridge_seed'`);
+        expect(insertSql).toContain(`'bridge_seed'`);
+        dataSource.query.mockResolvedValueOnce([]);
+        await expect(service.getLatestSnapshot()).resolves.toBeNull();
+        expect(dataSource.query.mock.calls[0][0]).toContain(`"status" = 'finalized'`);
     });
 
     it('should finalize snapshot balances and payout history for a found block', async () => {

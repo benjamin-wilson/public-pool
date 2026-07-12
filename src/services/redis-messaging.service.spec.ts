@@ -14,6 +14,7 @@ describe('RedisMessagingService', () => {
     beforeEach(() => {
         store.clear();
         sets.clear();
+        subscriptions.clear();
         clientsByRole.publisher = null;
         clientsByRole.subscriber = null;
         clients = [createRedisClient(), createRedisClient()];
@@ -31,11 +32,62 @@ describe('RedisMessagingService', () => {
         await service.connect();
 
         await service.setLatestMiningInfo({ blocks: 900000 } as any);
-        await service.setBlockTemplate(900000, { height: 900000, transactions: [] } as any);
+        await service.setBlockTemplate(900000, {
+            height: 900001,
+            previousblockhash: 'aa'.repeat(32),
+            payoutMode: 'solo',
+            transactions: [],
+        } as any);
 
         expect(await service.getLatestMiningInfo()).toEqual({ blocks: 900000 });
-        expect(await service.getBlockTemplate(900000)).toEqual({ height: 900000, transactions: [] });
-        expect(await service.getLatestBlockTemplate()).toEqual({ height: 900000, transactions: [] });
+        expect(await service.getBlockTemplate(900000)).toEqual(expect.objectContaining({
+            height: 900001,
+            payoutMode: 'solo',
+        }));
+        expect(await service.getLatestBlockTemplate()).toEqual(expect.objectContaining({
+            height: 900001,
+            payoutMode: 'solo',
+        }));
+    });
+
+    it('keeps the legacy latest key as JSON and writes it only when explicitly ready', async () => {
+        await service.connect();
+        const template = {
+            height: 900001,
+            previousblockhash: 'ab'.repeat(32),
+            payoutMode: 'pplns',
+            payoutSnapshotId: 'safe-snapshot',
+            transactions: [],
+        } as any;
+
+        await service.setBlockTemplate(900000, template);
+        expect(store.has('block-template:latest')).toBe(false);
+        expect(store.has('block-template:900000')).toBe(false);
+
+        await service.setLegacyBlockTemplate(900000, template);
+
+        expect(JSON.parse(store.get('block-template:latest')!)).toEqual(template);
+        expect(JSON.parse(store.get('block-template:900000')!)).toEqual(template);
+    });
+
+    it('never uses a tagged legacy template for the wrong payout mode', async () => {
+        await service.connect();
+        const solo = {
+            height: 900001,
+            previousblockhash: 'ac'.repeat(32),
+            payoutMode: 'solo',
+            transactions: [],
+        } as any;
+        await service.setLegacyBlockTemplate(900000, solo);
+
+        expect(await service.getBlockTemplate(900000, 'solo')).toEqual(solo);
+        expect(await service.getBlockTemplate(900000, 'pplns')).toBeNull();
+
+        const oldCombined = { ...solo };
+        delete oldCombined.payoutMode;
+        await service.setLegacyBlockTemplate(900000, oldCombined);
+        expect(await service.getBlockTemplate(900000, 'solo')).toEqual(oldCombined);
+        expect(await service.getBlockTemplate(900000, 'pplns')).toEqual(oldCombined);
     });
 
     it('should publish and subscribe to mining info updates', async () => {
@@ -54,18 +106,201 @@ describe('RedisMessagingService', () => {
         const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
 
         await service.subscribeMiningInfoUpdates(handler);
-        await clientsByRole.subscriber.callback('{bad json');
+        await subscriptions.get('mining-info.updated')!('{bad json');
 
         expect(handler).not.toHaveBeenCalled();
         expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid Redis mining info update'));
         consoleSpy.mockRestore();
     });
 
+    it('stores payout variants and same-height reorg templates under distinct tip keys', async () => {
+        await service.connect();
+        const firstHash = '11'.repeat(32);
+        const reorgHash = '22'.repeat(32);
+
+        await service.setBlockTemplate(900000, {
+            height: 900001,
+            previousblockhash: firstHash,
+            payoutMode: 'solo',
+            transactions: [],
+        } as any);
+        await service.setBlockTemplate(900000, {
+            height: 900001,
+            previousblockhash: firstHash,
+            payoutMode: 'pplns',
+            payoutSnapshotId: '7',
+            transactions: [],
+        } as any);
+        await service.setBlockTemplate(900000, {
+            height: 900001,
+            previousblockhash: reorgHash,
+            payoutMode: 'solo',
+            transactions: [],
+        } as any);
+
+        expect((await service.getBlockTemplate(900000, 'solo', firstHash))?.previousblockhash).toBe(firstHash);
+        expect((await service.getBlockTemplate(900000, 'solo'))?.previousblockhash).toBe(reorgHash);
+        expect((await service.getBlockTemplate(900000, 'pplns', firstHash))?.payoutSnapshotId).toBe('7');
+        expect((await service.getLatestBlockTemplate('pplns'))?.payoutMode).toBe('pplns');
+    });
+
+    it('publishes validated block template update envelopes', async () => {
+        await service.connect();
+        const handler = jest.fn().mockResolvedValue(undefined);
+        const update = {
+            schemaVersion: 1 as const,
+            eventId: 'new-block:1',
+            height: 900001,
+            previousBlockHash: '33'.repeat(32),
+            payoutMode: 'solo' as const,
+            publishedAtMs: 123,
+        };
+
+        await service.subscribeBlockTemplateUpdates(handler);
+        await service.publishBlockTemplateUpdate(update);
+
+        expect(handler).toHaveBeenCalledWith(update);
+    });
+
+    it('ignores malformed block template update envelopes', async () => {
+        await service.connect();
+        const handler = jest.fn();
+        const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        await service.subscribeBlockTemplateUpdates(handler);
+
+        await subscriptions.get('block-template.updated')!(JSON.stringify({ schemaVersion: 2 }));
+
+        expect(handler).not.toHaveBeenCalled();
+        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid Redis block template update'));
+        consoleSpy.mockRestore();
+    });
+
+    it('stores, publishes, and replays compact SV1 bridge updates', async () => {
+        await service.connect();
+        const handler = jest.fn().mockResolvedValue(undefined);
+        const update = {
+            schemaVersion: 1 as const,
+            type: 'subsidy-bridge' as const,
+            eventId: 'bridge:900001:hash',
+            publishedAtMs: 123,
+            template: {
+                height: 900001,
+                previousblockhash: '44'.repeat(32),
+                payoutMode: 'solo' as const,
+                jobType: 'empty' as const,
+                transactions: [],
+            } as any,
+        };
+
+        await service.subscribeSv1BridgeUpdates(handler);
+        await service.publishSv1BridgeUpdate(update);
+
+        expect(handler).toHaveBeenCalledWith(update);
+        expect(await service.getLatestSv1BridgeUpdate()).toEqual(update);
+    });
+
+    it('stores and replays the latest SV1 bridge independently by payout mode', async () => {
+        await service.connect();
+        const solo = createBridgeUpdate('solo', 'solo-bridge');
+        const pplns = createBridgeUpdate('pplns', 'pplns-bridge');
+
+        await service.publishSv1BridgeUpdate(solo);
+        await service.publishSv1BridgeUpdate(pplns);
+
+        expect(await service.getLatestSv1BridgeUpdate('solo')).toEqual(solo);
+        expect(await service.getLatestSv1BridgeUpdate('pplns')).toEqual(pplns);
+        expect(store.get('sv1-bridge:latest:solo')).toBe(JSON.stringify(solo));
+        expect(store.get('sv1-bridge:latest:pplns')).toBe(JSON.stringify(pplns));
+    });
+
+    it('rejects PPLNS bridges without an explicit snapshot and fixed-value outputs', async () => {
+        await service.connect();
+        const valid = createBridgeUpdate('pplns', 'pplns-valid');
+        const invalidUpdates = [
+            {
+                ...valid,
+                template: { ...valid.template, payoutSnapshotId: undefined },
+            },
+            {
+                ...valid,
+                template: { ...valid.template, payoutOutputs: [] },
+            },
+            {
+                ...valid,
+                template: {
+                    ...valid.template,
+                    payoutOutputs: [{ address: 'bc1qpercentage', percent: 100 }],
+                },
+            },
+            {
+                ...valid,
+                template: {
+                    ...valid.template,
+                    payoutOutputs: [{ address: 'bc1qpartial', amountSats: 1 }],
+                },
+            },
+        ];
+
+        for (const update of invalidUpdates) {
+            await expect(service.publishSv1BridgeUpdate(update as any)).rejects.toThrow(
+                'unsupported SV1 bridge update',
+            );
+        }
+        expect(await service.getLatestSv1BridgeUpdate('pplns')).toBeNull();
+    });
+
+    it('rejects non-empty bridge templates from the shared bridge channel', async () => {
+        await service.connect();
+        const handler = jest.fn();
+        const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        await service.subscribeSv1BridgeUpdates(handler);
+
+        await subscriptions.get('sv1-bridge.updated')!(JSON.stringify({
+            schemaVersion: 1,
+            type: 'subsidy-bridge',
+            eventId: 'bad',
+            template: {
+                height: 1,
+                previousblockhash: '00'.repeat(32),
+                payoutMode: 'pplns',
+                jobType: 'empty',
+                transactions: [{ data: '00' }],
+            },
+        }));
+
+        expect(handler).not.toHaveBeenCalled();
+        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid Redis SV1 bridge update'));
+        consoleSpy.mockRestore();
+    });
+
 });
+
+function createBridgeUpdate(payoutMode: 'solo' | 'pplns', eventId: string) {
+    const isPplns = payoutMode === 'pplns';
+    return {
+        schemaVersion: 1 as const,
+        type: 'subsidy-bridge' as const,
+        eventId,
+        publishedAtMs: 123,
+        template: {
+            height: 900001,
+            previousblockhash: '55'.repeat(32),
+            payoutMode,
+            jobType: 'empty' as const,
+            transactions: [],
+            coinbasevalue: 312_500_000,
+            payoutSnapshotId: isPplns ? 'snapshot-55' : undefined,
+            payoutOutputs: isPplns
+                ? [{ address: 'bc1qpplns', amountSats: 312_500_000 }]
+                : undefined,
+        } as any,
+    };
+}
 
 const store = new Map<string, string>();
 const sets = new Map<string, Set<string>>();
 const clientsByRole: { publisher?: any; subscriber?: any } = {};
+const subscriptions = new Map<string, (message: string) => Promise<void>>();
 
 function createRedisClient() {
     const client = {
@@ -116,11 +351,11 @@ function createRedisClient() {
             }
         }),
         publish: jest.fn((channel: string, value: string) => {
-            void clientsByRole.subscriber?.callback(value);
+            void subscriptions.get(channel)?.(value);
             return Promise.resolve(1);
         }),
         subscribe: jest.fn((channel: string, callback: (message: string) => Promise<void>) => {
-            clientsByRole.subscriber.callback = callback;
+            subscriptions.set(channel, callback);
             return Promise.resolve();
         }),
     };

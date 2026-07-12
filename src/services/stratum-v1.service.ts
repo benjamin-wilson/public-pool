@@ -1,7 +1,8 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'net';
 import { monitorEventLoopDelay } from 'perf_hooks';
+import { Subscription } from 'rxjs';
 
 import { StratumV1Client } from '../models/StratumV1Client';
 import { StratumV2Client } from '../models/StratumV2Client';
@@ -44,7 +45,7 @@ const DEFAULT_TCP_KEEPALIVE_INITIAL_DELAY_MS = 1000 * 60;
 
 
 @Injectable()
-export class StratumV1Service implements OnModuleInit {
+export class StratumV1Service implements OnModuleInit, OnModuleDestroy {
 
     private socketTimeout = 0;
     private emptySocket = 0;
@@ -54,6 +55,8 @@ export class StratumV1Service implements OnModuleInit {
     private readonly eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
     private backpressureMonitor: NodeJS.Timeout | null = null;
     private healthyBackpressureChecks = 0;
+    private readonly clients = new Set<StratumV1Client>();
+    private jobBroadcastSubscription: Subscription | null = null;
 
     constructor(
         private readonly bitcoinRpcService: BitcoinRpcService,
@@ -86,6 +89,14 @@ export class StratumV1Service implements OnModuleInit {
             return;
         }
 
+        this.jobBroadcastSubscription = (
+            this.stratumV1JobsService.sv1MiningJob$
+            ?? this.stratumV1JobsService.newMiningJob$
+        ).subscribe({
+            next: jobTemplate => this.broadcastMiningJob(jobTemplate),
+            error: error => console.error(`SV1 job broadcast subscription failed: ${error.message}`),
+        });
+
         // wait for all the other processes to init for an even connection distribution 
         setTimeout(() => {
             parsePayoutModePorts(
@@ -116,6 +127,15 @@ export class StratumV1Service implements OnModuleInit {
 
     }
 
+    public onModuleDestroy(): void {
+        this.jobBroadcastSubscription?.unsubscribe();
+        this.jobBroadcastSubscription = null;
+        if (this.backpressureMonitor != null) {
+            clearInterval(this.backpressureMonitor);
+            this.backpressureMonitor = null;
+        }
+    }
+
     private startSocketServer(port: number, payoutMode: PayoutMode) {
         const listener: StratumListenerState = {
             port,
@@ -132,6 +152,7 @@ export class StratumV1Service implements OnModuleInit {
         const server = new Server(async (socket: Socket) => {
             socket.setTimeout(this.getSocketTimeoutMs());
             socket.setKeepAlive(true, this.getTcpKeepAliveInitialDelayMs());
+            socket.setNoDelay(true);
 
             let client: StratumV1Client | StratumV2Client = null;
             let protocol: 'v1' | 'v2' | null = null;
@@ -152,6 +173,9 @@ export class StratumV1Service implements OnModuleInit {
                         const initializedClient = protocol === 'v2'
                             || (currentClient as StratumV1Client).extraNonceAndSessionId != null;
                         await currentClient.destroy();
+                        if (protocol === 'v1') {
+                            this.clients.delete(currentClient as StratumV1Client);
+                        }
                         if (initializedClient) {
                             if (reason == 'Error') {
                                 this.errorClosure++;
@@ -229,7 +253,7 @@ export class StratumV1Service implements OnModuleInit {
     }
 
     private createV1Client(socket: Socket, accountingProtocol: 'sv1' | 'sv1_tls', payoutMode: PayoutMode): StratumV1Client {
-        return new StratumV1Client(
+        const client = new StratumV1Client(
             socket,
             this.stratumV1JobsService,
             this.bitcoinRpcService,
@@ -244,6 +268,8 @@ export class StratumV1Service implements OnModuleInit {
             accountingProtocol,
             payoutMode,
         );
+        this.clients.add(client);
+        return client;
     }
 
     private startSecureSocketServer(port: number, payoutMode: PayoutMode) {
@@ -273,6 +299,7 @@ export class StratumV1Service implements OnModuleInit {
         const server = createServer(tlsOptions, async (socket: TLSSocket) => {
             socket.setTimeout(this.getSocketTimeoutMs());
             socket.setKeepAlive(true, this.getTcpKeepAliveInitialDelayMs());
+            socket.setNoDelay(true);
 
             const client = this.createV1Client(socket, 'sv1_tls', payoutMode);
             let cleanedUp = false;
@@ -286,6 +313,7 @@ export class StratumV1Service implements OnModuleInit {
                 try {
                     const initializedClient = client.extraNonceAndSessionId != null;
                     await client.destroy();
+                    this.clients.delete(client);
                     if (initializedClient) {
                         if (reason === 'Error') {
                             this.errorClosure++;
@@ -428,6 +456,78 @@ export class StratumV1Service implements OnModuleInit {
 
     private getEventLoopP95Ms() {
         return Math.round(this.eventLoopDelay.percentile(95) / 1e6);
+    }
+
+    private broadcastMiningJob(jobTemplate: import('./stratum-v1-jobs.service').IJobTemplate): void {
+        const startedAt = process.hrtime.bigint();
+        const totalClients = this.clients.size;
+        const milestoneIndexes = {
+            p50: Math.max(1, Math.ceil(totalClients * 0.5)),
+            p95: Math.max(1, Math.ceil(totalClients * 0.95)),
+            p99: Math.max(1, Math.ceil(totalClients * 0.99)),
+        };
+        const milestoneMs: { p50?: number; p95?: number; p99?: number } = {};
+        let visited = 0;
+        let written = 0;
+        let skipped = 0;
+        let backpressured = 0;
+        let closed = 0;
+        let errors = 0;
+        let bytesQueued = 0;
+        let maxBufferedBytes = 0;
+
+        const elapsedMs = () => Number(process.hrtime.bigint() - startedAt) / 1e6;
+        for (const client of this.clients) {
+            visited++;
+            try {
+                const result = client.broadcastMiningJob(jobTemplate);
+                bytesQueued += result.bytes;
+                maxBufferedBytes = Math.max(maxBufferedBytes, result.bufferedBytes);
+                switch (result.status) {
+                    case 'written': written++; break;
+                    case 'backpressured': backpressured++; break;
+                    case 'closed': closed++; break;
+                    case 'error': errors++; break;
+                    default: skipped++; break;
+                }
+            } catch (error) {
+                errors++;
+                void client.destroy();
+            }
+
+            if (milestoneMs.p50 == null && visited >= milestoneIndexes.p50) {
+                milestoneMs.p50 = elapsedMs();
+            }
+            if (milestoneMs.p95 == null && visited >= milestoneIndexes.p95) {
+                milestoneMs.p95 = elapsedMs();
+            }
+            if (milestoneMs.p99 == null && visited >= milestoneIndexes.p99) {
+                milestoneMs.p99 = elapsedMs();
+            }
+        }
+
+        console.log(JSON.stringify({
+            event: 'stratum_job_fanout',
+            eventId: jobTemplate.blockData.notificationEventId,
+            redisToFanoutStartMs: jobTemplate.blockData.notificationPublishedAtMs == null
+                ? undefined
+                : Date.now() - jobTemplate.blockData.notificationPublishedAtMs,
+            templateId: jobTemplate.blockData.id,
+            height: jobTemplate.blockData.height,
+            jobType: jobTemplate.blockData.jobType,
+            isNewBlock: jobTemplate.blockData.isNewBlock,
+            cleanJobs: jobTemplate.blockData.clearJobs,
+            clients: totalClients,
+            written,
+            skipped,
+            backpressured,
+            closed,
+            errors,
+            bytesQueued,
+            maxBufferedBytes,
+            milestoneMs,
+            totalMs: elapsedMs(),
+        }));
     }
 
     private isBackpressureDisabled() {

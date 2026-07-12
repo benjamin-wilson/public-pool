@@ -4,7 +4,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate, ValidationError, ValidatorOptions } from 'class-validator';
 import * as crypto from 'crypto';
 import { Socket } from 'net';
-import { firstValueFrom, Subscription } from 'rxjs';
+import { filter, firstValueFrom } from 'rxjs';
 import { clearInterval } from 'timers';
 
 import { AddressSettingsService } from '../ORM/address-settings/address-settings.service';
@@ -16,7 +16,12 @@ import { ShareAccountingService } from '../ORM/share-accounting/share-accounting
 import { BitcoinRpcService } from '../services/bitcoin-rpc.service';
 import { NotificationService } from '../services/notification.service';
 import { RedisMessagingService } from '../services/redis-messaging.service';
-import { IJobTemplate, StratumV1JobsService } from '../services/stratum-v1-jobs.service';
+import {
+    createPayoutOutputIdentity,
+    IJobSubmissionContext,
+    IJobTemplate,
+    StratumV1JobsService,
+} from '../services/stratum-v1-jobs.service';
 import { DifficultyUtils } from '../utils/difficulty.utils';
 import { hash256 } from '../utils/hash.utils';
 import { PayoutMode } from '../types/payout-mode';
@@ -38,6 +43,16 @@ const BLOCKED_USER_AGENT_LOG_INTERVAL_MS = 60 * 1000;
 const VALIDATION_ERROR_LOG_INTERVAL_MS = 60 * 1000;
 const DEFAULT_MIN_DIFFICULTY = 0.001;
 const DEFAULT_CLIENT_HASHRATE_PERSIST_INTERVAL_MS = 60 * 1000;
+const DEFAULT_SUBMISSION_DEDUP_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_SUBMISSION_DEDUP_MAX_ENTRIES = 10_000;
+const DEFAULT_MAX_SOCKET_BUFFER_BYTES = 256 * 1024;
+const VERSION_ROLLING_MASK = 0x1fffe000;
+
+export interface MiningJobBroadcastResult {
+    status: 'written' | 'backpressured' | 'skipped' | 'closed' | 'error';
+    bytes: number;
+    bufferedBytes: number;
+}
 
 export class StratumV1Client {
     private static blockedUserAgentLogState = new Map<string, { nextLogAt: number, suppressed: number }>();
@@ -47,7 +62,6 @@ export class StratumV1Client {
     private clientConfiguration: ConfigurationMessage;
     private clientAuthorization: AuthorizationMessage;
     private clientSuggestedDifficulty: SuggestDifficulty;
-    private stratumSubscription: Subscription;
     private backgroundWork: NodeJS.Timeout[] = [];
     private readonly socketDataHandler: (data: Buffer) => void;
     private destroyPromise: Promise<void> | null = null;
@@ -69,9 +83,12 @@ export class StratumV1Client {
     private buffer: string = '';
     private connectionClosed = false;
     private lastSentMiningJobTimestamp: number = null;
+    private lastSentMiningJobSignature: string = null;
     private lastHashRatePersistedAt = 0;
+    private readonly network: bitcoinjs.Network;
+    private readonly maxSocketBufferBytes: number;
 
-    private miningSubmissionHashes = new Set<string>()
+    private miningSubmissionHashes = new Map<string, number>();
 
     constructor(
         public readonly socket: Socket,
@@ -93,6 +110,8 @@ export class StratumV1Client {
             void this.handleSocketData(data);
         };
         this.socket.on('data', this.socketDataHandler);
+        this.network = this.getNetwork();
+        this.maxSocketBufferBytes = this.readMaxSocketBufferBytes();
 
 
     }
@@ -110,11 +129,6 @@ export class StratumV1Client {
         this.connectionClosed = true;
         this.socket.removeListener('data', this.socketDataHandler);
         this.buffer = '';
-
-        if (this.stratumSubscription != null) {
-            this.stratumSubscription.unsubscribe();
-            this.stratumSubscription = null;
-        }
 
         for (const work of this.backgroundWork) {
             clearInterval(work);
@@ -405,7 +419,6 @@ export class StratumV1Client {
     }
 
     private async initStratum() {
-        this.stratumInitialized = true;
         this.socket.setTimeout(0);
 
         if (this.isBlockedUserAgent(this.clientSubscription.userAgent)) {
@@ -423,17 +436,10 @@ export class StratumV1Client {
             }
         }
 
-        this.stratumSubscription = this.stratumV1JobsService.newMiningJob$.subscribe(async (jobTemplate) => {
-            try {
-                if(jobTemplate.blockData.clearJobs){
-                    this.miningSubmissionHashes.clear();
-                }
-                await this.sendNewMiningJob(jobTemplate);
-            } catch (e) {
-                await this.socket.end();
-                console.error(e);
-            }
-        });
+        await this.ensureClientEntity();
+        this.stratumInitialized = true;
+        const latestJobTemplate = await this.getLatestPayoutJobTemplate();
+        this.broadcastMiningJob(latestJobTemplate);
 
         this.backgroundWork.push(
             setInterval(async () => {
@@ -448,10 +454,42 @@ export class StratumV1Client {
         // );
     }
 
-    private async sendNewMiningJob(jobTemplate: IJobTemplate) {
-        await this.ensureClientEntity();
+    public isReadyForMiningJobs(): boolean {
+        return this.stratumInitialized
+            && !this.connectionClosed
+            && !this.socket.destroyed
+            && !this.socket.writableEnded;
+    }
 
-        let payoutInformation = this.getPayoutInformation(jobTemplate, this.clientAuthorization.address);
+    public broadcastMiningJob(jobTemplate: IJobTemplate, force = false): MiningJobBroadcastResult {
+        if (!this.isReadyForMiningJobs()) {
+            return { status: 'skipped', bytes: 0, bufferedBytes: this.socket.writableLength ?? 0 };
+        }
+        if (jobTemplate.blockData.payoutMode !== 'all'
+            && jobTemplate.blockData.payoutMode !== this.payoutMode) {
+            return { status: 'skipped', bytes: 0, bufferedBytes: this.socket.writableLength ?? 0 };
+        }
+
+        const signature = [
+            jobTemplate.blockData.id,
+            jobTemplate.block.timestamp,
+            jobTemplate.blockData.clearJobs,
+        ].join(':');
+        if (!force && signature === this.lastSentMiningJobSignature) {
+            return { status: 'skipped', bytes: 0, bufferedBytes: this.socket.writableLength ?? 0 };
+        }
+
+        const maximumBufferedBytes = this.maxSocketBufferBytes;
+        const bufferedBeforeBuild = this.socket.writableLength ?? 0;
+        if (bufferedBeforeBuild >= maximumBufferedBytes) {
+            this.closeSocket();
+            return { status: 'closed', bytes: 0, bufferedBytes: bufferedBeforeBuild };
+        }
+
+        const payoutInformation = this.getPayoutInformation(jobTemplate, this.clientAuthorization.address);
+        if (payoutInformation == null) {
+            return { status: 'skipped', bytes: 0, bufferedBytes: this.socket.writableLength ?? 0 };
+        }
         // const devFeeAddress = this.configService.get('DEV_FEE_ADDRESS');
         // //50Th/s
         // this.noFee = false;
@@ -474,38 +512,46 @@ export class StratumV1Client {
         //     ];
         // }
 
-        const networkConfig = this.configService.get('NETWORK');
-        let network;
-
-        if (networkConfig === 'mainnet') {
-            network = bitcoinjs.networks.bitcoin;
-        } else if (networkConfig === 'testnet') {
-            network = bitcoinjs.networks.testnet;
-        } else if (networkConfig === 'regtest') {
-            network = bitcoinjs.networks.regtest;
-        } else {
-            throw new Error('Invalid network configuration');
-        }
-
-        const job = new MiningJob(
-            network,
-            this.stratumV1JobsService.getNextId(),
+        const job = this.stratumV1JobsService.getOrCreateJob(
+            this.network,
             payoutInformation,
-            jobTemplate
+            jobTemplate,
+            this.getPayoutIdentity(jobTemplate),
+            this.payoutMode,
         );
-
-        this.stratumV1JobsService.addJob(job);
-
-
-        const success = await this.write(job.response(jobTemplate));
-        if (!success) {
-            return;
+        const payload = job.responseBuffer(jobTemplate);
+        const bufferedBeforeWrite = this.socket.writableLength ?? 0;
+        if (bufferedBeforeWrite >= maximumBufferedBytes
+            || payload.length >= maximumBufferedBytes - bufferedBeforeWrite) {
+            this.closeSocket();
+            return { status: 'closed', bytes: 0, bufferedBytes: bufferedBeforeWrite };
         }
-        this.lastSentMiningJobTimestamp = jobTemplate.block.timestamp;
-
-
-        //console.log(`Sent new job to ${this.clientAuthorization.worker}.${this.extraNonceAndSessionId}. (clearJobs: ${jobTemplate.blockData.clearJobs}, fee?: ${!this.noFee})`)
-
+        try {
+            const accepted = this.socket.write(payload);
+            this.lastSentMiningJobTimestamp = jobTemplate.block.timestamp;
+            this.lastSentMiningJobSignature = signature;
+            const bufferedAfterWrite = this.socket.writableLength ?? 0;
+            if (bufferedAfterWrite >= maximumBufferedBytes) {
+                this.closeSocket();
+                return {
+                    status: 'closed',
+                    bytes: payload.length,
+                    bufferedBytes: bufferedAfterWrite,
+                };
+            }
+            return {
+                status: accepted ? 'written' : 'backpressured',
+                bytes: payload.length,
+                bufferedBytes: bufferedAfterWrite,
+            };
+        } catch (error) {
+            this.closeSocket();
+            return {
+                status: 'error',
+                bytes: 0,
+                bufferedBytes: this.socket.writableLength ?? 0,
+            };
+        }
     }
 
 
@@ -533,10 +579,10 @@ export class StratumV1Client {
 
     private async handleMiningSubmission(submission: MiningSubmitMessage) {
 
-        const job = this.stratumV1JobsService.getJobById(submission.jobId);
+        const submissionContext = this.stratumV1JobsService.getSubmissionContext(submission.jobId);
 
         // a miner may submit a job that doesn't exist anymore if it was removed by a new block notification (or expired, 5 min)
-        if (job == null) {
+        if (submissionContext == null || !this.isOwnedSubmissionContext(submissionContext)) {
             const err = new StratumErrorMessage(
                 submission.id,
                 eStratumErrorCode.JobNotFound,
@@ -549,29 +595,60 @@ export class StratumV1Client {
             return false;
         }
 
-        const jobTemplate = this.stratumV1JobsService.getJobTemplateById(job.jobTemplateId);
+        const { job, jobTemplate, status } = submissionContext;
 
-        if (jobTemplate == null) {
-            const err = new StratumErrorMessage(
-                submission.id,
-                eStratumErrorCode.JobNotFound,
-                'Job Template not found').response();
-            //console.log(err);
-            const success = await this.write(err);
-            if (!success) {
-                return false;
-            }
+        const versionBits = this.parseUint32Hex(submission.versionMask);
+        const nonce = this.parseUint32Hex(submission.nonce);
+        const timestamp = this.parseUint32Hex(submission.ntime);
+        if (versionBits == null || nonce == null || timestamp == null) {
+            await this.writeSubmissionError(
+                submission,
+                eStratumErrorCode.OtherUnknown,
+                'Invalid mining submit hexadecimal field',
+            );
+            return false;
+        }
+        const unsignedVersionBits = versionBits >>> 0;
+        if (!Number.isInteger(versionBits)
+            || versionBits < 0
+            || versionBits > 0xffffffff
+            || (unsignedVersionBits & (~VERSION_ROLLING_MASK >>> 0)) !== 0) {
+            await this.writeSubmissionError(
+                submission,
+                eStratumErrorCode.OtherUnknown,
+                'Invalid version mask',
+            );
+            return false;
+        }
+        // The optional BIP310 field contains replacement bits, not an XOR
+        // delta. A legacy five-field submission leaves the advertised version
+        // unchanged, including any bits already set inside the rolling mask.
+        const effectiveVersionBits = submission.params.length >= 6
+            ? unsignedVersionBits
+            : (jobTemplate.block.version >>> 0) & (VERSION_ROLLING_MASK >>> 0);
+        const submittedVersion = MiningJob.applyVersionRolling(
+            jobTemplate.block.version,
+            effectiveVersionBits,
+            VERSION_ROLLING_MASK,
+        );
+        const requiredVersionBits = jobTemplate.blockData.requiredVersionBits ?? 0;
+        if ((submittedVersion & requiredVersionBits) !== requiredVersionBits) {
+            await this.writeSubmissionError(
+                submission,
+                eStratumErrorCode.OtherUnknown,
+                'Invalid version mask',
+            );
             return false;
         }
 
         const submissionHash = [
-            submission.jobId,
-            submission.extraNonce2,
-            submission.ntime,
-            submission.nonce,
-            submission.versionMask ?? ''
+            job.jobId,
+            submission.extraNonce2.toLowerCase(),
+            timestamp.toString(16).padStart(8, '0'),
+            nonce.toString(16).padStart(8, '0'),
+            submittedVersion.toString(16).padStart(8, '0'),
         ].join(':');
-        if (this.miningSubmissionHashes.has(submissionHash)) {
+        if (this.isDuplicateSubmission(submissionHash)) {
             const err = new StratumErrorMessage(
                 submission.id,
                 eStratumErrorCode.DuplicateShare,
@@ -581,76 +658,82 @@ export class StratumV1Client {
                 return false;
             }
             return false;
-        } else {
-            this.miningSubmissionHashes.add(submissionHash);
         }
-
-        const versionMask = parseInt(submission.versionMask, 16);
-        const nonce = parseInt(submission.nonce, 16);
-        const timestamp = parseInt(submission.ntime, 16);
 
         const header = job.buildHeaderBuffer(
             jobTemplate,
-            versionMask,
+            effectiveVersionBits,
             nonce,
             this.extraNonceAndSessionId,
             submission.extraNonce2,
-            timestamp
+            timestamp,
+            VERSION_ROLLING_MASK,
         );
         const { submissionDifficulty, hashBuffer } = this.calculateDifficulty(header);
 
         //console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonceAndSessionId}`);
 
+        const isBlockCandidate = DifficultyUtils.meetsCompactTarget(
+            hashBuffer,
+            jobTemplate.block.bits,
+        );
+        if (status === 'stale' && !isBlockCandidate) {
+            await this.writeSubmissionError(
+                submission,
+                eStratumErrorCode.JobNotFound,
+                'Stale share',
+            );
+            return false;
+        }
 
-        if (DifficultyUtils.meetsTarget(hashBuffer, this.sessionDifficultyTarget)) {
+        const meetsSessionTarget = DifficultyUtils.meetsTarget(hashBuffer, this.sessionDifficultyTarget);
+        if (status === 'current' && !isBlockCandidate && !meetsSessionTarget) {
+            await this.writeSubmissionError(
+                submission,
+                eStratumErrorCode.LowDifficultyShare,
+                'Difficulty too low',
+            );
+            return false;
+        }
+        const creditedDifficulty = isBlockCandidate && !meetsSessionTarget
+            ? Math.min(this.sessionDifficulty, submissionDifficulty)
+            : this.sessionDifficulty;
+
+        let blockSubmissionResult: string = null;
+        if (status === 'stale') {
+            blockSubmissionResult = await this.submitBlockCandidate(
+                job,
+                jobTemplate,
+                submission,
+                effectiveVersionBits,
+                nonce,
+                timestamp,
+            );
+            if (!this.isSuccessfulBlockSubmission(blockSubmissionResult)) {
+                await this.writeSubmissionError(
+                    submission,
+                    eStratumErrorCode.JobNotFound,
+                    'Stale share',
+                );
+                return false;
+            }
+        }
+
+        {
             const success = await this.write(JSON.stringify(submission.response()) + '\n');
             if (!success) {
                 return false;
             }
 
-            let blockSubmissionResult: string = null;
-            const isBlockCandidate = DifficultyUtils.meetsTarget(
-                hashBuffer,
-                DifficultyUtils.difficultyToTarget(jobTemplate.blockData.networkDifficulty),
-            );
-            if (isBlockCandidate) {
-                console.log('!!! BLOCK FOUND !!!');
-                const updatedJobBlock = job.copyAndUpdateBlock(
+            if (status === 'current' && isBlockCandidate) {
+                blockSubmissionResult = await this.submitBlockCandidate(
+                    job,
                     jobTemplate,
-                    versionMask,
+                    submission,
+                    effectiveVersionBits,
                     nonce,
-                    this.extraNonceAndSessionId,
-                    submission.extraNonce2,
-                    timestamp
+                    timestamp,
                 );
-                const blockHex = updatedJobBlock.toHex(false);
-                blockSubmissionResult = await this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
-                await this.blocksService.save({
-                    height: jobTemplate.blockData.height,
-                    minerAddress: this.clientAuthorization.address,
-                    worker: this.clientAuthorization.worker,
-                    sessionId: this.extraNonceAndSessionId,
-                    blockData: blockHex,
-                    blockSubmissionResult,
-                    payoutSnapshotId: this.payoutMode === 'pplns'
-                        ? jobTemplate.blockData.payoutSnapshotId ?? null
-                        : null,
-                    payoutMode: this.payoutMode,
-                });
-                if (this.payoutMode === 'pplns') {
-                    await this.payoutSnapshotService?.finalizeSnapshotForBlock({
-                        payoutSnapshotId: jobTemplate.blockData.payoutSnapshotId,
-                        blockHeight: jobTemplate.blockData.height,
-                        blockSubmissionResult,
-                        payoutMode: this.payoutMode,
-                    });
-                }
-
-                await this.notificationService.notifySubscribersBlockFound(this.clientAuthorization.address, jobTemplate.blockData.height, updatedJobBlock, blockSubmissionResult);
-                //success
-                if (this.isSuccessfulBlockSubmission(blockSubmissionResult)) {
-                    await this.addressSettingsService.resetBestDifficultyAndShares();
-                }
             }
             await this.ensureClientEntity();
             try {
@@ -664,19 +747,17 @@ export class StratumV1Client {
                     jobId: job.jobId,
                     jobTemplateId: job.jobTemplateId,
                     blockHeight: jobTemplate.blockData.height,
-                    creditedDifficulty: this.sessionDifficulty,
+                    creditedDifficulty,
                     submissionDifficulty,
                     networkDifficulty: jobTemplate.blockData.networkDifficulty,
                     nonce: submission.nonce,
                     ntime: submission.ntime,
-                    version: Number.isFinite(versionMask)
-                        ? (jobTemplate.block.version ^ versionMask).toString(16)
-                        : jobTemplate.block.version.toString(16),
+                    version: submittedVersion.toString(16),
                     extraNonce2: submission.extraNonce2,
                     isBlockCandidate,
                     blockSubmissionResult,
                 });
-                await this.statistics.addShares(this.clientEntity, this.sessionDifficulty);
+                await this.statistics.addShares(this.clientEntity, creditedDifficulty);
                 const now = new Date();
                 this.clientEntity.updatedAt = now;
                 this.clientEntity.hashRate = this.statistics.hashRate;
@@ -691,26 +772,76 @@ export class StratumV1Client {
                 this.clientEntity.bestDifficulty = submissionDifficulty;
                 await this.addressSettingsService.updateBestDifficultyIfHigher(this.clientAuthorization.address, submissionDifficulty, this.clientEntity.userAgent);
             }
-
-
-
-        } else {
-            const err = new StratumErrorMessage(
-                submission.id,
-                eStratumErrorCode.LowDifficultyShare,
-                'Difficulty too low').response();
-
-            const success = await this.write(err);
-            if (!success) {
-                return false;
-            }
-
-            return false;
         }
 
         //await this.checkDifficulty();
         return false;
 
+    }
+
+    private async submitBlockCandidate(
+        job: MiningJob,
+        jobTemplate: IJobTemplate,
+        submission: MiningSubmitMessage,
+        versionBits: number,
+        nonce: number,
+        timestamp: number,
+    ): Promise<string> {
+        console.log('!!! BLOCK FOUND !!!');
+        const updatedJobBlock = job.copyAndUpdateBlock(
+            jobTemplate,
+            versionBits,
+            nonce,
+            this.extraNonceAndSessionId,
+            submission.extraNonce2,
+            timestamp,
+            VERSION_ROLLING_MASK,
+        );
+        const blockHex = updatedJobBlock.toHex(false);
+        const blockSubmissionResult = await this.bitcoinRpcService.SUBMIT_BLOCK(blockHex);
+        await this.blocksService.save({
+            height: jobTemplate.blockData.height,
+            minerAddress: this.clientAuthorization.address,
+            worker: this.clientAuthorization.worker,
+            sessionId: this.extraNonceAndSessionId,
+            blockData: blockHex,
+            blockSubmissionResult,
+            payoutSnapshotId: this.payoutMode === 'pplns'
+                ? jobTemplate.blockData.payoutSnapshotId ?? null
+                : null,
+            payoutMode: this.payoutMode,
+        });
+        if (this.payoutMode === 'pplns') {
+            await this.payoutSnapshotService?.finalizeSnapshotForBlock({
+                payoutSnapshotId: jobTemplate.blockData.payoutSnapshotId,
+                blockHeight: jobTemplate.blockData.height,
+                blockSubmissionResult,
+                payoutMode: this.payoutMode,
+            });
+        }
+
+        await this.notificationService.notifySubscribersBlockFound(
+            this.clientAuthorization.address,
+            jobTemplate.blockData.height,
+            updatedJobBlock,
+            blockSubmissionResult,
+        );
+        if (this.isSuccessfulBlockSubmission(blockSubmissionResult)) {
+            await this.addressSettingsService.resetBestDifficultyAndShares();
+        }
+        return blockSubmissionResult;
+    }
+
+    private async writeSubmissionError(
+        submission: MiningSubmitMessage,
+        code: eStratumErrorCode,
+        message: string,
+    ): Promise<boolean> {
+        return this.write(new StratumErrorMessage(
+            submission.id,
+            code,
+            message,
+        ).response());
     }
 
     private async checkDifficulty() {
@@ -733,7 +864,7 @@ export class StratumV1Client {
 
             await this.socket.write(data);
 
-            const jobTemplate = await firstValueFrom(this.stratumV1JobsService.newMiningJob$);
+            const jobTemplate = await this.getLatestPayoutJobTemplate();
             const nextTimestamp = Math.max(
                 jobTemplate.block.timestamp,
                 Math.floor(Date.now() / 1000),
@@ -748,7 +879,7 @@ export class StratumV1Client {
                 }),
                 blockData: { ...jobTemplate.blockData, clearJobs: true }
             };
-            await this.sendNewMiningJob(refreshedJobTemplate);
+            this.broadcastMiningJob(refreshedJobTemplate, true);
 
         }
     }
@@ -860,6 +991,67 @@ export class StratumV1Client {
         return DEFAULT_CLIENT_HASHRATE_PERSIST_INTERVAL_MS;
     }
 
+    private isDuplicateSubmission(submissionHash: string): boolean {
+        const now = Date.now();
+        const existingExpiry = this.miningSubmissionHashes.get(submissionHash);
+        if (existingExpiry != null && existingExpiry > now) {
+            return true;
+        }
+        if (existingExpiry != null) {
+            this.miningSubmissionHashes.delete(submissionHash);
+        }
+
+        for (const [hash, expiresAt] of this.miningSubmissionHashes) {
+            if (expiresAt <= now) {
+                this.miningSubmissionHashes.delete(hash);
+            }
+        }
+
+        this.miningSubmissionHashes.set(
+            submissionHash,
+            now + this.getSubmissionDedupTtlMs(),
+        );
+        const maxEntries = this.getSubmissionDedupMaxEntries();
+        while (this.miningSubmissionHashes.size > maxEntries) {
+            const oldestHash = this.miningSubmissionHashes.keys().next().value;
+            if (oldestHash == null) {
+                break;
+            }
+            this.miningSubmissionHashes.delete(oldestHash);
+        }
+        return false;
+    }
+
+    private getSubmissionDedupTtlMs(): number {
+        const configured = Number(
+            this.configService.get<string>('STRATUM_SUBMISSION_DEDUP_TTL_MS')
+            ?? process.env.STRATUM_SUBMISSION_DEDUP_TTL_MS,
+        );
+        return Number.isInteger(configured) && configured > 0
+            ? configured
+            : DEFAULT_SUBMISSION_DEDUP_TTL_MS;
+    }
+
+    private getSubmissionDedupMaxEntries(): number {
+        const configured = Number(
+            this.configService.get<string>('STRATUM_SUBMISSION_DEDUP_MAX_ENTRIES')
+            ?? process.env.STRATUM_SUBMISSION_DEDUP_MAX_ENTRIES,
+        );
+        return Number.isInteger(configured) && configured > 0
+            ? configured
+            : DEFAULT_SUBMISSION_DEDUP_MAX_ENTRIES;
+    }
+
+    private readMaxSocketBufferBytes(): number {
+        const configured = Number(
+            this.configService.get<string>('STRATUM_MAX_SOCKET_BUFFER_BYTES')
+            ?? process.env.STRATUM_MAX_SOCKET_BUFFER_BYTES,
+        );
+        return Number.isSafeInteger(configured) && configured > 0
+            ? configured
+            : DEFAULT_MAX_SOCKET_BUFFER_BYTES;
+    }
+
     private getValidationErrorSignature(errors: ValidationError[]): string {
         if (errors.length === 0) {
             return 'unknown';
@@ -905,12 +1097,67 @@ export class StratumV1Client {
         return Number.isFinite(configured) && configured > 0 ? configured : null;
     }
 
-    private getPayoutInformation(jobTemplate: IJobTemplate, fallbackAddress: string): AddressObject[] {
-        if (this.payoutMode === 'pplns' && jobTemplate.blockData.payoutOutputs?.length > 0) {
-            return jobTemplate.blockData.payoutOutputs;
+    private getPayoutInformation(jobTemplate: IJobTemplate, fallbackAddress: string): AddressObject[] | null {
+        if (this.payoutMode === 'pplns') {
+            return jobTemplate.blockData.payoutOutputs?.length > 0
+                ? jobTemplate.blockData.payoutOutputs
+                : null;
         }
 
         return [{ address: fallbackAddress, percent: 100 }];
+    }
+
+    private async getLatestPayoutJobTemplate(): Promise<IJobTemplate> {
+        return this.stratumV1JobsService.getLatestJobTemplate(this.payoutMode)
+            ?? firstValueFrom((
+                this.stratumV1JobsService.sv1MiningJob$
+                ?? this.stratumV1JobsService.newMiningJob$
+            ).pipe(
+                filter(template => template.blockData.payoutMode === 'all'
+                    || template.blockData.payoutMode === this.payoutMode),
+            ));
+    }
+
+    private getPayoutIdentity(jobTemplate: IJobTemplate): string | undefined {
+        if (this.payoutMode === 'solo') {
+            return `solo\0${this.clientAuthorization.address}`;
+        }
+        if (jobTemplate.blockData.payoutSnapshotId != null) {
+            return `pplns\0${jobTemplate.blockData.payoutSnapshotId}`;
+        }
+        return jobTemplate.blockData.payoutOutputs?.length > 0
+            ? createPayoutOutputIdentity('pplns', jobTemplate.blockData.payoutOutputs)
+            : undefined;
+    }
+
+    private isOwnedSubmissionContext(context: IJobSubmissionContext): boolean {
+        const templatePayoutMode = context.jobTemplate.blockData.payoutMode;
+        const expectedPayoutIdentity = this.getPayoutIdentity(context.jobTemplate);
+        return (templatePayoutMode === 'all' || templatePayoutMode === this.payoutMode)
+            && expectedPayoutIdentity != null
+            && context.job.ownership?.payoutMode === this.payoutMode
+            && context.job.ownership.payoutIdentity === expectedPayoutIdentity;
+    }
+
+    private parseUint32Hex(value: string | null | undefined): number | null {
+        if (typeof value !== 'string' || !/^[0-9a-fA-F]{8}$/.test(value)) {
+            return null;
+        }
+        return Number.parseInt(value, 16);
+    }
+
+    private getNetwork(): bitcoinjs.Network {
+        const networkConfig = this.configService.get('NETWORK');
+        if (networkConfig === 'mainnet') {
+            return bitcoinjs.networks.bitcoin;
+        }
+        if (networkConfig === 'testnet') {
+            return bitcoinjs.networks.testnet;
+        }
+        if (networkConfig === 'regtest') {
+            return bitcoinjs.networks.regtest;
+        }
+        throw new Error('Invalid network configuration');
     }
 
     private isSuccessfulBlockSubmission(result?: string | null): boolean {

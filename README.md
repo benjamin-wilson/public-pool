@@ -63,6 +63,61 @@ Cluster-mode connection dropping requires Node.js `22.12.0` or newer.
 Size it using the busiest port: `worker count * limit`. For example, 28 workers
 with the default limit of `10000` allow up to `280000` connections on one port.
 
+SV2 pool-assigned extranonces reserve the first of their four prefix bytes for
+a process namespace and share the remaining 24-bit allocation space across
+standard and extended channels. Under PM2, the namespace uses
+`NODE_APP_INSTANCE` (falling back to `pm_id`) plus `restart_time` parity, which
+keeps workers and overlapping zero-downtime reload generations disjoint without
+changing the advertised prefix or total extranonce sizes. The effective value is
+`SV2_EXTRANONCE_NAMESPACE_BASE + 2 * worker + (restart_time % 2)` and must be at
+most `255` (up to 128 worker lanes at base zero). Startup fails if a PM2 worker
+identity is missing or the namespace cannot fit. Independent containers or PM2
+worker apps that share mining work must be assigned non-overlapping base ranges;
+reserve two namespace values per configured Stratum worker.
+
+### New-block notification path
+
+The master keeps an authoritative Bitcoin Core `getblocktemplate` longpoll open;
+rawblock ZMQ remains a watchdog and duplicate results are discarded. On a new tip,
+the master publishes a compact subsidy-only SV1 job before serializing the full
+transaction template. Workers fan that job out through one process-level socket
+broadcaster, then issue the full fee-paying job as a second clean switch. Payout
+snapshot creation and Postgres persistence run after the immediate solo publish.
+
+SV2 solo channels pre-stage a native subsidy-only future job for the next height.
+When the authoritative header arrives, the pool activates that job with only
+`SetNewPrevHash`; the same-tip full job follows without a second prevhash switch.
+Standard and extended candidates retain exact header/body reconstruction, and
+late network-target candidates remain recoverable without crediting stale shares.
+Pending SV2 canonical jobs are coalesced per client, while a new-tip activation
+is moved ahead of any not-yet-started canonical work for that tip. The finite
+defaults are 16 retained jobs per channel, four queued operations, 256 KiB of
+outstanding socket writes, and a two-second write-callback deadline. A client is
+disconnected if `SV2_MAX_RETAINED_JOBS_PER_CHANNEL`,
+`SV2_MAX_QUEUED_JOB_OPERATIONS`, `SV2_MAX_SOCKET_BUFFER_BYTES`, or
+`SV2_SOCKET_WRITE_TIMEOUT_MS` is exceeded; `SV2_JOB_RETENTION_MS` controls how
+long stale network candidates remain reconstructable.
+
+`SV1_SUBSIDY_BRIDGE_ENABLED=true` enables the solo bridge (the default). PPLNS is
+never allowed to fall back to a miner-address coinbase; optional PPLNS bridge
+support requires a precomputed subsidy-valued payout snapshot. Retained jobs are
+kept for `STRATUM_JOB_RETENTION_MS` so a late network-target candidate can still
+be reconstructed and submitted, while ordinary old-tip shares are rejected.
+PPLNS seeds use a non-active snapshot status and are skipped if the next
+authoritative `nBits` differs from their preparation basis.
+
+The Redis protocol remains rolling-deploy compatible: new workers retain the
+legacy mining-info reload path, while the master writes the historical latest
+key as JSON only after a PPLNS-safe compatibility template is ready. Deploying
+workers before the master is still the preferred rollout order. When any PPLNS
+listener is configured and snapshot preparation fails, legacy workers are held
+on their prior job instead of being woken with a miner-address fallback job.
+
+Two structured log events expose the end-to-end timing:
+
+- `block_notification_trace` reports Core, bridge, Redis, PPLNS, and persistence stages, separated by payout mode and job type.
+- `stratum_job_fanout` reports client count, bytes, backpressure, and p50/p95/p99/last enqueue time, correlated by `eventId`.
+
 ## Docker
 
 The default compose stack includes Public Pool, TimescaleDB, and Redis. TimescaleDB
@@ -162,4 +217,12 @@ Integration tests against real TimescaleDB and Redis:
 
 ```bash
 $ docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
+```
+
+With the full-setup regtest Bitcoin Core running, validate reconstructed empty
+and full blocks through BIP23 proposal mode:
+
+```bash
+$ RUN_BITCOIN_REGTEST_INTEGRATION=true \
+  npm run test:integration -- bitcoin-regtest-proposal
 ```

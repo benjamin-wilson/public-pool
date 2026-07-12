@@ -1,3 +1,5 @@
+import type { PayoutMode } from '../../types/payout-mode';
+
 export interface IBlockTemplateTx {
     data: string; //'hex',                 // (string) transaction data encoded in hexadecimal (byte-for-byte)
     txid: string; //'hex',                 // (string) transaction id encoded in little-endian hexadecimal
@@ -44,5 +46,16 @@ export interface IBlockTemplate {
     capabilities: string[]
     payoutSnapshotId?: string;
     payoutOutputs?: IBlockTemplatePayoutOutput[];
+    /** Force miners to switch even when the previous block hash is unchanged. */
+    forceCleanJobs?: boolean;
+    /** Distinguishes normal fee-paying templates from the subsidy-only bridge. */
+    jobType?: 'full' | 'empty';
+    /** Limits this template to the payout path whose coinbase data is ready. */
+    payoutMode?: PayoutMode | 'all';
+    /** Correlates master detection, Redis delivery, and socket fan-out traces. */
+    notificationEventId?: string;
+    notificationPublishedAtMs?: number;
+    /** Timestamp of the rolling PPLNS snapshot seed used by an empty bridge. */
+    payoutBridgeSeedCreatedAtMs?: number;
 
 }

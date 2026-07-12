@@ -58,6 +58,9 @@ const DEFAULT_PAYOUT_WINDOW_FACTOR = 4;
 const DEFAULT_COINBASE_WEIGHT_BUDGET = 26_000;
 const DEFAULT_PAYOUT_BOOTSTRAP_WINDOW = true;
 const PPLNS_PAYOUT_MODE: PayoutMode = 'pplns';
+// UNNEST keeps each statement at 13 bind parameters; this cap bounds array payload size.
+const PAYOUT_SNAPSHOT_ENTRY_INSERT_BATCH_SIZE = 1_000;
+type PayoutSnapshotStatus = 'finalized' | 'bridge_seed';
 
 @Injectable()
 export class PayoutSnapshotService {
@@ -79,12 +82,17 @@ export class PayoutSnapshotService {
         blockHeight: number;
         coinbaseValueSats: number;
         networkDifficulty: number;
+        /** Bridge seeds are frozen/reconstructable but excluded from active payout APIs. */
+        visibility?: 'active' | 'bridge_seed';
     }): Promise<PayoutSnapshotForTemplate | null> {
         if (!this.snapshotsEnabled || input.coinbaseValueSats <= 0 || input.networkDifficulty <= 0) {
             return null;
         }
 
         return this.dataSource.transaction(async manager => {
+            const snapshotStatus: PayoutSnapshotStatus = input.visibility === 'bridge_seed'
+                ? 'bridge_seed'
+                : 'finalized';
             const effectiveWindowFactor = await this.getEffectiveWindowFactor(manager);
             const windowTargetDifficulty = input.networkDifficulty * effectiveWindowFactor;
             const window = await this.getPplnsWindow(manager, windowTargetDifficulty);
@@ -96,6 +104,7 @@ export class PayoutSnapshotService {
                 blockHeight: input.blockHeight,
                 coinbaseValueSats: input.coinbaseValueSats,
                 windowEndShareIndex: window.windowEndShareIndex,
+                status: snapshotStatus,
             });
             if (existing != null) {
                 return existing;
@@ -153,7 +162,7 @@ export class PayoutSnapshotService {
                 ) VALUES (
                     $1,
                     $2,
-                    'finalized',
+                    '${snapshotStatus}',
                     $3::bigint,
                     $4::bigint,
                     $5::numeric,
@@ -199,9 +208,7 @@ export class PayoutSnapshotService {
                 unallocatedRemainderSats.toString(),
             ]);
 
-            for (const entry of entries) {
-                await this.insertSnapshotEntry(manager, snapshotRow.id, entry);
-            }
+            await this.insertSnapshotEntries(manager, snapshotRow.id, entries);
 
             return this.getSnapshotById(manager, snapshotRow.id);
         });
@@ -554,14 +561,19 @@ export class PayoutSnapshotService {
 
     private async getExistingSnapshot(
         manager: EntityManager,
-        input: { blockHeight: number; coinbaseValueSats: number; windowEndShareIndex: string },
+        input: {
+            blockHeight: number;
+            coinbaseValueSats: number;
+            windowEndShareIndex: string;
+            status: PayoutSnapshotStatus;
+        },
     ): Promise<PayoutSnapshotForTemplate | null> {
         const [snapshot] = await manager.query(`
             SELECT "id"::text AS "id"
             FROM "payout_snapshot"
             WHERE "method" = $1
               AND "payoutMode" = $5
-              AND "status" = 'finalized'
+              AND "status" = '${input.status}'
               AND "blockHeight" = $2::bigint
               AND "coinbaseValueSats" = $3::bigint
               AND "windowEndShareIndex" = $4::bigint
@@ -641,52 +653,86 @@ export class PayoutSnapshotService {
         };
     }
 
-    private async insertSnapshotEntry(manager: EntityManager, snapshotId: string, entry: PayoutDistributionEntry): Promise<void> {
-        await manager.query(`
-            INSERT INTO "payout_snapshot_entry" (
-                "snapshotId",
-                "payoutMode",
-                "address",
-                "creditedDifficulty",
-                "acceptedShareCount",
-                "payoutWeight",
-                "grossPayoutSats",
-                "payoutSats",
-                "balanceBeforeSats",
-                "balanceAfterSats",
-                "includedInCoinbase",
-                "rowType",
-                "rank"
-            ) VALUES (
-                $1::bigint,
-                $2,
-                $3,
-                $4::numeric,
-                $5::bigint,
-                $6::numeric,
-                $7::bigint,
-                $8::bigint,
-                $9::bigint,
-                $10::bigint,
-                $11::boolean,
-                $12,
-                $13::int
-            )
-        `, [
-            snapshotId,
-            PPLNS_PAYOUT_MODE,
-            entry.address,
-            entry.creditedDifficulty,
-            entry.acceptedShareCount,
-            entry.payoutWeight,
-            entry.grossPayoutSats,
-            entry.payoutSats,
-            entry.balanceBeforeSats,
-            entry.balanceAfterSats,
-            entry.includedInCoinbase,
-            entry.includedInCoinbase ? 'coinbase' : 'pending',
-            entry.rank,
-        ]);
+    private async insertSnapshotEntries(
+        manager: EntityManager,
+        snapshotId: string,
+        entries: PayoutDistributionEntry[],
+    ): Promise<void> {
+        for (let offset = 0; offset < entries.length; offset += PAYOUT_SNAPSHOT_ENTRY_INSERT_BATCH_SIZE) {
+            const batch = entries.slice(offset, offset + PAYOUT_SNAPSHOT_ENTRY_INSERT_BATCH_SIZE);
+            await manager.query(`
+                INSERT INTO "payout_snapshot_entry" (
+                    "snapshotId",
+                    "payoutMode",
+                    "address",
+                    "creditedDifficulty",
+                    "acceptedShareCount",
+                    "payoutWeight",
+                    "grossPayoutSats",
+                    "payoutSats",
+                    "balanceBeforeSats",
+                    "balanceAfterSats",
+                    "includedInCoinbase",
+                    "rowType",
+                    "rank"
+                )
+                SELECT
+                    $1::bigint,
+                    $2,
+                    entry."address",
+                    entry."creditedDifficulty",
+                    entry."acceptedShareCount",
+                    entry."payoutWeight",
+                    entry."grossPayoutSats",
+                    entry."payoutSats",
+                    entry."balanceBeforeSats",
+                    entry."balanceAfterSats",
+                    entry."includedInCoinbase",
+                    entry."rowType",
+                    entry."rank"
+                FROM UNNEST(
+                    $3::varchar[],
+                    $4::numeric[],
+                    $5::bigint[],
+                    $6::numeric[],
+                    $7::bigint[],
+                    $8::bigint[],
+                    $9::bigint[],
+                    $10::bigint[],
+                    $11::boolean[],
+                    $12::varchar[],
+                    $13::int[]
+                ) WITH ORDINALITY AS entry(
+                    "address",
+                    "creditedDifficulty",
+                    "acceptedShareCount",
+                    "payoutWeight",
+                    "grossPayoutSats",
+                    "payoutSats",
+                    "balanceBeforeSats",
+                    "balanceAfterSats",
+                    "includedInCoinbase",
+                    "rowType",
+                    "rank",
+                    "ordinality"
+                )
+                ORDER BY entry."ordinality"
+            `, [
+                snapshotId,
+                PPLNS_PAYOUT_MODE,
+                batch.map(entry => entry.address),
+                batch.map(entry => entry.creditedDifficulty),
+                batch.map(entry => entry.acceptedShareCount),
+                batch.map(entry => entry.payoutWeight),
+                batch.map(entry => entry.grossPayoutSats),
+                batch.map(entry => entry.payoutSats),
+                batch.map(entry => entry.balanceBeforeSats),
+                batch.map(entry => entry.balanceAfterSats),
+                batch.map(entry => entry.includedInCoinbase),
+                batch.map(entry => entry.includedInCoinbase ? 'coinbase' : 'pending'),
+                batch.map(entry => entry.rank),
+            ]);
+        }
     }
 
     private limitCoinbaseOutputs(entries: PayoutDistributionEntry[]): PayoutDistributionEntry[] {

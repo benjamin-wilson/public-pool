@@ -17,7 +17,7 @@ export class PayoutSnapshotEntity {
     payoutMode: PayoutMode;
 
     @Column({ length: 16, type: 'varchar', default: 'finalized' })
-    status: 'finalized';
+    status: 'finalized' | 'bridge_seed';
 
     @Column({ type: 'bigint' })
     blockHeight: number;
