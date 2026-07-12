@@ -513,6 +513,9 @@ export class StratumV1Service implements OnModuleInit, OnModuleDestroy {
         console.log(JSON.stringify({
             event: 'stratum_job_fanout',
             eventId: jobTemplate.blockData.notificationEventId,
+            sourceToFanoutStartMs: jobTemplate.blockData.sourceNotificationReceivedAtMs == null
+                ? undefined
+                : Date.now() - jobTemplate.blockData.sourceNotificationReceivedAtMs,
             redisToFanoutStartMs: jobTemplate.blockData.notificationPublishedAtMs == null
                 ? undefined
                 : Date.now() - jobTemplate.blockData.notificationPublishedAtMs,

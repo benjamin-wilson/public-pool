@@ -28,6 +28,7 @@ export interface IJobTemplate {
         jobType: 'full' | 'empty';
         payoutMode: PayoutMode | 'all';
         notificationEventId?: string;
+        sourceNotificationReceivedAtMs?: number;
         notificationPublishedAtMs?: number;
         payoutSnapshotId?: string;
         payoutOutputs?: AddressObject[];
@@ -150,6 +151,7 @@ export class StratumV1JobsService {
                     clearJobs,
                     isNewBlock,
                     notificationEventId: blockTemplate.notificationEventId,
+                    sourceNotificationReceivedAtMs: blockTemplate.sourceNotificationReceivedAtMs,
                     notificationPublishedAtMs: blockTemplate.notificationPublishedAtMs,
                     rawTransactions: blockTemplate.transactions,
                     sigoplimit: blockTemplate.sigoplimit,
@@ -159,7 +161,7 @@ export class StratumV1JobsService {
                 };
             }),
             filter(next => next != null),
-            map(({ prepared, timestamp, networkDifficulty, clearJobs, isNewBlock, notificationEventId, notificationPublishedAtMs, rawTransactions, sigoplimit, sizelimit, weightlimit, requiredVersionBits }) => {
+            map(({ prepared, timestamp, networkDifficulty, clearJobs, isNewBlock, notificationEventId, sourceNotificationReceivedAtMs, notificationPublishedAtMs, rawTransactions, sigoplimit, sizelimit, weightlimit, requiredVersionBits }) => {
                 const block = new bitcoinjs.Block();
 
                 // Keep only a placeholder coinbase on the hot path. The full raw body
@@ -198,6 +200,7 @@ export class StratumV1JobsService {
                         jobType: prepared.jobType,
                         payoutMode: prepared.payoutMode,
                         notificationEventId,
+                        sourceNotificationReceivedAtMs,
                         notificationPublishedAtMs,
                         payoutSnapshotId: prepared.coinbase.payoutSnapshotId,
                         payoutOutputs: prepared.coinbase.payoutOutputs?.map(output => ({ ...output })),

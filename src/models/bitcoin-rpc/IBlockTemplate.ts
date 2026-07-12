@@ -54,6 +54,8 @@ export interface IBlockTemplate {
     payoutMode?: PayoutMode | 'all';
     /** Correlates master detection, Redis delivery, and socket fan-out traces. */
     notificationEventId?: string;
+    /** Wall-clock time when the master first observed the source block notification. */
+    sourceNotificationReceivedAtMs?: number;
     notificationPublishedAtMs?: number;
     /** Timestamp of the rolling PPLNS snapshot seed used by an empty bridge. */
     payoutBridgeSeedCreatedAtMs?: number;

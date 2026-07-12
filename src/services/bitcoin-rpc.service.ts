@@ -23,6 +23,7 @@ interface BlockNotificationTrace {
     reason: TemplateRefreshReason;
     startedWallMs: number;
     startedMonotonic: bigint;
+    sourceNotificationReceivedAtMs?: number;
     stages: Record<string, number>;
 }
 
@@ -235,10 +236,11 @@ export class BitcoinRpcService implements OnModuleInit {
 
     private async listenForNewBlocks(sock: zmq.Subscriber) {
         for await (const [topic, msg] of sock) {
+            const sourceNotificationReceivedAtMs = Date.now();
             console.log("New Block");
             const miningInfoRefresh = this.getMiningInfo();
             try {
-                await this.getAndBroadcastLatestTemplate('new_block');
+                await this.getAndBroadcastLatestTemplate('new_block', undefined, sourceNotificationReceivedAtMs);
             } catch (error) {
                 console.error(`ZMQ block template refresh failed: ${error.message}`);
                 continue;
@@ -264,32 +266,34 @@ export class BitcoinRpcService implements OnModuleInit {
     public async getAndBroadcastLatestTemplate(
         reason: TemplateRefreshReason = 'periodic',
         longpollId?: string,
+        sourceNotificationReceivedAtMs?: number,
     ) {
         if (reason === 'periodic') {
             if (this.periodicTemplateRefresh != null) {
                 await this.periodicTemplateRefresh;
                 return;
             }
-            const refresh = this.getAndBroadcastLatestTemplateOnce(reason, longpollId);
+            const refresh = this.getAndBroadcastLatestTemplateOnce(reason, longpollId, sourceNotificationReceivedAtMs);
             this.periodicTemplateRefresh = refresh.finally(() => {
                 this.periodicTemplateRefresh = null;
             });
             await this.periodicTemplateRefresh;
             return;
         }
-        await this.getAndBroadcastLatestTemplateOnce(reason, longpollId);
+        await this.getAndBroadcastLatestTemplateOnce(reason, longpollId, sourceNotificationReceivedAtMs);
     }
 
     private async getAndBroadcastLatestTemplateOnce(
         reason: TemplateRefreshReason,
         longpollId?: string,
+        sourceNotificationReceivedAtMs?: number,
     ): Promise<void> {
         if (this.miningInfo?.blocks == null) {
             console.warn('Skipping block template broadcast because mining info is not available');
             return;
         }
 
-        const trace = this.startTrace(reason);
+        const trace = this.startTrace(reason, sourceNotificationReceivedAtMs);
         const blockTemplate = await this.fetchBlockTemplate(trace, longpollId);
         if (blockTemplate == null) {
             console.warn(`Skipping block template broadcast for height ${this.miningInfo.blocks}; block template is not available`);
@@ -339,6 +343,9 @@ export class BitcoinRpcService implements OnModuleInit {
         const isNewTip = tipKey !== this.lastPublishedTipKey;
         this.miningInfo = { ...this.miningInfo, blocks: tipHeight };
         this.markTrace(trace, 'template_ready');
+        if (isNewTip) {
+            this.logSourceNotification(trace, blockTemplate);
+        }
 
         if (isNewTip) {
             // Start bridge publication first, but never await it on the
@@ -362,6 +369,7 @@ export class BitcoinRpcService implements OnModuleInit {
             forceCleanJobs: isNewTip,
             jobType: 'full',
             notificationEventId: trace.eventId,
+            sourceNotificationReceivedAtMs: trace.sourceNotificationReceivedAtMs,
             notificationPublishedAtMs: Date.now(),
         };
 
@@ -630,7 +638,9 @@ export class BitcoinRpcService implements OnModuleInit {
         }
         if (trace.reason === 'longpoll') {
             const waitMs = Number(process.hrtime.bigint() - trace.startedMonotonic) / 1e6;
-            trace.startedWallMs = Date.now();
+            const sourceNotificationReceivedAtMs = Date.now();
+            trace.sourceNotificationReceivedAtMs = sourceNotificationReceivedAtMs;
+            trace.startedWallMs = sourceNotificationReceivedAtMs;
             trace.startedMonotonic = process.hrtime.bigint();
             trace.stages = { start: 0, longpollWait: waitMs };
         } else {
@@ -758,6 +768,7 @@ export class BitcoinRpcService implements OnModuleInit {
                 forceCleanJobs,
                 jobType: 'full',
                 notificationEventId: `${trace.eventId}:pplns`,
+                sourceNotificationReceivedAtMs: trace.sourceNotificationReceivedAtMs,
                 notificationPublishedAtMs: Date.now(),
             };
             legacyTemplate = pplnsTemplate;
@@ -842,6 +853,7 @@ export class BitcoinRpcService implements OnModuleInit {
                 Math.floor(Date.now() / 1000),
             );
             bridgeTemplate.notificationEventId = `${trace.eventId}:bridge`;
+            bridgeTemplate.sourceNotificationReceivedAtMs = trace.sourceNotificationReceivedAtMs;
             const update: Sv1BridgeUpdate = {
                 schemaVersion: 1,
                 type: 'subsidy-bridge',
@@ -919,6 +931,7 @@ export class BitcoinRpcService implements OnModuleInit {
                 Math.floor(Date.now() / 1000),
             );
             bridgeTemplate.notificationEventId = `${trace.eventId}:bridge:pplns`;
+            bridgeTemplate.sourceNotificationReceivedAtMs = trace.sourceNotificationReceivedAtMs;
             bridgeTemplate.payoutBridgeSeedCreatedAtMs = seed.preparedAtMs;
             const update: Sv1BridgeUpdate = {
                 schemaVersion: 1,
@@ -1427,18 +1440,42 @@ export class BitcoinRpcService implements OnModuleInit {
         return rpcUrl.toString();
     }
 
-    private startTrace(reason: TemplateRefreshReason): BlockNotificationTrace {
+    private startTrace(
+        reason: TemplateRefreshReason,
+        sourceNotificationReceivedAtMs?: number,
+    ): BlockNotificationTrace {
         return {
             eventId: `${reason}:${Date.now()}:${this.rpcRequestId + 1}`,
             reason,
             startedWallMs: Date.now(),
             startedMonotonic: process.hrtime.bigint(),
+            sourceNotificationReceivedAtMs,
             stages: { start: 0 },
         };
     }
 
     private markTrace(trace: BlockNotificationTrace, stage: string): void {
         trace.stages[stage] = Number(process.hrtime.bigint() - trace.startedMonotonic) / 1e6;
+    }
+
+    private logSourceNotification(trace: BlockNotificationTrace, blockTemplate: IBlockTemplate): void {
+        if (trace.sourceNotificationReceivedAtMs == null
+            || (trace.reason !== 'new_block' && trace.reason !== 'longpoll')) {
+            return;
+        }
+
+        console.log(JSON.stringify({
+            event: 'block_source_notification',
+            eventId: trace.eventId,
+            source: trace.reason === 'new_block' ? 'zmq' : 'longpoll',
+            receivedAt: new Date(trace.sourceNotificationReceivedAtMs).toISOString(),
+            receivedAtMs: trace.sourceNotificationReceivedAtMs,
+            tipHeight: blockTemplate.height - 1,
+            templateHeight: blockTemplate.height,
+            previousBlockHash: blockTemplate.previousblockhash,
+            sourceToTemplateReadyMs: trace.stages.template_ready,
+            stagesMs: trace.stages,
+        }));
     }
 
     private logTrace(trace: BlockNotificationTrace, blockTemplate: IBlockTemplate): void {
@@ -1456,6 +1493,10 @@ export class BitcoinRpcService implements OnModuleInit {
             payoutMode: blockTemplate.payoutMode ?? 'all',
             jobType: blockTemplate.jobType ?? 'full',
             startedAt: new Date(trace.startedWallMs).toISOString(),
+            sourceNotificationReceivedAt: trace.sourceNotificationReceivedAtMs == null
+                ? undefined
+                : new Date(trace.sourceNotificationReceivedAtMs).toISOString(),
+            sourceNotificationReceivedAtMs: trace.sourceNotificationReceivedAtMs,
             stagesMs: trace.stages,
         }));
     }
