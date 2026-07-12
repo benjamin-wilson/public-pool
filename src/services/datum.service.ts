@@ -116,7 +116,7 @@ export class DatumService implements OnModuleInit {
             statistics: new StratumV1ClientStatistics(this.getConfiguredDatumShareDifficulty()),
             lastHashRatePersistedAt: 0,
         };
-        console.log(`[DATUM ${state.sessionId}] connection accepted from ${socket.remoteAddress}:${socket.remotePort}`);
+        this.logVerbose(`[DATUM ${state.sessionId}] connection accepted from ${socket.remoteAddress}:${socket.remotePort}`);
 
         const close = () => {
             void this.destroyClient(state);
@@ -152,11 +152,11 @@ export class DatumService implements OnModuleInit {
         if (protoCmd === DatumProtocolCommand.HANDSHAKE_INIT) {
             const hello = state.session.openHandshake(payload);
             state.userAgent = hello.userAgent || 'datum/unknown';
-            console.log(`[DATUM ${state.sessionId}] handshake init from ${state.userAgent}`);
+            this.logVerbose(`[DATUM ${state.sessionId}] handshake init from ${state.userAgent}`);
             await this.writeRaw(socket, state.session.buildHandshakeResponse(hello, 'public-pool DATUM'));
-            console.log(`[DATUM ${state.sessionId}] handshake response sent`);
+            this.logVerbose(`[DATUM ${state.sessionId}] handshake response sent`);
             await this.sendDatumClientConfigure(socket, state);
-            console.log(`[DATUM ${state.sessionId}] client configure sent`);
+            this.logVerbose(`[DATUM ${state.sessionId}] client configure sent`);
             this.startDatumPing(socket, state);
             return;
         }
@@ -900,6 +900,12 @@ export class DatumService implements OnModuleInit {
     private getConfiguredDatumShareDifficulty(): number {
         const configured = parseFloat(this.configService.get<string>('DATUM_SHARE_DIFFICULTY') ?? '');
         return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_DATUM_SHARE_DIFFICULTY;
+    }
+
+    private logVerbose(message: string): void {
+        if (process.env.DATUM_VERBOSE_LOGGING?.toLowerCase() === 'true') {
+            console.log(message);
+        }
     }
 
     private getDatumSubmittedShareDifficulty(pow: Pick<DatumPowSubmit, 'targetByte'>): number {

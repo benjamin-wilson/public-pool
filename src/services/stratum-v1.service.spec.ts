@@ -176,6 +176,29 @@ describe('StratumV1Service', () => {
         expect(trace.totalMs).toBeLessThan(1_000);
     });
 
+    it('does not log routine non-new-block fanout unless explicitly enabled', () => {
+        (service as any).clients.add({
+            broadcastMiningJob: jest.fn().mockReturnValue({
+                status: 'written',
+                bytes: 256,
+                bufferedBytes: 0,
+            }),
+        });
+        const job = {
+            blockData: {
+                id: 'routine',
+                height: 900001,
+                jobType: 'full',
+                isNewBlock: false,
+                clearJobs: false,
+            },
+        };
+
+        (service as any).broadcastMiningJob(job);
+
+        expect(consoleLogSpy.mock.calls.some(call => call[0]?.includes('stratum_job_fanout'))).toBe(false);
+    });
+
     it('reports a buffer-limited client as closed without counting an unwritten job', () => {
         (service as any).clients.add({
             broadcastMiningJob: jest.fn().mockReturnValue({

@@ -1442,6 +1442,10 @@ export class BitcoinRpcService implements OnModuleInit {
     }
 
     private logTrace(trace: BlockNotificationTrace, blockTemplate: IBlockTemplate): void {
+        if (!this.shouldLogBlockNotificationTrace(trace)) {
+            return;
+        }
+
         console.log(JSON.stringify({
             event: 'block_notification_trace',
             eventId: trace.eventId,
@@ -1454,6 +1458,13 @@ export class BitcoinRpcService implements OnModuleInit {
             startedAt: new Date(trace.startedWallMs).toISOString(),
             stagesMs: trace.stages,
         }));
+    }
+
+    private shouldLogBlockNotificationTrace(trace: BlockNotificationTrace): boolean {
+        if (trace.reason === 'new_block') {
+            return true;
+        }
+        return process.env.BLOCK_NOTIFICATION_TRACE_LOG_ENABLED?.toLowerCase() === 'true';
     }
 
     private hasConfiguredPplnsListeners(): boolean {

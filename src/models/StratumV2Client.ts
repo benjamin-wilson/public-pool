@@ -2576,6 +2576,10 @@ export class StratumV2Client {
             return;
         }
 
+        if (process.env.SV2_AUTH_FAILURE_LOG_ENABLED?.toLowerCase() !== 'true') {
+            return;
+        }
+
         const remote = this.socket.remoteAddress ?? 'unknown';
         const key = `${remote}:${error.message}`;
         const now = Date.now();

@@ -506,6 +506,10 @@ export class StratumV1Service implements OnModuleInit, OnModuleDestroy {
             }
         }
 
+        if (!this.shouldLogJobFanout(jobTemplate.blockData.isNewBlock, errors)) {
+            return;
+        }
+
         console.log(JSON.stringify({
             event: 'stratum_job_fanout',
             eventId: jobTemplate.blockData.notificationEventId,
@@ -528,6 +532,13 @@ export class StratumV1Service implements OnModuleInit, OnModuleDestroy {
             milestoneMs,
             totalMs: elapsedMs(),
         }));
+    }
+
+    private shouldLogJobFanout(isNewBlock: boolean, errors: number): boolean {
+        if (errors > 0 || isNewBlock) {
+            return true;
+        }
+        return process.env.STRATUM_FANOUT_LOG_ENABLED?.toLowerCase() === 'true';
     }
 
     private isBackpressureDisabled() {
