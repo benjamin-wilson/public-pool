@@ -4,6 +4,7 @@ import { Socket } from 'net';
 import { Observable, Subject } from 'rxjs';
 
 import { StratumV2Client } from '../models/StratumV2Client';
+import { Sv1PrestageActivation } from './redis-messaging.service';
 import { IJobTemplate } from './stratum-v1-jobs.service';
 import { StratumV2Service } from './stratum-v2.service';
 
@@ -156,6 +157,45 @@ describe('StratumV2Service canonical job broadcaster', () => {
     await service.onModuleDestroy();
   });
 
+  it('converts compact activations into header-only SV2 work activation fanout', async () => {
+    const { service, compactActivations } = createService();
+    await service.onModuleInit();
+    const client = createClientMock();
+    service.registerClient(client);
+
+    compactActivations.next(createCompactActivation(900_002, '22'.repeat(32)));
+
+    expect(client.enqueueWorkActivation).toHaveBeenCalledTimes(1);
+    expect(client.enqueueWorkActivation).toHaveBeenCalledWith(expect.objectContaining({
+      height: 900_002,
+      previousblockhash: '22'.repeat(32),
+      transactions: [],
+      jobType: 'empty',
+      version: 0x20000000,
+      bits: '1d00ffff',
+      mintime: 1_700_000_002,
+    }));
+    expect(service.getLatestWorkActivationTemplate()).toEqual(expect.objectContaining({
+      height: 900_002,
+      notificationEventId: 'compact-900002',
+    }));
+    await service.onModuleDestroy();
+  });
+
+  it('deduplicates a legacy bridge that follows the compact activation for the same tip', async () => {
+    const { service, activations, compactActivations } = createService();
+    await service.onModuleInit();
+    const client = createClientMock();
+    service.registerClient(client);
+    const previousBlockHash = '33'.repeat(32);
+
+    compactActivations.next(createCompactActivation(900_003, previousBlockHash));
+    activations.next(createActivationTemplate(900_003, previousBlockHash, 'solo'));
+
+    expect(client.enqueueWorkActivation).toHaveBeenCalledTimes(1);
+    await service.onModuleDestroy();
+  });
+
   it('registers created clients and unregisters them during client destruction', async () => {
     const { service } = createService();
     (service as any).noiseConfig = createNoiseConfig();
@@ -230,11 +270,13 @@ function createService(): {
   templates: Subject<IJobTemplate>;
   subscribeSpy: jest.Mock;
   activations: Subject<any>;
+  compactActivations: Subject<Sv1PrestageActivation>;
   activationSubscribeSpy: jest.Mock;
 } {
   const templates = new Subject<IJobTemplate>();
   const subscribeSpy = jest.fn((observer) => templates.subscribe(observer));
   const activations = new Subject<any>();
+  const compactActivations = new Subject<Sv1PrestageActivation>();
   const activationSubscribeSpy = jest.fn((observer) => activations.subscribe(observer));
   const jobsService = {
     newMiningJob$: new Observable((subscriber) => subscribeSpy(subscriber)),
@@ -248,6 +290,7 @@ function createService(): {
   };
   const bitcoinRpcService = {
     workActivationTemplate$: new Observable((subscriber) => activationSubscribeSpy(subscriber)),
+    newSv1PrestageActivation$: compactActivations.asObservable(),
   };
   const service = new StratumV2Service(
     bitcoinRpcService as any,
@@ -263,7 +306,7 @@ function createService(): {
     {} as any,
     {} as any,
   );
-  return { service, templates, subscribeSpy, activations, activationSubscribeSpy };
+  return { service, templates, subscribeSpy, activations, compactActivations, activationSubscribeSpy };
 }
 
 function createClientMock(
@@ -296,6 +339,27 @@ function createActivationTemplate(
     bits: '1d00ffff',
     mintime: 1_700_000_001,
   } as any;
+}
+
+function createCompactActivation(
+  height: number,
+  previousBlockHash: string,
+): Sv1PrestageActivation {
+  return {
+    schemaVersion: 1,
+    type: 'prestage-activation',
+    eventId: `compact-${height}`,
+    height,
+    previousBlockHash,
+    version: 0x20000000,
+    bits: '1d00ffff',
+    minTime: 1_700_000_001,
+    currentTime: 1_700_000_002,
+    subsidySats: 312_500_000,
+    payoutMode: 'solo',
+    requiredVersionBits: 0,
+    publishedAtMs: 1_700_000_000_000,
+  };
 }
 
 function createJobTemplate(

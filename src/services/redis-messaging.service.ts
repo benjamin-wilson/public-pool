@@ -9,6 +9,7 @@ import { PayoutMode } from '../types/payout-mode';
 const MINING_INFO_CHANNEL = 'mining-info.updated';
 const BLOCK_TEMPLATE_CHANNEL = 'block-template.updated';
 const SV1_BRIDGE_CHANNEL = 'sv1-bridge.updated';
+const SV1_PRESTAGE_ACTIVATION_CHANNEL = 'sv1-prestage.activate';
 const SV1_PRESTAGE_CHANNEL = 'sv1-prestage.updated';
 const BLOCK_FOUND_NOTIFICATION_CHANNEL = 'block-found.notification';
 const MINING_INFO_KEY = 'mining-info:latest';
@@ -57,6 +58,31 @@ export interface Sv1PrestageUpdate {
     eventId: string;
     template: IBlockTemplate;
     preparedAtMs: number;
+}
+
+/**
+ * Header-only activation for work whose coinbase and notify buffers were
+ * prepared during the prior height. Every field comes from an authoritative
+ * GBT; no next-block consensus field is inferred from ZMQ.
+ */
+export interface Sv1PrestageActivation {
+    schemaVersion: 1;
+    type: 'prestage-activation';
+    eventId: string;
+    height: number;
+    previousBlockHash: string;
+    version: number;
+    bits: string;
+    minTime: number;
+    currentTime: number;
+    subsidySats: number;
+    payoutMode: PayoutMode;
+    payoutSnapshotId?: string;
+    requiredVersionBits: number;
+    sourceNotificationReceivedAtMs?: number;
+    publishedAtMs: number;
+    /** Local worker timestamp; populated after Redis delivery. */
+    workerReceivedAtMs?: number;
 }
 
 export interface BlockFoundNotification {
@@ -234,6 +260,40 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
             console.error(`Unable to cache latest SV1 bridge: ${error.message}`);
         });
         return true;
+    }
+
+    public async publishSv1PrestageActivation(
+        activation: Sv1PrestageActivation,
+        lane: 'urgent' | 'fallback' = 'urgent',
+    ): Promise<boolean> {
+        if (!await this.ensureConnected()) {
+            return false;
+        }
+        const serialized = JSON.stringify(activation);
+        this.parseSv1PrestageActivation(serialized);
+        const publisher = lane === 'urgent' ? this.urgentPublisher : this.publisher;
+        await publisher.publish(SV1_PRESTAGE_ACTIVATION_CHANNEL, serialized);
+        return true;
+    }
+
+    public async subscribeSv1PrestageActivations(
+        handler: (activation: Sv1PrestageActivation) => Promise<void>,
+    ): Promise<void> {
+        if (!await this.ensureConnected()) {
+            return;
+        }
+        await this.urgentSubscriber.subscribe(
+            SV1_PRESTAGE_ACTIVATION_CHANNEL,
+            async message => {
+                try {
+                    const activation = this.parseSv1PrestageActivation(message);
+                    activation.workerReceivedAtMs = Date.now();
+                    await handler(activation);
+                } catch (error) {
+                    console.error(`Invalid Redis SV1 prestage activation: ${error.message}`);
+                }
+            },
+        );
     }
 
     public async subscribeSv1BridgeUpdates(handler: (update: Sv1BridgeUpdate) => Promise<void>): Promise<void> {
@@ -566,6 +626,41 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
             throw new Error('unsupported SV1 prestage update');
         }
         return update as Sv1PrestageUpdate;
+    }
+
+    private parseSv1PrestageActivation(message: string): Sv1PrestageActivation {
+        const activation = JSON.parse(message) as Partial<Sv1PrestageActivation>;
+        const payoutMode = activation.payoutMode;
+        const hasValidPayoutIdentity = payoutMode === 'solo'
+            ? activation.payoutSnapshotId == null
+            : typeof activation.payoutSnapshotId === 'string'
+                && activation.payoutSnapshotId.trim().length > 0;
+        if (activation.schemaVersion !== 1
+            || activation.type !== 'prestage-activation'
+            || typeof activation.eventId !== 'string'
+            || activation.eventId.trim().length === 0
+            || !Number.isSafeInteger(activation.height)
+            || activation.height < 0
+            || typeof activation.previousBlockHash !== 'string'
+            || !/^[0-9a-f]{64}$/.test(activation.previousBlockHash)
+            || !Number.isInteger(activation.version)
+            || activation.version < -0x80000000
+            || activation.version > 0x7fffffff
+            || typeof activation.bits !== 'string'
+            || !/^[0-9a-f]{8}$/.test(activation.bits)
+            || !Number.isSafeInteger(activation.minTime)
+            || !Number.isSafeInteger(activation.currentTime)
+            || !Number.isSafeInteger(activation.subsidySats)
+            || activation.subsidySats < 0
+            || (payoutMode !== 'solo' && payoutMode !== 'pplns')
+            || !hasValidPayoutIdentity
+            || !Number.isInteger(activation.requiredVersionBits)
+            || activation.requiredVersionBits < 0
+            || activation.requiredVersionBits > 0xffffffff
+            || !Number.isFinite(activation.publishedAtMs)) {
+            throw new Error('unsupported SV1 prestage activation');
+        }
+        return activation as Sv1PrestageActivation;
     }
 
     private parseBlockFoundNotification(message: string): BlockFoundNotification {

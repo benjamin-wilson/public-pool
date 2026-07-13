@@ -85,6 +85,8 @@ export class StratumV1Client {
     private connectionClosed = false;
     private lastSentMiningJobTimestamp: number = null;
     private lastSentMiningJobSignature: string = null;
+    private lastSentMiningTipKey: string = null;
+    private lastSentMiningJobType: 'full' | 'empty' | null = null;
     private lastHashRatePersistedAt = 0;
     private readonly network: bitcoinjs.Network;
     private readonly maxSocketBufferBytes: number;
@@ -506,6 +508,12 @@ export class StratumV1Client {
         if (!force && signature === this.lastSentMiningJobSignature) {
             return { status: 'skipped', bytes: 0, bufferedBytes: this.socket.writableLength ?? 0 };
         }
+        if (!force
+            && jobTemplate.blockData.jobType === 'empty'
+            && this.lastSentMiningJobType === 'empty'
+            && this.lastSentMiningTipKey === jobTemplate.blockData.tipKey) {
+            return { status: 'skipped', bytes: 0, bufferedBytes: this.socket.writableLength ?? 0 };
+        }
 
         const maximumBufferedBytes = this.maxSocketBufferBytes;
         const bufferedBeforeBuild = this.socket.writableLength ?? 0;
@@ -576,6 +584,8 @@ export class StratumV1Client {
             const accepted = this.socket.write(payload);
             this.lastSentMiningJobTimestamp = jobTemplate.block.timestamp;
             this.lastSentMiningJobSignature = signature;
+            this.lastSentMiningTipKey = jobTemplate.blockData.tipKey;
+            this.lastSentMiningJobType = jobTemplate.blockData.jobType;
             const bufferedAfterWrite = this.socket.writableLength ?? 0;
             if (bufferedAfterWrite >= maximumBufferedBytes) {
                 this.closeSocket();

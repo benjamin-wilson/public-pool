@@ -93,13 +93,20 @@ endpoints in `BITCOIN_RPC_AUX_URLS` keep independent longpolls open and race the
 primary source, reducing dependence on one node's block-relay peers. An auxiliary
 template is only eligible after the primary Core's `getbestblockhash` exactly
 matches its previous block hash; a mismatch or unavailable primary fails closed
-before any urgent or canonical miner notification. On a new tip, the master
-publishes a compact subsidy-only SV1 job over dedicated urgent Redis
-publisher/subscriber connections. It waits only
-`SV1_BRIDGE_PUBLISH_BUDGET_MS` for acknowledgement before proceeding. A timeout
-immediately starts the same bridge on the independent normal Redis command
-socket, so a stuck urgent socket cannot suppress delivery or block canonical
-full-template publication.
+before any urgent or canonical miner notification. PM2 runs the master through a
+minimal, non-HTTP notifier entrypoint so API, Stratum, reporting, and integration
+timers cannot delay its Core longpoll callback.
+
+On a new tip, the notifier's first Redis command is a compact SV1 prestage
+activation containing only Core-authoritative fixed-width header fields, height,
+subsidy, and payout identity. It does not serialize the transaction template or
+a second block-template object. Workers consume this on dedicated urgent Redis
+publisher/subscriber connections and promote their retained next-height jobs
+directly, bypassing the canonical template/RxJS preparation pipeline. It waits
+only `SV1_BRIDGE_PUBLISH_BUDGET_MS` for acknowledgement before proceeding. A
+timeout immediately retries the activation on the independent normal Redis
+command socket. If compact delivery fails or the feature is disabled, the
+self-contained subsidy-only bridge remains the fallback.
 
 After canonical publication, the master publishes a durable placeholder-prevhash
 empty template for the following height. Stratum workers replay it after restart
@@ -139,7 +146,10 @@ fails if `NETWORK` does not match Core's reported chain.
 The Redis protocol remains rolling-deploy compatible: new workers retain the
 legacy mining-info reload path, while the master writes the historical latest
 key as JSON only after a PPLNS-safe compatibility template is ready. Deploying
-workers before the master is still the preferred rollout order. When any PPLNS
+workers before the notifier is required for compact activation. During a mixed
+deployment, `SV1_COMPACT_ACTIVATION_COMPATIBILITY_BRIDGE=true` publishes the
+larger empty bridge immediately after compact activation; disable it after every
+worker supports the compact protocol. When any PPLNS
 listener is configured and snapshot preparation fails, legacy workers are held
 on their prior job instead of being woken with a miner-address fallback job.
 
@@ -151,6 +161,9 @@ Two structured log events expose the end-to-end timing:
   p50/p95/p99/last enqueue time, correlated by `eventId`.
 - `sv1_job_prestage` reports the number of miners prepared for the next height and
   the background preparation duration.
+- `sv1_prestage_activation_miss` identifies a worker that could not match an
+  authoritative activation to retained prestage state and therefore waits for
+  the fallback bridge or canonical full job.
 
 For upstream latency, place the Core nodes in different well-connected networks,
 enable normal compact-block relay, and keep Redis and Stratum workers close

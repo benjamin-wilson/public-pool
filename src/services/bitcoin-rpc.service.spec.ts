@@ -236,6 +236,104 @@ describe('BitcoinRpcService template publication', () => {
         expect(order.indexOf('redis:publish:bridge:solo')).toBeLessThan(order.indexOf('redis:publish:solo'));
     });
 
+    it('publishes compact authoritative activation before canonical template work', async () => {
+        const order: string[] = [];
+        const redis = createRedisMock(order);
+        redis.publishSv1PrestageActivation = jest.fn(async (activation: any) => {
+            order.push(`redis:publish:activation:${activation.payoutMode}`);
+            return true;
+        });
+        const template = createTemplateAtHeight(840_000, '68');
+        const service = new BitcoinRpcService(
+            createConfig({ NETWORK: 'mainnet' }),
+            { saveBlock: jest.fn().mockResolvedValue(undefined), getSavedBlockTemplate: jest.fn() } as any,
+            redis as any,
+            { createSnapshotForTemplate: jest.fn().mockResolvedValue(null) } as any,
+        );
+        service.miningInfo = { blocks: template.height - 1 } as any;
+        jest.spyOn(service as any, 'fetchBlockTemplate').mockResolvedValue(template);
+
+        await service.getAndBroadcastLatestTemplate('new_block');
+
+        expect(redis.publishSv1PrestageActivation).toHaveBeenCalledWith(expect.objectContaining({
+            schemaVersion: 1,
+            type: 'prestage-activation',
+            height: template.height,
+            previousBlockHash: template.previousblockhash,
+            version: template.version,
+            bits: template.bits,
+            minTime: template.mintime,
+            currentTime: template.curtime,
+            subsidySats: calculateBlockSubsidySats(template.height, 'mainnet'),
+            payoutMode: 'solo',
+            requiredVersionBits: template.vbrequired >>> 0,
+        }));
+        expect(redis.publishSv1BridgeUpdate).not.toHaveBeenCalled();
+        expect(order.indexOf('redis:publish:activation:solo'))
+            .toBeLessThan(order.indexOf('redis:set:solo'));
+    });
+
+    it('falls back to the full empty bridge when compact activation delivery fails', async () => {
+        const order: string[] = [];
+        const redis = createRedisMock(order);
+        redis.publishSv1PrestageActivation = jest.fn().mockResolvedValue(false);
+        const template = createTemplateAtHeight(840_000, '69');
+        const service = new BitcoinRpcService(
+            createConfig({ NETWORK: 'mainnet' }),
+            { saveBlock: jest.fn().mockResolvedValue(undefined), getSavedBlockTemplate: jest.fn() } as any,
+            redis as any,
+            { createSnapshotForTemplate: jest.fn().mockResolvedValue(null) } as any,
+        );
+        service.miningInfo = { blocks: template.height - 1 } as any;
+        jest.spyOn(service as any, 'fetchBlockTemplate').mockResolvedValue(template);
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        await service.getAndBroadcastLatestTemplate('new_block');
+
+        expect(redis.publishSv1PrestageActivation).toHaveBeenCalledTimes(1);
+        expect(redis.publishSv1BridgeUpdate).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'subsidy-bridge',
+            template: expect.objectContaining({ payoutMode: 'solo', jobType: 'empty' }),
+        }));
+        errorSpy.mockRestore();
+    });
+
+    it('retries a timed-out compact activation through the normal Redis lane', async () => {
+        const redis = createRedisMock([]);
+        let resolveUrgent: () => void;
+        const stalled = new Promise<void>(resolve => { resolveUrgent = resolve; });
+        redis.publishSv1PrestageActivation = jest.fn(async (
+            _activation: any,
+            lane?: 'fallback',
+        ) => {
+            if (lane == null) {
+                await stalled;
+            }
+            return true;
+        });
+        const template = createTemplateAtHeight(840_000, '67');
+        const service = new BitcoinRpcService(
+            createConfig({ NETWORK: 'mainnet', SV1_BRIDGE_PUBLISH_BUDGET_MS: '1' }),
+            { saveBlock: jest.fn().mockResolvedValue(undefined), getSavedBlockTemplate: jest.fn() } as any,
+            redis as any,
+            { createSnapshotForTemplate: jest.fn().mockResolvedValue(null) } as any,
+        );
+        service.miningInfo = { blocks: template.height - 1 } as any;
+        jest.spyOn(service as any, 'fetchBlockTemplate').mockResolvedValue(template);
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        await service.getAndBroadcastLatestTemplate('new_block');
+        await flushPromises();
+
+        expect(redis.publishSv1PrestageActivation).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'prestage-activation' }),
+            'fallback',
+        );
+        expect(redis.setBlockTemplate).toHaveBeenCalled();
+        resolveUrgent!();
+        warnSpy.mockRestore();
+    });
+
     it('rejects an urgent bridge when Core fee data cannot validate its subsidy', async () => {
         const redis = createRedisMock([]);
         const template = createTemplateAtHeight(840_000, '70');
@@ -1119,6 +1217,61 @@ describe('BitcoinRpcService template publication', () => {
         expect(canonicals).toEqual([expect.objectContaining({ previousblockhash: canonical.previousblockhash })]);
     });
 
+    it('delivers fresh compact activations once and ignores stale or duplicate events', () => {
+        const service = new BitcoinRpcService(
+            createConfig({}),
+            {} as any,
+            {} as any,
+        );
+        service.miningInfo = { blocks: 900_000 } as any;
+        const activations: any[] = [];
+        service.newSv1PrestageActivation$.subscribe(activation => activations.push(activation));
+        const activation = {
+            schemaVersion: 1,
+            type: 'prestage-activation',
+            eventId: 'fresh-activation',
+            height: 900_001,
+            previousBlockHash: '61'.repeat(32),
+            version: 0x20000000,
+            bits: '17034219',
+            minTime: 1_700_000_000,
+            currentTime: 1_700_000_001,
+            subsidySats: 312_500_000,
+            payoutMode: 'solo',
+            requiredVersionBits: 0,
+            publishedAtMs: Date.now(),
+        };
+
+        (service as any).handleSv1PrestageActivation({
+            ...activation,
+            eventId: 'stale-activation',
+            height: 899_999,
+        });
+        (service as any).handleSv1PrestageActivation(activation);
+        (service as any).handleSv1PrestageActivation(activation);
+        (service as any).emitCanonicalTemplate({
+            ...createTemplate(),
+            height: activation.height,
+            previousblockhash: activation.previousBlockHash,
+            payoutMode: 'solo',
+            jobType: 'full',
+            notificationEventId: 'canonical-before-late-activation',
+            notificationPublishedAtMs: activation.publishedAtMs + 1,
+        });
+        (service as any).handleSv1PrestageActivation({
+            ...activation,
+            eventId: 'late-after-canonical',
+            publishedAtMs: activation.publishedAtMs + 2,
+        });
+
+        expect(activations).toEqual([
+            expect.objectContaining({
+                eventId: activation.eventId,
+                workerReceivedAtMs: expect.any(Number),
+            }),
+        ]);
+    });
+
     it('rejects live bridge updates older than or redundant with active canonical work', async () => {
         const service = new BitcoinRpcService(
             createConfig({}),
@@ -1489,6 +1642,7 @@ function createRedisMock(order: string[]) {
             order.push(`redis:publish:bridge:${update.template.payoutMode}`);
             return true;
         }),
+        publishSv1PrestageActivation: undefined as jest.Mock | undefined,
         publishSv1PrestageUpdate: jest.fn(async (update: { template: IBlockTemplate }) => {
             order.push(`redis:publish:prestage:${update.template.payoutMode}`);
         }),

@@ -211,6 +211,96 @@ describe('StratumV1JobsService', () => {
         expect(service.getJobById(staged.jobId)).toBe(staged);
     });
 
+    it('promotes the latest prestage directly from a compact authoritative activation', async () => {
+        await firstValueFrom(service.newMiningJob$);
+        const future = createTemplate(MockRecording1.BLOCK_TEMPLATE.height + 1);
+        future.previousblockhash = '0'.repeat(64);
+        future.transactions = [];
+        future.coinbasevalue = 312_500_000;
+        future.default_witness_commitment = EMPTY_DEFAULT_WITNESS_COMMITMENT;
+        future.jobType = 'empty';
+        future.payoutMode = 'solo';
+        future.forceCleanJobs = true;
+
+        const detachedResult = firstValueFrom(service.sv1PrestageJob$);
+        prestageTemplate$.next(future);
+        const detached = await detachedResult;
+        const payout = [{
+            address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
+            percent: 100,
+        }];
+        const payoutIdentity = 'compact-activation-miner';
+        const staged = service.preStageJob(
+            bitcoinjs.networks.testnet,
+            payout,
+            detached,
+            payoutIdentity,
+            'solo',
+        );
+        const prebuiltNotify = staged.responseBuffer(detached);
+
+        const activation = {
+            schemaVersion: 1 as const,
+            type: 'prestage-activation' as const,
+            eventId: 'compact-authoritative-activation',
+            height: future.height,
+            previousBlockHash: 'ab'.repeat(32),
+            version: future.version,
+            bits: future.bits,
+            minTime: future.mintime,
+            currentTime: future.curtime,
+            subsidySats: future.coinbasevalue,
+            payoutMode: 'solo' as const,
+            requiredVersionBits: future.vbrequired >>> 0,
+            sourceNotificationReceivedAtMs: Date.now() - 2,
+            publishedAtMs: Date.now() - 1,
+            workerReceivedAtMs: Date.now(),
+        };
+        const activatedTemplate = service.activateLatestPrestage(activation);
+        const activatedJob = service.activatePreStagedJob(
+            activatedTemplate,
+            payoutIdentity,
+            'solo',
+        );
+
+        expect(activatedTemplate).toEqual(expect.objectContaining({
+            blockData: expect.objectContaining({
+                height: future.height,
+                tipKey: `${future.height}:${activation.previousBlockHash}`,
+                jobType: 'empty',
+                clearJobs: true,
+                notificationEventId: activation.eventId,
+            }),
+        }));
+        expect(activatedTemplate.block.prevHash.toString('hex')).toBe(
+            Buffer.from(activation.previousBlockHash, 'hex').reverse().toString('hex'),
+        );
+        expect(activatedTemplate.block.bits).toBe(parseInt(activation.bits, 16));
+        expect(activatedJob).toBe(staged);
+        expect(activatedJob.responseBuffer(activatedTemplate)).toBe(prebuiltNotify);
+        expect(service.getSubmissionContext(staged.jobId)?.status).toBe('current');
+    });
+
+    it('refuses compact activation when the worker has no matching prestage', async () => {
+        await firstValueFrom(service.newMiningJob$);
+
+        expect(service.activateLatestPrestage({
+            schemaVersion: 1,
+            type: 'prestage-activation',
+            eventId: 'missing-prestage',
+            height: MockRecording1.BLOCK_TEMPLATE.height + 1,
+            previousBlockHash: 'ab'.repeat(32),
+            version: MockRecording1.BLOCK_TEMPLATE.version,
+            bits: MockRecording1.BLOCK_TEMPLATE.bits,
+            minTime: MockRecording1.BLOCK_TEMPLATE.mintime,
+            currentTime: MockRecording1.BLOCK_TEMPLATE.curtime,
+            subsidySats: 312_500_000,
+            payoutMode: 'solo',
+            requiredVersionBits: 0,
+            publishedAtMs: Date.now(),
+        })).toBeNull();
+    });
+
     it('should keep same-tip bridge and full jobs current, then mark both stale on the next tip', async () => {
         const bridgeTemplate = await firstValueFrom(service.newMiningJob$);
         const payout = [{ address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4', percent: 100 }];

@@ -1,6 +1,8 @@
 # compiled output
 /dist
 /node_modules
+__pycache__/
+*.pyc
 
 # Logs
 logs

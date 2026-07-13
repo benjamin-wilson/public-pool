@@ -258,6 +258,53 @@ describe('RedisMessagingService', () => {
         expect(clientsByRole.urgentPublisher.publish).not.toHaveBeenCalled();
     });
 
+    it('publishes compact prestage activation on the urgent socket', async () => {
+        await service.connect();
+        const handler = jest.fn().mockResolvedValue(undefined);
+        const activation = createPrestageActivation();
+
+        await service.subscribeSv1PrestageActivations(handler);
+        await expect(service.publishSv1PrestageActivation(activation)).resolves.toBe(true);
+
+        expect(clientsByRole.urgentPublisher.publish).toHaveBeenCalledWith(
+            'sv1-prestage.activate',
+            JSON.stringify(activation),
+        );
+        expect(handler).toHaveBeenCalledWith(expect.objectContaining({
+            ...activation,
+            workerReceivedAtMs: expect.any(Number),
+        }));
+    });
+
+    it('uses the normal Redis socket for compact activation fallback', async () => {
+        await service.connect();
+        const activation = createPrestageActivation();
+
+        await expect(service.publishSv1PrestageActivation(
+            activation,
+            'fallback',
+        )).resolves.toBe(true);
+
+        expect(clientsByRole.publisher.publish).toHaveBeenCalledWith(
+            'sv1-prestage.activate',
+            JSON.stringify(activation),
+        );
+    });
+
+    it('rejects malformed compact prestage activation fields', async () => {
+        await service.connect();
+        const activation = createPrestageActivation();
+
+        await expect(service.publishSv1PrestageActivation({
+            ...activation,
+            previousBlockHash: 'not-a-hash',
+        })).rejects.toThrow('unsupported SV1 prestage activation');
+        await expect(service.publishSv1PrestageActivation({
+            ...activation,
+            payoutMode: 'pplns',
+        })).rejects.toThrow('unsupported SV1 prestage activation');
+    });
+
     it('reports bridge delivery failure when Redis cannot connect', async () => {
         const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
         clients[0].connect.mockRejectedValueOnce(new Error('redis unavailable'));
@@ -409,6 +456,25 @@ function createBridgeUpdate(payoutMode: 'solo' | 'pplns', eventId: string) {
                 ? [{ address: 'bc1qpplns', amountSats: 312_500_000 }]
                 : undefined,
         } as any,
+    };
+}
+
+function createPrestageActivation() {
+    return {
+        schemaVersion: 1 as const,
+        type: 'prestage-activation' as const,
+        eventId: 'activate:solo:900001',
+        height: 900001,
+        previousBlockHash: '55'.repeat(32),
+        version: 0x20000000,
+        bits: '17034219',
+        minTime: 1_700_000_000,
+        currentTime: 1_700_000_001,
+        subsidySats: 312_500_000,
+        payoutMode: 'solo' as const,
+        requiredVersionBits: 0,
+        sourceNotificationReceivedAtMs: 123,
+        publishedAtMs: 124,
     };
 }
 

@@ -45,11 +45,12 @@ module.exports = {
       },
       time: true,
     },
-    // Master instance
+    // Minimal authoritative template/notifier instance. This entrypoint avoids
+    // initializing API, Stratum, reporting, and notification integrations.
     {
       ...dockerLogConfig,
       name: 'master',
-      script: './dist/main.js',
+      script: './dist/notifier-main.js',
       instances: 1,
       exec_mode: 'fork',
       env: {

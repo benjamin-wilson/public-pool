@@ -21,6 +21,7 @@ describe('StratumV1Service', () => {
     let redisMessagingService;
     let miningJobs: Subject<any>;
     let prestageJobs: Subject<any>;
+    let prestageActivations: Subject<any>;
     let consoleLogSpy: jest.SpyInstance;
     let consoleWarnSpy: jest.SpyInstance;
 
@@ -39,8 +40,9 @@ describe('StratumV1Service', () => {
         redisMessagingService = {};
         miningJobs = new Subject();
         prestageJobs = new Subject();
+        prestageActivations = new Subject();
         service = new StratumV1Service(
-            {} as any,
+            { newSv1PrestageActivation$: prestageActivations.asObservable() } as any,
             clientService,
             {} as any,
             {} as any,
@@ -213,6 +215,48 @@ describe('StratumV1Service', () => {
             expect(client.broadcastMiningJob).not.toHaveBeenCalled();
         });
         expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('sv1_job_prestage'));
+        service.onModuleDestroy();
+    });
+
+    it('promotes and broadcasts compact prestage activations immediately', async () => {
+        process.env.MASTER = 'false';
+        process.env.STRATUM_PORTS = '';
+        process.env.STRATUM_SECURE = 'false';
+        const activatedJob = {
+            blockData: {
+                id: 'activated-2',
+                height: 900002,
+                tipKey: `900002:${'55'.repeat(32)}`,
+                payoutMode: 'solo',
+                jobType: 'empty',
+                isNewBlock: true,
+                clearJobs: true,
+                notificationEventId: 'activate-2',
+            },
+        };
+        const activateLatestPrestage = jest.fn().mockReturnValue(activatedJob);
+        (service as any).stratumV1JobsService.activateLatestPrestage = activateLatestPrestage;
+        const client = {
+            broadcastMiningJob: jest.fn().mockReturnValue({
+                status: 'written',
+                bytes: 256,
+                bufferedBytes: 0,
+                preStaged: true,
+            }),
+        };
+        (service as any).clients.add(client);
+        await service.onModuleInit();
+        const activation = {
+            eventId: 'activate-2',
+            height: 900002,
+            payoutMode: 'solo',
+            previousBlockHash: '55'.repeat(32),
+        };
+
+        prestageActivations.next(activation);
+
+        expect(activateLatestPrestage).toHaveBeenCalledWith(activation);
+        expect(client.broadcastMiningJob).toHaveBeenCalledWith(activatedJob);
         service.onModuleDestroy();
     });
 

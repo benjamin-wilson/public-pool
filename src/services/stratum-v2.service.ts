@@ -30,7 +30,7 @@ import {
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 import { CustomWorkService } from './custom-work.service';
 import { NotificationService } from './notification.service';
-import { RedisMessagingService } from './redis-messaging.service';
+import { RedisMessagingService, Sv1PrestageActivation } from './redis-messaging.service';
 import { IJobTemplate, StratumV1JobsService } from './stratum-v1-jobs.service';
 import { Sv2JobDeclarationRegistryService } from './sv2-job-declaration-registry.service';
 import { parsePayoutModePorts, PayoutMode } from '../types/payout-mode';
@@ -45,6 +45,7 @@ export class StratumV2Service implements OnModuleInit, OnModuleDestroy {
     private readonly latestCanonicalJobs = new Map<PayoutMode | 'all', IJobTemplate>();
     private canonicalJobSubscription: Subscription = null;
     private workActivationSubscription: Subscription = null;
+    private compactActivationSubscription: Subscription = null;
     private latestWorkActivationTemplate: IBlockTemplate = null;
     private latestWorkActivationKey: string = null;
     private authorityPrivKey: Buffer;
@@ -98,6 +99,8 @@ export class StratumV2Service implements OnModuleInit, OnModuleDestroy {
         this.canonicalJobSubscription = null;
         this.workActivationSubscription?.unsubscribe();
         this.workActivationSubscription = null;
+        this.compactActivationSubscription?.unsubscribe();
+        this.compactActivationSubscription = null;
 
         const clients = Array.from(this.clients);
         this.clients.clear();
@@ -261,14 +264,57 @@ export class StratumV2Service implements OnModuleInit, OnModuleDestroy {
     }
 
     private startWorkActivationBroadcaster(): void {
-        if (this.workActivationSubscription != null || this.bitcoinRpcService.workActivationTemplate$ == null) {
-            return;
+        if (
+            this.compactActivationSubscription == null
+            && this.bitcoinRpcService.newSv1PrestageActivation$ != null
+        ) {
+            this.compactActivationSubscription = this.bitcoinRpcService.newSv1PrestageActivation$.subscribe({
+                next: activation => this.broadcastWorkActivation(
+                    this.createCompactWorkActivationTemplate(activation),
+                ),
+                error: error => console.error(`SV2 compact work activation subscription failed: ${error.message}`),
+            });
         }
 
-        this.workActivationSubscription = this.bitcoinRpcService.workActivationTemplate$.subscribe({
-            next: template => this.broadcastWorkActivation(template),
-            error: error => console.error(`SV2 work activation subscription failed: ${error.message}`),
-        });
+        if (this.workActivationSubscription == null && this.bitcoinRpcService.workActivationTemplate$ != null) {
+            this.workActivationSubscription = this.bitcoinRpcService.workActivationTemplate$.subscribe({
+                next: template => this.broadcastWorkActivation(template),
+                error: error => console.error(`SV2 work activation subscription failed: ${error.message}`),
+            });
+        }
+    }
+
+    private createCompactWorkActivationTemplate(activation: Sv1PrestageActivation): IBlockTemplate {
+        return {
+            version: activation.version,
+            rules: [],
+            vbavailable: {},
+            vbrequired: activation.requiredVersionBits,
+            previousblockhash: activation.previousBlockHash,
+            transactions: [],
+            coinbaseaux: {},
+            coinbasevalue: activation.subsidySats,
+            longpollid: '',
+            target: '',
+            mintime: Math.max(activation.minTime, activation.currentTime),
+            mutable: [],
+            noncerange: '',
+            sigoplimit: 0,
+            sizelimit: 0,
+            weightlimit: 0,
+            curtime: activation.currentTime,
+            bits: activation.bits,
+            height: activation.height,
+            default_witness_commitment: '',
+            capabilities: [],
+            payoutSnapshotId: activation.payoutSnapshotId,
+            jobType: 'empty',
+            payoutMode: activation.payoutMode,
+            notificationEventId: activation.eventId,
+            sourceNotificationReceivedAtMs: activation.sourceNotificationReceivedAtMs,
+            notificationPublishedAtMs: activation.publishedAtMs,
+            notificationWorkerReceivedAtMs: activation.workerReceivedAtMs,
+        };
     }
 
     private broadcastWorkActivation(template: IBlockTemplate): void {

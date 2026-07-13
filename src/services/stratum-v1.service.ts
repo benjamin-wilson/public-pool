@@ -15,6 +15,7 @@ import { ShareAccountingService } from '../ORM/share-accounting/share-accounting
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 import { NotificationService } from './notification.service';
 import { RedisMessagingService } from './redis-messaging.service';
+import { Sv1PrestageActivation } from './redis-messaging.service';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
 import { StratumV2Service } from './stratum-v2.service';
 import { parsePayoutModePorts, PayoutMode } from '../types/payout-mode';
@@ -59,6 +60,7 @@ export class StratumV1Service implements OnModuleInit, OnModuleDestroy {
     private healthyBackpressureChecks = 0;
     private readonly clients = new Set<StratumV1Client>();
     private jobBroadcastSubscription: Subscription | null = null;
+    private jobActivationSubscription: Subscription | null = null;
     private jobPrestageSubscription: Subscription | null = null;
     private readonly pendingPrestageJobs = new Map<PayoutMode, import('./stratum-v1-jobs.service').IJobTemplate>();
     private prestageDrainRunning = false;
@@ -95,6 +97,11 @@ export class StratumV1Service implements OnModuleInit, OnModuleDestroy {
             return;
         }
 
+        this.jobActivationSubscription = this.bitcoinRpcService
+            .newSv1PrestageActivation$?.subscribe({
+                next: activation => this.activateAndBroadcastPrestage(activation),
+                error: error => console.error(`SV1 prestage activation subscription failed: ${error.message}`),
+            }) ?? null;
         this.jobBroadcastSubscription = (
             this.stratumV1JobsService.sv1MiningJob$
             ?? this.stratumV1JobsService.newMiningJob$
@@ -140,6 +147,8 @@ export class StratumV1Service implements OnModuleInit, OnModuleDestroy {
     public onModuleDestroy(): void {
         this.jobBroadcastSubscription?.unsubscribe();
         this.jobBroadcastSubscription = null;
+        this.jobActivationSubscription?.unsubscribe();
+        this.jobActivationSubscription = null;
         this.jobPrestageSubscription?.unsubscribe();
         this.jobPrestageSubscription = null;
         this.prestageGeneration++;
@@ -584,6 +593,22 @@ export class StratumV1Service implements OnModuleInit, OnModuleDestroy {
             milestoneMs,
             totalMs: elapsedMs(),
         }));
+    }
+
+    private activateAndBroadcastPrestage(activation: Sv1PrestageActivation): void {
+        const jobTemplate = this.stratumV1JobsService.activateLatestPrestage(activation);
+        if (jobTemplate == null) {
+            console.warn(JSON.stringify({
+                event: 'sv1_prestage_activation_miss',
+                eventId: activation.eventId,
+                height: activation.height,
+                payoutMode: activation.payoutMode,
+                previousBlockHash: activation.previousBlockHash,
+                workerReceivedAtMs: activation.workerReceivedAtMs,
+            }));
+            return;
+        }
+        this.broadcastMiningJob(jobTemplate);
     }
 
     private queuePrestageMiningJob(

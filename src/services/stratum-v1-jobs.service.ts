@@ -7,6 +7,7 @@ import { IBlockTemplate, IBlockTemplateTx } from '../models/bitcoin-rpc/IBlockTe
 import { AddressObject, MiningJob, MiningNotifyHeaderFields } from '../models/MiningJob';
 import { PayoutMode } from '../types/payout-mode';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
+import { Sv1PrestageActivation } from './redis-messaging.service';
 import {
     createPreparedMiningJob,
     PreparedMiningJobBodyReference,
@@ -303,6 +304,88 @@ export class StratumV1JobsService {
 
     public getLatestPrestageJobTemplate(payoutMode: PayoutMode): IJobTemplate | null {
         return this.latestPrestageJobTemplates.get(payoutMode) ?? null;
+    }
+
+    /**
+     * Promote a detached next-height job using only authoritative fixed-width
+     * header fields. This intentionally bypasses the full template/RxJS
+     * preparation pipeline on the new-tip event-loop turn.
+     */
+    public activateLatestPrestage(
+        activation: Sv1PrestageActivation,
+    ): IJobTemplate | null {
+        const payoutMode = activation.payoutMode;
+        const prestage = this.latestPrestageJobTemplates.get(payoutMode);
+        if (prestage == null
+            || prestage.blockData.height !== activation.height
+            || prestage.blockData.jobType !== 'empty'
+            || prestage.blockData.payoutMode !== payoutMode
+            || prestage.blockData.coinbasevalue !== activation.subsidySats
+            || (prestage.blockData.payoutSnapshotId ?? undefined)
+                !== (activation.payoutSnapshotId ?? undefined)
+            || !prestage.block.prevHash.equals(PLACEHOLDER_PREV_HASH)) {
+            return null;
+        }
+
+        const previousBlockHash = Buffer.from(activation.previousBlockHash, 'hex');
+        const bits = Buffer.from(activation.bits, 'hex');
+        if (previousBlockHash.length !== 32 || bits.length !== 4) {
+            return null;
+        }
+
+        const timestamp = Math.max(
+            activation.minTime,
+            activation.currentTime,
+            Math.floor(Date.now() / 1000),
+        );
+        const tipKey = `${activation.height}:${activation.previousBlockHash}`;
+        const latest = this.latestJobTemplates.get(payoutMode);
+        if (latest?.blockData.tipKey === tipKey) {
+            return latest.blockData.jobType === 'empty' ? latest : null;
+        }
+
+        const block = Object.assign(new bitcoinjs.Block(), prestage.block, {
+            prevHash: Buffer.from(previousBlockHash).reverse(),
+            version: activation.version,
+            bits: bits.readUInt32BE(0),
+            timestamp,
+        });
+        const id = this.getNextTemplateId();
+        this.latestJobTemplateId++;
+        const isNewBlock = this.lastPreviousBlockHashes.get(payoutMode)
+            !== activation.previousBlockHash;
+        this.lastPreviousBlockHashes.set(payoutMode, activation.previousBlockHash);
+        const activated: IJobTemplate = {
+            block,
+            merkle_branch: prestage.merkle_branch,
+            blockData: {
+                ...prestage.blockData,
+                id,
+                creation: Date.now(),
+                networkDifficulty: this.calculateNetworkDifficulty(block.bits),
+                tipKey,
+                clearJobs: true,
+                isNewBlock,
+                requiredVersionBits: activation.requiredVersionBits >>> 0,
+                notificationEventId: activation.eventId,
+                sourceNotificationReceivedAtMs: activation.sourceNotificationReceivedAtMs,
+                notificationPreparedAtMs: activation.publishedAtMs,
+                notificationPublishedAtMs: activation.publishedAtMs,
+                notificationWorkerReceivedAtMs: activation.workerReceivedAtMs,
+                notificationWorkerHandledAtMs: Date.now(),
+            },
+        };
+
+        this.blocks[id] = activated;
+        const pinnedTemplateIds = this.pinnedCurrentTipTemplateIds.get(payoutMode);
+        if (this.currentTipKeys.get(payoutMode) !== tipKey) {
+            pinnedTemplateIds.clear();
+        }
+        this.currentTipKeys.set(payoutMode, tipKey);
+        pinnedTemplateIds.add(id);
+        this.latestJobTemplates.set(payoutMode, activated);
+        this.cleanupExpiredJobsAndTemplates();
+        return activated;
     }
 
     public preStageJob(
