@@ -9,12 +9,16 @@ import { PayoutMode } from '../types/payout-mode';
 const MINING_INFO_CHANNEL = 'mining-info.updated';
 const BLOCK_TEMPLATE_CHANNEL = 'block-template.updated';
 const SV1_BRIDGE_CHANNEL = 'sv1-bridge.updated';
+const SV1_PRESTAGE_CHANNEL = 'sv1-prestage.updated';
 const MINING_INFO_KEY = 'mining-info:latest';
 const BLOCK_TEMPLATE_LATEST_KEY = 'block-template:latest';
 const SV1_BRIDGE_LATEST_KEY = 'sv1-bridge:latest';
+const SV1_PRESTAGE_LATEST_KEY = 'sv1-prestage:latest';
 const BLOCK_TEMPLATE_CACHE_TTL_SECONDS = 60 * 60;
 const sv1BridgeLatestKey = (payoutMode: PayoutMode) =>
     `${SV1_BRIDGE_LATEST_KEY}:${payoutMode}`;
+const sv1PrestageLatestKey = (payoutMode: PayoutMode) =>
+    `${SV1_PRESTAGE_LATEST_KEY}:${payoutMode}`;
 const blockTemplateLegacyKey = (height: number) => `block-template:${height}`;
 const blockTemplateKey = (
     height: number,
@@ -42,12 +46,26 @@ export interface Sv1BridgeUpdate {
     eventId: string;
     template: IBlockTemplate;
     publishedAtMs: number;
+    /** Local worker timestamp; populated after Redis delivery, never serialized by the master. */
+    workerReceivedAtMs?: number;
+}
+
+export interface Sv1PrestageUpdate {
+    schemaVersion: 1;
+    type: 'subsidy-prestage';
+    eventId: string;
+    template: IBlockTemplate;
+    preparedAtMs: number;
 }
 
 @Injectable()
 export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
     private publisher: RedisClientType;
     private subscriber: RedisClientType;
+    /** Dedicated command socket so full-template writes cannot queue ahead of a new-tip bridge. */
+    private urgentPublisher: RedisClientType;
+    /** Dedicated Pub/Sub socket so canonical/replay callbacks cannot delay bridge receipt. */
+    private urgentSubscriber: RedisClientType;
     private connected = false;
 
     constructor(
@@ -64,6 +82,8 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
         await Promise.all([
             this.publisher?.quit().catch(() => undefined),
             this.subscriber?.quit().catch(() => undefined),
+            this.urgentPublisher?.quit().catch(() => undefined),
+            this.urgentSubscriber?.quit().catch(() => undefined),
         ]);
     }
 
@@ -78,13 +98,24 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
         };
         this.publisher = createClient({ url, socket });
         this.subscriber = createClient({ url, socket });
+        this.urgentPublisher = createClient({ url, socket });
+        this.urgentSubscriber = createClient({ url, socket });
 
         this.publisher.on('error', error => console.error(`Redis publisher error: ${error.message}`));
         this.subscriber.on('error', error => console.error(`Redis subscriber error: ${error.message}`));
+        this.urgentPublisher.on('error', error => console.error(`Redis urgent publisher error: ${error.message}`));
+        this.urgentSubscriber.on('error', error => console.error(`Redis urgent subscriber error: ${error.message}`));
         this.publisher.on('end', () => { this.connected = false; });
         this.subscriber.on('end', () => { this.connected = false; });
+        this.urgentPublisher.on('end', () => { this.connected = false; });
+        this.urgentSubscriber.on('end', () => { this.connected = false; });
 
-        await Promise.all([this.publisher.connect(), this.subscriber.connect()]);
+        await Promise.all([
+            this.publisher.connect(),
+            this.subscriber.connect(),
+            this.urgentPublisher.connect(),
+            this.urgentSubscriber.connect(),
+        ]);
         this.connected = true;
     }
 
@@ -136,16 +167,20 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
         });
     }
 
-    public async publishSv1BridgeUpdate(update: Sv1BridgeUpdate): Promise<void> {
+    public async publishSv1BridgeUpdate(
+        update: Sv1BridgeUpdate,
+        lane: 'urgent' | 'fallback' = 'urgent',
+    ): Promise<boolean> {
         if (!await this.ensureConnected()) {
-            return;
+            return false;
         }
         const serialized = JSON.stringify(update);
         const validated = this.parseSv1BridgeUpdate(serialized);
         const payoutMode = validated.template.payoutMode === 'pplns' ? 'pplns' : 'solo';
         // The bridge envelope is self-contained. Deliver it before spending a
         // second Redis round trip on best-effort replay metadata.
-        await this.publisher.publish(SV1_BRIDGE_CHANNEL, serialized);
+        const publisher = lane === 'urgent' ? this.urgentPublisher : this.publisher;
+        await publisher.publish(SV1_BRIDGE_CHANNEL, serialized);
         void Promise.all([
             this.publisher.setEx(
                 sv1BridgeLatestKey(payoutMode),
@@ -162,15 +197,18 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
         ]).catch(error => {
             console.error(`Unable to cache latest SV1 bridge: ${error.message}`);
         });
+        return true;
     }
 
     public async subscribeSv1BridgeUpdates(handler: (update: Sv1BridgeUpdate) => Promise<void>): Promise<void> {
         if (!await this.ensureConnected()) {
             return;
         }
-        await this.subscriber.subscribe(SV1_BRIDGE_CHANNEL, async message => {
+        await this.urgentSubscriber.subscribe(SV1_BRIDGE_CHANNEL, async message => {
             try {
-                await handler(this.parseSv1BridgeUpdate(message));
+                const update = this.parseSv1BridgeUpdate(message);
+                update.workerReceivedAtMs = Date.now();
+                await handler(update);
             } catch (error) {
                 console.error(`Invalid Redis SV1 bridge update: ${error.message}`);
             }
@@ -199,6 +237,53 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
             console.error(`Invalid Redis latest SV1 bridge update: ${error.message}`);
             return null;
         }
+    }
+
+    public async publishSv1PrestageUpdate(update: Sv1PrestageUpdate): Promise<void> {
+        if (!await this.ensureConnected()) {
+            return;
+        }
+        const serialized = JSON.stringify(update);
+        const validated = this.parseSv1PrestageUpdate(serialized);
+        const payoutMode = validated.template.payoutMode === 'pplns' ? 'pplns' : 'solo';
+        await Promise.all([
+            // Keep the current next-height seed until it is replaced. A Bitcoin
+            // block interval can exceed the canonical-template cache TTL, and a
+            // worker restart late in that interval must still be able to stage.
+            this.publisher.set(
+                sv1PrestageLatestKey(payoutMode),
+                serialized,
+            ),
+            this.publisher.publish(SV1_PRESTAGE_CHANNEL, serialized),
+        ]);
+    }
+
+    public async subscribeSv1PrestageUpdates(
+        handler: (update: Sv1PrestageUpdate) => Promise<void>,
+    ): Promise<void> {
+        if (!await this.ensureConnected()) {
+            return;
+        }
+        await this.subscriber.subscribe(SV1_PRESTAGE_CHANNEL, async message => {
+            try {
+                await handler(this.parseSv1PrestageUpdate(message));
+            } catch (error) {
+                console.error(`Invalid Redis SV1 prestage update: ${error.message}`);
+            }
+        });
+    }
+
+    public async getLatestSv1PrestageUpdates(): Promise<Sv1PrestageUpdate[]> {
+        if (!await this.ensureConnected()) {
+            return [];
+        }
+        const values = await this.publisher.mGet([
+            sv1PrestageLatestKey('solo'),
+            sv1PrestageLatestKey('pplns'),
+        ]) as Array<string | null>;
+        return values
+            .filter((value): value is string => value != null)
+            .map(value => this.parseSv1PrestageUpdate(value));
     }
 
     public async setLatestMiningInfo(miningInfo: IMiningInfo) {
@@ -409,6 +494,42 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
             throw new Error('unsupported SV1 bridge update');
         }
         return update as Sv1BridgeUpdate;
+    }
+
+    private parseSv1PrestageUpdate(message: string): Sv1PrestageUpdate {
+        const update = JSON.parse(message) as Partial<Sv1PrestageUpdate>;
+        const template = update.template as Partial<IBlockTemplate> | undefined;
+        const payoutMode = template?.payoutMode;
+        const payoutOutputs = template?.payoutOutputs;
+        const hasExplicitPplnsPayout = payoutMode !== 'pplns' || (
+            typeof template?.payoutSnapshotId === 'string'
+            && template.payoutSnapshotId.trim().length > 0
+            && Array.isArray(payoutOutputs)
+            && payoutOutputs.length > 0
+            && Number.isSafeInteger(template.coinbasevalue)
+            && payoutOutputs.every(output => (
+                typeof output.address === 'string'
+                && output.address.trim().length > 0
+                && Number.isSafeInteger(output.amountSats)
+                && output.amountSats >= 0
+            ))
+            && payoutOutputs.reduce((sum, output) => sum + output.amountSats, 0)
+                === template.coinbasevalue
+        );
+        if (update.schemaVersion !== 1
+            || update.type !== 'subsidy-prestage'
+            || typeof update.eventId !== 'string'
+            || !Number.isFinite(update.preparedAtMs)
+            || template?.jobType !== 'empty'
+            || (payoutMode !== 'solo' && payoutMode !== 'pplns')
+            || !Array.isArray(template?.transactions)
+            || template.transactions.length !== 0
+            || template.previousblockhash !== '0'.repeat(64)
+            || !Number.isInteger(template.height)
+            || !hasExplicitPplnsPayout) {
+            throw new Error('unsupported SV1 prestage update');
+        }
+        return update as Sv1PrestageUpdate;
     }
 
     private async ensureConnected(): Promise<boolean> {

@@ -52,6 +52,7 @@ export interface MiningJobBroadcastResult {
     status: 'written' | 'backpressured' | 'skipped' | 'closed' | 'error';
     bytes: number;
     bufferedBytes: number;
+    preStaged?: boolean;
 }
 
 export class StratumV1Client {
@@ -440,6 +441,10 @@ export class StratumV1Client {
         this.stratumInitialized = true;
         const latestJobTemplate = await this.getLatestPayoutJobTemplate();
         this.broadcastMiningJob(latestJobTemplate);
+        const latestPrestage = this.stratumV1JobsService.getLatestPrestageJobTemplate(this.payoutMode);
+        if (latestPrestage != null) {
+            this.preStageMiningJob(latestPrestage);
+        }
 
         this.backgroundWork.push(
             setInterval(async () => {
@@ -459,6 +464,29 @@ export class StratumV1Client {
             && !this.connectionClosed
             && !this.socket.destroyed
             && !this.socket.writableEnded;
+    }
+
+    public preStageMiningJob(jobTemplate: IJobTemplate): boolean {
+        if (!this.isReadyForMiningJobs()
+            || jobTemplate.blockData.jobType !== 'empty'
+            || jobTemplate.blockData.payoutMode !== this.payoutMode) {
+            return false;
+        }
+        const payoutInformation = this.getPayoutInformation(
+            jobTemplate,
+            this.clientAuthorization.address,
+        );
+        if (payoutInformation == null) {
+            return false;
+        }
+        const payoutIdentity = this.getPayoutIdentity(jobTemplate);
+        return this.stratumV1JobsService.preStageJob(
+            this.network,
+            payoutInformation,
+            jobTemplate,
+            payoutIdentity,
+            this.payoutMode,
+        ) != null;
     }
 
     public broadcastMiningJob(jobTemplate: IJobTemplate, force = false): MiningJobBroadcastResult {
@@ -512,19 +540,37 @@ export class StratumV1Client {
         //     ];
         // }
 
-        const job = this.stratumV1JobsService.getOrCreateJob(
+        const payoutIdentity = this.getPayoutIdentity(jobTemplate);
+        const preStagedJob = (
+            jobTemplate.blockData.jobType === 'empty'
+                ? this.stratumV1JobsService.activatePreStagedJob(
+                    jobTemplate,
+                    payoutIdentity,
+                    this.payoutMode,
+                )
+                : null
+        );
+        const job = preStagedJob ?? this.stratumV1JobsService.getOrCreateJob(
             this.network,
             payoutInformation,
             jobTemplate,
-            this.getPayoutIdentity(jobTemplate),
+            payoutIdentity,
             this.payoutMode,
         );
-        const payload = job.responseBuffer(jobTemplate);
+        const payload = job.responseBuffer(
+            jobTemplate,
+            this.stratumV1JobsService.getNotifyHeaderFields?.(jobTemplate),
+        );
         const bufferedBeforeWrite = this.socket.writableLength ?? 0;
         if (bufferedBeforeWrite >= maximumBufferedBytes
             || payload.length >= maximumBufferedBytes - bufferedBeforeWrite) {
             this.closeSocket();
-            return { status: 'closed', bytes: 0, bufferedBytes: bufferedBeforeWrite };
+            return {
+                status: 'closed',
+                bytes: 0,
+                bufferedBytes: bufferedBeforeWrite,
+                ...(preStagedJob == null ? {} : { preStaged: true }),
+            };
         }
         try {
             const accepted = this.socket.write(payload);
@@ -537,12 +583,14 @@ export class StratumV1Client {
                     status: 'closed',
                     bytes: payload.length,
                     bufferedBytes: bufferedAfterWrite,
+                    ...(preStagedJob == null ? {} : { preStaged: true }),
                 };
             }
             return {
                 status: accepted ? 'written' : 'backpressured',
                 bytes: payload.length,
                 bufferedBytes: bufferedAfterWrite,
+                ...(preStagedJob == null ? {} : { preStaged: true }),
             };
         } catch (error) {
             this.closeSocket();
@@ -550,6 +598,7 @@ export class StratumV1Client {
                 status: 'error',
                 bytes: 0,
                 bufferedBytes: this.socket.writableLength ?? 0,
+                ...(preStagedJob == null ? {} : { preStaged: true }),
             };
         }
     }

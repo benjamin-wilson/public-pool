@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import { EMPTY, filter, map, merge, Observable, shareReplay, tap } from 'rxjs';
 
 import { IBlockTemplate, IBlockTemplateTx } from '../models/bitcoin-rpc/IBlockTemplate';
-import { AddressObject, MiningJob } from '../models/MiningJob';
+import { AddressObject, MiningJob, MiningNotifyHeaderFields } from '../models/MiningJob';
 import { PayoutMode } from '../types/payout-mode';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 import {
@@ -29,7 +29,10 @@ export interface IJobTemplate {
         payoutMode: PayoutMode | 'all';
         notificationEventId?: string;
         sourceNotificationReceivedAtMs?: number;
+        notificationPreparedAtMs?: number;
         notificationPublishedAtMs?: number;
+        notificationWorkerReceivedAtMs?: number;
+        notificationWorkerHandledAtMs?: number;
         payoutSnapshotId?: string;
         payoutOutputs?: AddressObject[];
         transactions?: IBlockTemplateTx[];
@@ -49,6 +52,7 @@ export interface IJobSubmissionContext {
 
 const DEFAULT_JOB_RETENTION_MS = 5 * 60 * 1000;
 const PAYOUT_MODES: readonly PayoutMode[] = ['solo', 'pplns'];
+const PLACEHOLDER_PREV_HASH = Buffer.alloc(32, 0);
 
 export function createPayoutOutputIdentity(
     payoutMode: PayoutMode,
@@ -70,6 +74,8 @@ export class StratumV1JobsService {
     public newMiningJob$: Observable<IJobTemplate>;
     /** Ordered SV1-only stream: subsidy bridge first, canonical full job second. */
     public sv1MiningJob$: Observable<IJobTemplate>;
+    /** Detached next-height empty jobs prepared without changing active work. */
+    public sv1PrestageJob$: Observable<IJobTemplate>;
     public latestJobId: number = 1;
     public latestJobTemplateId: number = 1;
     public jobs: { [jobId: string]: MiningJob } = {};
@@ -79,7 +85,13 @@ export class StratumV1JobsService {
     private readonly lastWorkSignatures = new Map<PayoutMode, string>();
     private readonly currentTipKeys = new Map<PayoutMode, string>();
     private readonly cachedJobs = new Map<string, MiningJob>();
+    private readonly notifyHeaderFields = new WeakMap<IJobTemplate, MiningNotifyHeaderFields>();
     private readonly latestJobTemplates = new Map<PayoutMode | 'all', IJobTemplate>();
+    private readonly latestPrestageJobTemplates = new Map<PayoutMode, IJobTemplate>();
+    private readonly stagedJobs = new Map<string, {
+        job: MiningJob;
+        activatedTemplateId?: string;
+    }>();
     private readonly pinnedCurrentTipTemplateIds = new Map<PayoutMode, Set<string>>([
         ['solo', new Set<string>()],
         ['pplns', new Set<string>()],
@@ -152,7 +164,10 @@ export class StratumV1JobsService {
                     isNewBlock,
                     notificationEventId: blockTemplate.notificationEventId,
                     sourceNotificationReceivedAtMs: blockTemplate.sourceNotificationReceivedAtMs,
+                    notificationPreparedAtMs: blockTemplate.notificationPreparedAtMs,
                     notificationPublishedAtMs: blockTemplate.notificationPublishedAtMs,
+                    notificationWorkerReceivedAtMs: blockTemplate.notificationWorkerReceivedAtMs,
+                    notificationWorkerHandledAtMs: blockTemplate.notificationWorkerHandledAtMs,
                     rawTransactions: blockTemplate.transactions,
                     sigoplimit: blockTemplate.sigoplimit,
                     sizelimit: blockTemplate.sizelimit,
@@ -161,7 +176,7 @@ export class StratumV1JobsService {
                 };
             }),
             filter(next => next != null),
-            map(({ prepared, timestamp, networkDifficulty, clearJobs, isNewBlock, notificationEventId, sourceNotificationReceivedAtMs, notificationPublishedAtMs, rawTransactions, sigoplimit, sizelimit, weightlimit, requiredVersionBits }) => {
+            map(({ prepared, timestamp, networkDifficulty, clearJobs, isNewBlock, notificationEventId, sourceNotificationReceivedAtMs, notificationPreparedAtMs, notificationPublishedAtMs, notificationWorkerReceivedAtMs, notificationWorkerHandledAtMs, rawTransactions, sigoplimit, sizelimit, weightlimit, requiredVersionBits }) => {
                 const block = new bitcoinjs.Block();
 
                 // Keep only a placeholder coinbase on the hot path. The full raw body
@@ -201,7 +216,10 @@ export class StratumV1JobsService {
                         payoutMode: prepared.payoutMode,
                         notificationEventId,
                         sourceNotificationReceivedAtMs,
+                        notificationPreparedAtMs,
                         notificationPublishedAtMs,
+                        notificationWorkerReceivedAtMs,
+                        notificationWorkerHandledAtMs,
                         payoutSnapshotId: prepared.coinbase.payoutSnapshotId,
                         payoutOutputs: prepared.coinbase.payoutOutputs?.map(output => ({ ...output })),
                         transactions: rawTransactions,
@@ -244,9 +262,20 @@ export class StratumV1JobsService {
         this.sv1MiningJob$ = merge(bridgeMiningJob$, this.newMiningJob$).pipe(
             shareReplay({ refCount: true, bufferSize: 1 }),
         );
+        this.sv1PrestageJob$ = (
+            this.bitcoinRpcService.newSv1PrestageTemplate$ ?? EMPTY
+        ).pipe(
+            map(blockTemplate => this.createDetachedPrestageJobTemplate(blockTemplate)),
+            tap(jobTemplate => {
+                const payoutMode = jobTemplate.blockData.payoutMode === 'pplns' ? 'pplns' : 'solo';
+                this.latestPrestageJobTemplates.set(payoutMode, jobTemplate);
+            }),
+            shareReplay({ refCount: true, bufferSize: 2 }),
+        );
 
         if (process.env.API_ONLY !== 'true' && process.env.MASTER !== 'true') {
             this.sv1MiningJob$.subscribe();
+            this.sv1PrestageJob$.subscribe();
         }
     }
 
@@ -272,6 +301,80 @@ export class StratumV1JobsService {
             ?? null;
     }
 
+    public getLatestPrestageJobTemplate(payoutMode: PayoutMode): IJobTemplate | null {
+        return this.latestPrestageJobTemplates.get(payoutMode) ?? null;
+    }
+
+    public preStageJob(
+        network: bitcoinjs.networks.Network,
+        payoutInformation: AddressObject[],
+        jobTemplate: IJobTemplate,
+        payoutIdentity: string,
+        payoutMode: PayoutMode,
+    ): MiningJob | null {
+        if (jobTemplate.blockData.jobType !== 'empty'
+            || jobTemplate.blockData.payoutMode !== payoutMode
+            || !jobTemplate.block.prevHash.equals(PLACEHOLDER_PREV_HASH)) {
+            return null;
+        }
+        const key = this.getPrestageJobKey(jobTemplate, payoutIdentity, payoutMode);
+        const existing = this.stagedJobs.get(key);
+        if (existing != null) {
+            return existing.job;
+        }
+        const job = new MiningJob(
+            network,
+            this.getNextId(),
+            payoutInformation,
+            jobTemplate,
+            { payoutMode, payoutIdentity },
+        );
+        job.preparePreStagedNotify(
+            jobTemplate,
+            this.getNotifyHeaderFields(jobTemplate),
+        );
+        // Reserve the id now; staged jobs are intentionally absent from `jobs`
+        // until their authoritative prevhash arrives and miners can submit them.
+        this.latestJobId++;
+        this.stagedJobs.set(key, { job });
+        this.cleanupPrestageJobs(jobTemplate.blockData.height);
+        return job;
+    }
+
+    public activatePreStagedJob(
+        jobTemplate: IJobTemplate,
+        payoutIdentity: string,
+        payoutMode: PayoutMode,
+    ): MiningJob | null {
+        if (jobTemplate.blockData.jobType !== 'empty') {
+            return null;
+        }
+        const key = this.getPrestageJobKey(jobTemplate, payoutIdentity, payoutMode);
+        const staged = this.stagedJobs.get(key);
+        if (staged == null) {
+            return null;
+        }
+        if (staged.activatedTemplateId != null
+            && staged.activatedTemplateId !== jobTemplate.blockData.id) {
+            // A same-height reorg needs a new job id/payload so a cached response
+            // can never retain the orphaned prevhash.
+            return null;
+        }
+        if (staged.activatedTemplateId == null) {
+            staged.job.activatePreStagedTemplate(
+                jobTemplate,
+                this.getNotifyHeaderFields(jobTemplate),
+            );
+            staged.activatedTemplateId = jobTemplate.blockData.id;
+            this.jobs[staged.job.jobId] = staged.job;
+            this.cachedJobs.set(
+                this.getJobCacheKey(jobTemplate, payoutMode, payoutIdentity),
+                staged.job,
+            );
+        }
+        return staged.job;
+    }
+
     public addJob(job: MiningJob) {
         this.jobs[job.jobId] = job;
         this.latestJobId++;
@@ -288,13 +391,11 @@ export class StratumV1JobsService {
             ?? (jobTemplate.blockData.payoutMode === 'pplns' ? 'pplns' : 'solo');
         const effectivePayoutIdentity = payoutIdentity
             ?? createPayoutOutputIdentity(effectivePayoutMode, payoutInformation);
-        const cacheKey = [
-            jobTemplate.blockData.id,
-            jobTemplate.block.timestamp,
-            jobTemplate.blockData.clearJobs,
+        const cacheKey = this.getJobCacheKey(
+            jobTemplate,
             effectivePayoutMode,
             effectivePayoutIdentity,
-        ].join(':');
+        );
         const cached = this.cachedJobs.get(cacheKey);
         if (cached != null) {
             return cached;
@@ -386,6 +487,110 @@ export class StratumV1JobsService {
 
     private getAffectedPayoutModes(payoutMode: PayoutMode | 'all'): readonly PayoutMode[] {
         return payoutMode === 'all' ? PAYOUT_MODES : [payoutMode];
+    }
+
+    private createDetachedPrestageJobTemplate(blockTemplate: IBlockTemplate): IJobTemplate {
+        const prepared = createPreparedMiningJob(blockTemplate);
+        if (prepared.jobType !== 'empty'
+            || prepared.header.previousBlockHash !== '0'.repeat(64)
+            || (prepared.payoutMode !== 'solo' && prepared.payoutMode !== 'pplns')) {
+            throw new Error('SV1 prestage must be a payout-specific empty template with a placeholder prevhash');
+        }
+        const block = new bitcoinjs.Block();
+        const tempCoinbaseTx = new bitcoinjs.Transaction();
+        tempCoinbaseTx.version = 2;
+        tempCoinbaseTx.addInput(Buffer.alloc(32, 0), 0xffffffff, 0xffffffff);
+        tempCoinbaseTx.ins[0].witness = [Buffer.alloc(32, 0)];
+        block.prevHash = Buffer.alloc(32, 0);
+        block.version = prepared.header.version;
+        block.bits = prepared.header.bits;
+        block.timestamp = Math.max(
+            prepared.header.minTime,
+            Math.floor(Date.now() / 1000),
+        );
+        block.transactions = [tempCoinbaseTx];
+        block.merkleRoot = tempCoinbaseTx.getHash(false);
+        block.witnessCommit = Buffer.from(prepared.coinbase.witnessCommitmentHash, 'hex');
+        const id = `prestage-${this.getNextTemplateId()}`;
+        this.latestJobTemplateId++;
+        return {
+            block,
+            merkle_branch: [],
+            blockData: {
+                id,
+                creation: Date.now(),
+                coinbasevalue: prepared.coinbase.valueSats,
+                networkDifficulty: this.calculateNetworkDifficulty(prepared.header.bits),
+                height: prepared.height,
+                tipKey: `prestage:${prepared.height}`,
+                clearJobs: true,
+                isNewBlock: false,
+                jobType: 'empty',
+                payoutMode: prepared.payoutMode,
+                notificationEventId: blockTemplate.notificationEventId,
+                notificationPreparedAtMs: blockTemplate.notificationPreparedAtMs,
+                payoutSnapshotId: prepared.coinbase.payoutSnapshotId,
+                payoutOutputs: prepared.coinbase.payoutOutputs?.map(output => ({ ...output })),
+                transactions: [],
+                bodyReference: prepared.body,
+                sigoplimit: blockTemplate.sigoplimit,
+                sizelimit: blockTemplate.sizelimit,
+                weightlimit: blockTemplate.weightlimit,
+                requiredVersionBits: blockTemplate.vbrequired >>> 0,
+            },
+        };
+    }
+
+    private getJobCacheKey(
+        jobTemplate: IJobTemplate,
+        payoutMode: PayoutMode,
+        payoutIdentity: string,
+    ): string {
+        return [
+            jobTemplate.blockData.id,
+            jobTemplate.block.timestamp,
+            jobTemplate.blockData.clearJobs,
+            payoutMode,
+            payoutIdentity,
+        ].join(':');
+    }
+
+    public getNotifyHeaderFields(jobTemplate: IJobTemplate): MiningNotifyHeaderFields {
+        const cached = this.notifyHeaderFields.get(jobTemplate);
+        if (cached != null) {
+            return cached;
+        }
+        const fields = MiningJob.createNotifyHeaderFields(jobTemplate);
+        this.notifyHeaderFields.set(jobTemplate, fields);
+        return fields;
+    }
+
+    private getPrestageJobKey(
+        jobTemplate: IJobTemplate,
+        payoutIdentity: string,
+        payoutMode: PayoutMode,
+    ): string {
+        return [
+            jobTemplate.blockData.height,
+            jobTemplate.blockData.coinbasevalue,
+            jobTemplate.block.witnessCommit.toString('hex'),
+            payoutMode,
+            payoutIdentity,
+            jobTemplate.blockData.payoutSnapshotId ?? '',
+        ].join(':');
+    }
+
+    private cleanupPrestageJobs(latestCandidateHeight: number): void {
+        for (const key of this.stagedJobs.keys()) {
+            const height = Number(key.slice(0, key.indexOf(':')));
+            if (height < latestCandidateHeight) {
+                // Activated jobs remain available through `jobs`/`cachedJobs` for
+                // candidate reconstruction and normal retention. The staging
+                // index is only needed through that height's fanout and would
+                // otherwise retain every miner payout identity forever.
+                this.stagedJobs.delete(key);
+            }
+        }
     }
 
     private getJobPayoutModes(job: MiningJob, jobTemplate: IJobTemplate): readonly PayoutMode[] {

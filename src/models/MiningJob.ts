@@ -20,10 +20,29 @@ export interface MiningJobOwnership {
     payoutIdentity: string;
 }
 
+export interface MiningNotifyHeaderFields {
+    previousBlockHash: string;
+    version: string;
+    bits: string;
+    timestamp: string;
+    cleanJobs: boolean;
+}
+
+interface PreStagedNotifyLayout {
+    fields: MiningNotifyHeaderFields;
+    offsets: {
+        previousBlockHash: number;
+        version: number;
+        bits: number;
+        timestamp: number;
+    };
+}
+
 export class MiningJob {
 
     private static readonly paymentScriptCache = new Map<string, Buffer>();
     private static readonly paymentScriptCacheMaxEntries = 250_000;
+    private static readonly placeholderPrevHash = Buffer.alloc(32, 0);
 
     private coinbaseTransaction: bitcoinjs.Transaction;
     private coinbasePart1: string;
@@ -33,6 +52,7 @@ export class MiningJob {
     private merkleBranchBuffers: Buffer[];
     private miningNotifyResponse: string;
     private miningNotifyResponseBuffer: Buffer;
+    private preStagedNotifyLayout: PreStagedNotifyLayout;
 
     public jobTemplateId: string;
     public tipKey: string;
@@ -50,6 +70,7 @@ export class MiningJob {
         this.creation = new Date().getTime();
         this.jobTemplateId = jobTemplate.blockData.id;
         this.tipKey = jobTemplate.blockData.tipKey;
+        this.networkDifficulty = jobTemplate.blockData.networkDifficulty;
         this.merkleBranchBuffers = jobTemplate.merkle_branch.map(branch => Buffer.from(branch, 'hex'));
 
         this.coinbaseTransaction = this.createCoinbaseTransaction(payoutInformation, jobTemplate.blockData.coinbasevalue);
@@ -102,6 +123,60 @@ export class MiningJob {
 
     public getCoinbaseSuffixBuffer(): Buffer {
         return Buffer.from(this.coinbasePart2Buffer);
+    }
+
+    /**
+     * Promote a coinbase that was built during the prior height to the
+     * authoritative empty template. The coinbase bytes are height/payout bound;
+     * header fields and submission ownership are replaced only at activation.
+     */
+    public activatePreStagedTemplate(
+        jobTemplate: IJobTemplate,
+        headerFields = MiningJob.createNotifyHeaderFields(jobTemplate),
+    ): void {
+        this.jobTemplateId = jobTemplate.blockData.id;
+        this.tipKey = jobTemplate.blockData.tipKey;
+        this.networkDifficulty = jobTemplate.blockData.networkDifficulty;
+        this.creation = Date.now();
+        if (!this.patchPreStagedNotify(headerFields)) {
+            this.miningNotifyResponseBuffer = null;
+        }
+        this.miningNotifyResponse = null;
+        this.preStagedNotifyLayout = null;
+    }
+
+    /**
+     * Serialize the miner-specific notify while the prior height is active.
+     * Activation can then overwrite the fixed-width header fields in place,
+     * avoiding JSON serialization and Buffer allocation in the new-tip loop.
+     */
+    public preparePreStagedNotify(
+        jobTemplate: IJobTemplate,
+        headerFields = MiningJob.createNotifyHeaderFields(jobTemplate),
+    ): void {
+        if (!jobTemplate.block.prevHash.equals(MiningJob.placeholderPrevHash)) {
+            throw new Error('Pre-staged notify requires a placeholder prevhash');
+        }
+        this.responseBuffer(jobTemplate, headerFields);
+        const response = this.miningNotifyResponse;
+        let cursor = response.indexOf(`"${this.jobId}"`);
+        const locate = (value: string): number => {
+            const offset = response.indexOf(`"${value}"`, cursor);
+            if (offset < 0) {
+                throw new Error('Unable to locate pre-staged notify field');
+            }
+            cursor = offset + value.length + 2;
+            return offset + 1;
+        };
+        this.preStagedNotifyLayout = {
+            fields: { ...headerFields },
+            offsets: {
+                previousBlockHash: locate(headerFields.previousBlockHash),
+                version: locate(headerFields.version),
+                bits: locate(headerFields.bits),
+                timestamp: locate(headerFields.timestamp),
+            },
+        };
     }
 
     public buildCoinbaseMerkleRoot(extraNonce: string, extraNonce2: string): Buffer {
@@ -317,9 +392,16 @@ export class MiningJob {
         return paymentScript;
     }
 
-    public response(jobTemplate: IJobTemplate): string {
+    public response(
+        jobTemplate: IJobTemplate,
+        headerFields = MiningJob.createNotifyHeaderFields(jobTemplate),
+    ): string {
 
         if (this.miningNotifyResponse != null) {
+            return this.miningNotifyResponse;
+        }
+        if (this.miningNotifyResponseBuffer != null) {
+            this.miningNotifyResponse = this.miningNotifyResponseBuffer.toString();
             return this.miningNotifyResponse;
         }
 
@@ -328,14 +410,14 @@ export class MiningJob {
             method: eResponseMethod.MINING_NOTIFY,
             params: [
                 this.jobId,
-                this.swapEndianWords(jobTemplate.block.prevHash).toString('hex'),
+                headerFields.previousBlockHash,
                 this.coinbasePart1,
                 this.coinbasePart2,
                 jobTemplate.merkle_branch,
-                jobTemplate.block.version.toString(16),
-                jobTemplate.block.bits.toString(16),
-                jobTemplate.block.timestamp.toString(16),
-                jobTemplate.blockData.clearJobs
+                headerFields.version,
+                headerFields.bits,
+                headerFields.timestamp,
+                headerFields.cleanJobs
             ]
         };
 
@@ -344,15 +426,52 @@ export class MiningJob {
         return this.miningNotifyResponse;
     }
 
-    public responseBuffer(jobTemplate: IJobTemplate): Buffer {
+    public responseBuffer(
+        jobTemplate: IJobTemplate,
+        headerFields = MiningJob.createNotifyHeaderFields(jobTemplate),
+    ): Buffer {
         if (this.miningNotifyResponseBuffer == null) {
-            this.response(jobTemplate);
+            this.response(jobTemplate, headerFields);
         }
         return this.miningNotifyResponseBuffer;
     }
 
+    public static createNotifyHeaderFields(jobTemplate: IJobTemplate): MiningNotifyHeaderFields {
+        return {
+            previousBlockHash: MiningJob.swapEndianWords(jobTemplate.block.prevHash).toString('hex'),
+            version: jobTemplate.block.version.toString(16),
+            bits: jobTemplate.block.bits.toString(16),
+            timestamp: jobTemplate.block.timestamp.toString(16),
+            cleanJobs: jobTemplate.blockData.clearJobs,
+        };
+    }
 
-    private swapEndianWords(buffer: Buffer): Buffer {
+    private patchPreStagedNotify(headerFields: MiningNotifyHeaderFields): boolean {
+        const layout = this.preStagedNotifyLayout;
+        const response = this.miningNotifyResponseBuffer;
+        if (layout == null
+            || response == null
+            || layout.fields.cleanJobs !== headerFields.cleanJobs) {
+            return false;
+        }
+        const fields = [
+            ['previousBlockHash', headerFields.previousBlockHash],
+            ['version', headerFields.version],
+            ['bits', headerFields.bits],
+            ['timestamp', headerFields.timestamp],
+        ] as const;
+        if (fields.some(([name, value]) =>
+            value.length !== layout.fields[name].length)) {
+            return false;
+        }
+        for (const [name, value] of fields) {
+            response.write(value, layout.offsets[name], value.length, 'ascii');
+        }
+        return true;
+    }
+
+
+    private static swapEndianWords(buffer: Buffer): Buffer {
         const swappedBuffer = Buffer.alloc(buffer.length);
 
         for (let i = 0; i < buffer.length; i += 4) {

@@ -17,7 +17,14 @@ describe('RedisMessagingService', () => {
         subscriptions.clear();
         clientsByRole.publisher = null;
         clientsByRole.subscriber = null;
-        clients = [createRedisClient(), createRedisClient()];
+        clientsByRole.urgentPublisher = null;
+        clientsByRole.urgentSubscriber = null;
+        clients = [
+            createRedisClient(),
+            createRedisClient(),
+            createRedisClient(),
+            createRedisClient(),
+        ];
         (createClient as jest.Mock).mockImplementation(() => clients.shift());
         service = new RedisMessagingService({
             get: jest.fn((key: string) => key === 'REDIS_URL' ? 'redis://test-redis:6379' : null),
@@ -193,10 +200,37 @@ describe('RedisMessagingService', () => {
         };
 
         await service.subscribeSv1BridgeUpdates(handler);
-        await service.publishSv1BridgeUpdate(update);
+        await expect(service.publishSv1BridgeUpdate(update)).resolves.toBe(true);
 
-        expect(handler).toHaveBeenCalledWith(update);
+        expect(handler).toHaveBeenCalledWith(expect.objectContaining({
+            ...update,
+            workerReceivedAtMs: expect.any(Number),
+        }));
         expect(await service.getLatestSv1BridgeUpdate()).toEqual(update);
+    });
+
+    it('uses the normal command socket as an explicit bridge fallback lane', async () => {
+        await service.connect();
+        const update = createBridgeUpdate('solo', 'fallback-bridge');
+
+        await expect(service.publishSv1BridgeUpdate(update, 'fallback')).resolves.toBe(true);
+
+        expect(clientsByRole.publisher.publish).toHaveBeenCalledWith(
+            'sv1-bridge.updated',
+            JSON.stringify(update),
+        );
+        expect(clientsByRole.urgentPublisher.publish).not.toHaveBeenCalled();
+    });
+
+    it('reports bridge delivery failure when Redis cannot connect', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        clients[0].connect.mockRejectedValueOnce(new Error('redis unavailable'));
+
+        await expect(service.publishSv1BridgeUpdate(
+            createBridgeUpdate('solo', 'unavailable-bridge'),
+        )).resolves.toBe(false);
+
+        errorSpy.mockRestore();
     });
 
     it('stores and replays the latest SV1 bridge independently by payout mode', async () => {
@@ -211,6 +245,51 @@ describe('RedisMessagingService', () => {
         expect(await service.getLatestSv1BridgeUpdate('pplns')).toEqual(pplns);
         expect(store.get('sv1-bridge:latest:solo')).toBe(JSON.stringify(solo));
         expect(store.get('sv1-bridge:latest:pplns')).toBe(JSON.stringify(pplns));
+    });
+
+    it('publishes and durably replays next-height SV1 prestage templates', async () => {
+        await service.connect();
+        const handler = jest.fn().mockResolvedValue(undefined);
+        const update = {
+            schemaVersion: 1 as const,
+            type: 'subsidy-prestage' as const,
+            eventId: 'prestage:solo:900002',
+            preparedAtMs: 456,
+            template: {
+                height: 900002,
+                previousblockhash: '0'.repeat(64),
+                payoutMode: 'solo' as const,
+                jobType: 'empty' as const,
+                transactions: [],
+            } as any,
+        };
+
+        await service.subscribeSv1PrestageUpdates(handler);
+        await service.publishSv1PrestageUpdate(update);
+
+        expect(handler).toHaveBeenCalledWith(update);
+        expect(await service.getLatestSv1PrestageUpdates()).toEqual([update]);
+    });
+
+    it('rejects a prestage template that claims an authoritative prevhash', async () => {
+        await service.connect();
+        const update = {
+            schemaVersion: 1 as const,
+            type: 'subsidy-prestage' as const,
+            eventId: 'unsafe-prestage',
+            preparedAtMs: 456,
+            template: {
+                height: 900002,
+                previousblockhash: '11'.repeat(32),
+                payoutMode: 'solo' as const,
+                jobType: 'empty' as const,
+                transactions: [],
+            } as any,
+        };
+
+        await expect(service.publishSv1PrestageUpdate(update)).rejects.toThrow(
+            'unsupported SV1 prestage update',
+        );
     });
 
     it('rejects PPLNS bridges without an explicit snapshot and fixed-value outputs', async () => {
@@ -299,7 +378,12 @@ function createBridgeUpdate(payoutMode: 'solo' | 'pplns', eventId: string) {
 
 const store = new Map<string, string>();
 const sets = new Map<string, Set<string>>();
-const clientsByRole: { publisher?: any; subscriber?: any } = {};
+const clientsByRole: {
+    publisher?: any;
+    subscriber?: any;
+    urgentPublisher?: any;
+    urgentSubscriber?: any;
+} = {};
 const subscriptions = new Map<string, (message: string) => Promise<void>>();
 
 function createRedisClient() {
@@ -360,11 +444,12 @@ function createRedisClient() {
         }),
     };
 
-    if (clientsByRole.publisher == null) {
-        clientsByRole.publisher = client;
-    } else {
-        clientsByRole.subscriber = client;
+    const role = (['publisher', 'subscriber', 'urgentPublisher', 'urgentSubscriber'] as const)
+        .find(candidate => clientsByRole[candidate] == null);
+    if (role == null) {
+        throw new Error('Unexpected extra Redis test client');
     }
+    clientsByRole[role] = client;
 
     return client;
 }

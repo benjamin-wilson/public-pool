@@ -59,6 +59,16 @@ $ NODE_CLUSTER_SCHED_POLICY=none pm2 start ecosystem.config.js
 
 Cluster-mode connection dropping requires Node.js `22.12.0` or newer.
 
+`STRATUM_WORKERS=auto` is the default. It uses the container's available CPU
+count after reserving `API_WORKERS` CPUs plus one for the master. A numeric value
+still pins an exact topology. Size fixed deployments from the busiest worker,
+not just total connection capacity: keep roughly 10,000 or fewer miners per
+worker when low new-tip fanout latency matters. The `stratum_job_fanout`
+`overTargetClients` field uses `STRATUM_FANOUT_TARGET_CLIENTS_PER_WORKER` to
+make an undersized worker tier visible. Pools beyond one host's practical CPU or
+socket capacity should shard listeners across multiple worker hosts connected to
+the same urgent Redis channel.
+
 `STRATUM_MAX_CONNECTIONS_PER_LISTENER` is enforced per worker and Stratum port.
 Size it using the busiest port: `worker count * limit`. For example, 28 workers
 with the default limit of `10000` allow up to `280000` connections on one port.
@@ -78,11 +88,28 @@ reserve two namespace values per configured Stratum worker.
 ### New-block notification path
 
 The master keeps an authoritative Bitcoin Core `getblocktemplate` longpoll open;
-rawblock ZMQ remains a watchdog and duplicate results are discarded. On a new tip,
-the master publishes a compact subsidy-only SV1 job before serializing the full
-transaction template. Workers fan that job out through one process-level socket
-broadcaster, then issue the full fee-paying job as a second clean switch. Payout
-snapshot creation and Postgres persistence run after the immediate solo publish.
+rawblock ZMQ remains a watchdog and duplicate results are discarded. Optional
+endpoints in `BITCOIN_RPC_AUX_URLS` keep independent longpolls open and race the
+primary source, reducing dependence on one node's block-relay peers. An auxiliary
+template is only eligible after the primary Core's `getbestblockhash` exactly
+matches its previous block hash; a mismatch or unavailable primary fails closed
+before any urgent or canonical miner notification. On a new tip, the master
+publishes a compact subsidy-only SV1 job over dedicated urgent Redis
+publisher/subscriber connections. It waits only
+`SV1_BRIDGE_PUBLISH_BUDGET_MS` for acknowledgement before proceeding. A timeout
+immediately starts the same bridge on the independent normal Redis command
+socket, so a stuck urgent socket cannot suppress delivery or block canonical
+full-template publication.
+
+After canonical publication, the master publishes a durable placeholder-prevhash
+empty template for the following height. Stratum workers replay it after restart
+and prebuild every connected miner's height- and payout-bound coinbase in batches
+of `SV1_PRESTAGE_BATCH_SIZE`, yielding between batches. A newly authorized miner
+also stages against the latest template. The next authoritative bridge promotes
+the same cached job, patches the authoritative header fields into its already
+serialized notify buffer, and writes it without rebuilding the coinbase or JSON.
+Canonical full work then follows as a second clean switch. Payout
+snapshot creation and Postgres persistence remain outside the urgent path.
 
 SV2 solo channels pre-stage a native subsidy-only future job for the next height.
 When the authoritative header arrives, the pool activates that job with only
@@ -104,7 +131,10 @@ support requires a precomputed subsidy-valued payout snapshot. Retained jobs are
 kept for `STRATUM_JOB_RETENTION_MS` so a late network-target candidate can still
 be reconstructed and submitted, while ordinary old-tip shares are rejected.
 PPLNS seeds use a non-active snapshot status and are skipped if the next
-authoritative `nBits` differs from their preparation basis.
+authoritative `nBits` differs from their preparation basis. Before any bridge is
+published, the master verifies that Core's `coinbasevalue` equals the locally
+calculated consensus subsidy plus every GBT transaction fee. Master startup also
+fails if `NETWORK` does not match Core's reported chain.
 
 The Redis protocol remains rolling-deploy compatible: new workers retain the
 legacy mining-info reload path, while the master writes the historical latest
@@ -116,7 +146,17 @@ on their prior job instead of being woken with a miner-address fallback job.
 Two structured log events expose the end-to-end timing:
 
 - `block_notification_trace` reports Core, bridge, Redis, PPLNS, and persistence stages, separated by payout mode and job type.
-- `stratum_job_fanout` reports client count, bytes, backpressure, and p50/p95/p99/last enqueue time, correlated by `eventId`.
+- `stratum_job_fanout` reports true source-to-fanout-start time, master publish,
+  worker receipt/handling, prestage hits, client count, bytes, backpressure, and
+  p50/p95/p99/last enqueue time, correlated by `eventId`.
+- `sv1_job_prestage` reports the number of miners prepared for the next height and
+  the background preparation duration.
+
+For upstream latency, place the Core nodes in different well-connected networks,
+enable normal compact-block relay, and keep Redis and Stratum workers close
+together. Auxiliary nodes remain untrusted candidates for tip detection: the
+primary Core authorizes their exact tip before publication. Do not point
+`BITCOIN_RPC_AUX_URLS` at third-party RPC services.
 
 ## Docker
 

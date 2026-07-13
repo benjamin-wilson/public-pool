@@ -56,7 +56,14 @@ export interface IBlockTemplate {
     notificationEventId?: string;
     /** Wall-clock time when the master first observed the source block notification. */
     sourceNotificationReceivedAtMs?: number;
+    /** Wall-clock time when the compact job finished construction on the master. */
+    notificationPreparedAtMs?: number;
+    /** Wall-clock time immediately before the Redis publish command was issued. */
     notificationPublishedAtMs?: number;
+    /** Worker-local wall-clock time when the urgent Redis subscriber received the bridge. */
+    notificationWorkerReceivedAtMs?: number;
+    /** Worker-local wall-clock time immediately before the bridge entered job preparation. */
+    notificationWorkerHandledAtMs?: number;
     /** Timestamp of the rolling PPLNS snapshot seed used by an empty bridge. */
     payoutBridgeSeedCreatedAtMs?: number;
 

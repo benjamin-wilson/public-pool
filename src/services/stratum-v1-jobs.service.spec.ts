@@ -5,11 +5,13 @@ import { MockRecording1 } from '../../test/models/MockRecording1';
 import { IBlockTemplate } from '../models/bitcoin-rpc/IBlockTemplate';
 import { createPreparedMiningJob } from './prepared-mining-job.factory';
 import { StratumV1JobsService } from './stratum-v1-jobs.service';
+import { EMPTY_DEFAULT_WITNESS_COMMITMENT } from './subsidy-only-template.factory';
 
 describe('StratumV1JobsService', () => {
     let blockTemplate$: BehaviorSubject<IBlockTemplate>;
     let bridgeTemplate$: Subject<IBlockTemplate>;
-    let bitcoinRpcService: { newBlockTemplate$: any, newSv1BridgeTemplate$: any, miningInfo: { blocks: number } };
+    let prestageTemplate$: Subject<IBlockTemplate>;
+    let bitcoinRpcService: { newBlockTemplate$: any, newSv1BridgeTemplate$: any, newSv1PrestageTemplate$: any, miningInfo: { blocks: number } };
     let service: StratumV1JobsService;
     let consoleLogSpy: jest.SpyInstance;
 
@@ -26,9 +28,11 @@ describe('StratumV1JobsService', () => {
 
         blockTemplate$ = new BehaviorSubject(createTemplate());
         bridgeTemplate$ = new Subject<IBlockTemplate>();
+        prestageTemplate$ = new Subject<IBlockTemplate>();
         bitcoinRpcService = {
             newBlockTemplate$: blockTemplate$.asObservable(),
             newSv1BridgeTemplate$: bridgeTemplate$.asObservable(),
+            newSv1PrestageTemplate$: prestageTemplate$.asObservable(),
             miningInfo: { blocks: MockRecording1.BLOCK_TEMPLATE.height }
         };
         service = new StratumV1JobsService(bitcoinRpcService as any);
@@ -139,6 +143,72 @@ describe('StratumV1JobsService', () => {
         expect(full.blockData.clearJobs).toBe(true);
         expect(full.blockData.tipKey).toBe(bridge.blockData.tipKey);
         expect(full.merkle_branch.length).toBeGreaterThan(0);
+    });
+
+    it('prebuilds a next-height coinbase and promotes the same job on authoritative activation', async () => {
+        await firstValueFrom(service.newMiningJob$);
+        const future = createTemplate(MockRecording1.BLOCK_TEMPLATE.height + 1);
+        future.previousblockhash = '0'.repeat(64);
+        future.transactions = [];
+        future.coinbasevalue = 312_500_000;
+        future.default_witness_commitment = EMPTY_DEFAULT_WITNESS_COMMITMENT;
+        future.jobType = 'empty';
+        future.payoutMode = 'solo';
+        future.forceCleanJobs = true;
+
+        const detachedResult = firstValueFrom(service.sv1PrestageJob$);
+        prestageTemplate$.next(future);
+        const detached = await detachedResult;
+        const payout = [{
+            address: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4',
+            percent: 100,
+        }];
+        const payoutIdentity = 'solo-prestaged-miner';
+        const staged = service.preStageJob(
+            bitcoinjs.networks.testnet,
+            payout,
+            detached,
+            payoutIdentity,
+            'solo',
+        );
+
+        expect(staged).not.toBeNull();
+        expect(service.getJobById(staged.jobId)).toBeUndefined();
+        const prebuiltNotifyBuffer = staged.responseBuffer(detached);
+        expect(JSON.parse(prebuiltNotifyBuffer.toString()).params[1]).toBe('0'.repeat(64));
+
+        const activatedSource = {
+            ...future,
+            previousblockhash: 'ab'.repeat(32),
+            notificationEventId: 'authoritative-activation',
+        };
+        const activatedResult = firstValueFrom(service.sv1MiningJob$.pipe(skip(1)));
+        bridgeTemplate$.next(activatedSource);
+        const activatedTemplate = await activatedResult;
+        const activated = service.activatePreStagedJob(
+            activatedTemplate,
+            payoutIdentity,
+            'solo',
+        );
+
+        expect(activated).toBe(staged);
+        expect(staged.responseBuffer(activatedTemplate)).toBe(prebuiltNotifyBuffer);
+        expect(service.getJobById(staged.jobId)).toBe(staged);
+        expect(service.getSubmissionContext(staged.jobId)?.status).toBe('current');
+        const notify = JSON.parse(staged.response(activatedTemplate));
+        expect(notify.params[1]).toBe(
+            Buffer.from(activatedTemplate.block.prevHash).swap32().toString('hex'),
+        );
+        expect(notify.params.slice(5, 9)).toEqual([
+            activatedTemplate.block.version.toString(16),
+            activatedTemplate.block.bits.toString(16),
+            activatedTemplate.block.timestamp.toString(16),
+            true,
+        ]);
+        expect((service as any).stagedJobs.size).toBe(1);
+        (service as any).cleanupPrestageJobs(activatedTemplate.blockData.height + 1);
+        expect((service as any).stagedJobs.size).toBe(0);
+        expect(service.getJobById(staged.jobId)).toBe(staged);
     });
 
     it('should keep same-tip bridge and full jobs current, then mark both stale on the next tip', async () => {
