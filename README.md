@@ -88,7 +88,7 @@ reserve two namespace values per configured Stratum worker.
 ### New-block notification path
 
 The master keeps an authoritative Bitcoin Core `getblocktemplate` longpoll open;
-rawblock ZMQ remains a watchdog and duplicate results are discarded. Optional
+hashblock ZMQ remains a watchdog and duplicate results are discarded. Optional
 endpoints in `BITCOIN_RPC_AUX_URLS` keep independent longpolls open and race the
 primary source, reducing dependence on one node's block-relay peers. An auxiliary
 template is only eligible after the primary Core's `getbestblockhash` exactly
@@ -234,7 +234,7 @@ RPC block template table.
 
 ```
 rpcallowip=172.16.0.0/12
-zmqpubrawblock=tcp://0.0.0.0:3000
+zmqpubhashblock=tcp://0.0.0.0:3000
 ```
 
 to your bitcoin.conf.

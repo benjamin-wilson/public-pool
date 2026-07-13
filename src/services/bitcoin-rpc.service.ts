@@ -249,8 +249,18 @@ export class BitcoinRpcService implements OnModuleInit {
                 console.error('ZMQ Unable to connect, Retrying');
             });
 
+            const zmqTopics = (this.configService.get<string>('BITCOIN_ZMQ_TOPIC')
+                ?? process.env.BITCOIN_ZMQ_TOPIC
+                ?? 'hashblock')
+                .split(',')
+                .map(topic => topic.trim())
+                .filter(topic => topic.length > 0);
+            if (zmqTopics.length === 0) {
+                zmqTopics.push('hashblock');
+            }
             sock.connect(this.configService.get('BITCOIN_ZMQ_HOST'));
-            sock.subscribe('rawblock');
+            zmqTopics.forEach(topic => sock.subscribe(topic));
+            console.log(`ZMQ subscribed to ${zmqTopics.join(',')}`);
             // Don't await this, otherwise it will block the rest of the program
             this.listenForNewBlocks(sock);
 
