@@ -50,7 +50,7 @@ export class TelegramService implements OnModuleInit {
         }, 2000);
     }
 
-    public async notifySubscribersBlockFound(address: string, height: number, block: Block, message: string) {
+    public async notifySubscribersBlockFound(address: string, height: number, block: Block | undefined, message: string) {
         if (this.bot == null) {
             return;
         }

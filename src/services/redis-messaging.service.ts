@@ -10,6 +10,7 @@ const MINING_INFO_CHANNEL = 'mining-info.updated';
 const BLOCK_TEMPLATE_CHANNEL = 'block-template.updated';
 const SV1_BRIDGE_CHANNEL = 'sv1-bridge.updated';
 const SV1_PRESTAGE_CHANNEL = 'sv1-prestage.updated';
+const BLOCK_FOUND_NOTIFICATION_CHANNEL = 'block-found.notification';
 const MINING_INFO_KEY = 'mining-info:latest';
 const BLOCK_TEMPLATE_LATEST_KEY = 'block-template:latest';
 const SV1_BRIDGE_LATEST_KEY = 'sv1-bridge:latest';
@@ -56,6 +57,16 @@ export interface Sv1PrestageUpdate {
     eventId: string;
     template: IBlockTemplate;
     preparedAtMs: number;
+}
+
+export interface BlockFoundNotification {
+    schemaVersion: 1;
+    eventId: string;
+    address: string;
+    height: number;
+    blockHash: string;
+    message: string;
+    publishedAtMs: number;
 }
 
 @Injectable()
@@ -163,6 +174,31 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
                 await handler(update as BlockTemplateUpdate);
             } catch (error) {
                 console.error(`Invalid Redis block template update: ${error.message}`);
+            }
+        });
+    }
+
+    public async publishBlockFoundNotification(notification: BlockFoundNotification): Promise<boolean> {
+        if (!await this.ensureConnected()) {
+            return false;
+        }
+        const serialized = JSON.stringify(notification);
+        const validated = this.parseBlockFoundNotification(serialized);
+        await this.publisher.publish(BLOCK_FOUND_NOTIFICATION_CHANNEL, JSON.stringify(validated));
+        return true;
+    }
+
+    public async subscribeBlockFoundNotifications(
+        handler: (notification: BlockFoundNotification) => Promise<void>,
+    ): Promise<void> {
+        if (!await this.ensureConnected()) {
+            return;
+        }
+        await this.subscriber.subscribe(BLOCK_FOUND_NOTIFICATION_CHANNEL, async message => {
+            try {
+                await handler(this.parseBlockFoundNotification(message));
+            } catch (error) {
+                console.error(`Invalid Redis block found notification: ${error.message}`);
             }
         });
     }
@@ -530,6 +566,23 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
             throw new Error('unsupported SV1 prestage update');
         }
         return update as Sv1PrestageUpdate;
+    }
+
+    private parseBlockFoundNotification(message: string): BlockFoundNotification {
+        const notification = JSON.parse(message) as Partial<BlockFoundNotification>;
+        if (notification.schemaVersion !== 1
+            || typeof notification.eventId !== 'string'
+            || notification.eventId.trim().length < 1
+            || typeof notification.address !== 'string'
+            || notification.address.trim().length < 1
+            || !Number.isInteger(notification.height)
+            || typeof notification.blockHash !== 'string'
+            || notification.blockHash.trim().length < 1
+            || typeof notification.message !== 'string'
+            || !Number.isFinite(notification.publishedAtMs)) {
+            throw new Error('unsupported block found notification');
+        }
+        return notification as BlockFoundNotification;
     }
 
     private async ensureConnected(): Promise<boolean> {

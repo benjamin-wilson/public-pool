@@ -182,6 +182,42 @@ describe('RedisMessagingService', () => {
         consoleSpy.mockRestore();
     });
 
+    it('publishes validated block found notifications', async () => {
+        await service.connect();
+        const handler = jest.fn().mockResolvedValue(undefined);
+        const notification = {
+            schemaVersion: 1 as const,
+            eventId: 'block-found:900001:blockhash:bc1qminer',
+            address: 'bc1qminer',
+            height: 900001,
+            blockHash: 'aa'.repeat(32),
+            message: 'accepted',
+            publishedAtMs: 123,
+        };
+
+        await service.subscribeBlockFoundNotifications(handler);
+        await expect(service.publishBlockFoundNotification(notification)).resolves.toBe(true);
+
+        expect(handler).toHaveBeenCalledWith(notification);
+    });
+
+    it('ignores malformed block found notifications', async () => {
+        await service.connect();
+        const handler = jest.fn();
+        const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        await service.subscribeBlockFoundNotifications(handler);
+
+        await subscriptions.get('block-found.notification')!(JSON.stringify({
+            schemaVersion: 1,
+            eventId: '',
+            height: 900001,
+        }));
+
+        expect(handler).not.toHaveBeenCalled();
+        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid Redis block found notification'));
+        consoleSpy.mockRestore();
+    });
+
     it('stores, publishes, and replays compact SV1 bridge updates', async () => {
         await service.connect();
         const handler = jest.fn().mockResolvedValue(undefined);

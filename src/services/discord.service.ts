@@ -124,7 +124,7 @@ export class DiscordService implements OnModuleInit {
         }
     }
 
-    public async notifySubscribersBlockFound(height: number, block: Block, message: string) {
+    public async notifySubscribersBlockFound(height: number, block: Block | undefined, message: string) {
         if (process.env.MASTER == 'true') {
             if (this.bot == null) {
                 return;
