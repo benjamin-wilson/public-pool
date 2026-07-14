@@ -60,6 +60,20 @@ module.exports = {
       },
       time: true,
     },
+    // Non-hot-path master duties: notifications, reporting, and cleanup.
+    {
+      ...dockerLogConfig,
+      name: 'maintenance',
+      script: './dist/maintenance-main.js',
+      instances: 1,
+      exec_mode: 'fork',
+      env: {
+        MASTER: 'true',
+        API_ENABLED: 'false',
+        NODE_CLUSTER_SCHED_POLICY: 'none',
+      },
+      time: true,
+    },
     // Worker instances
     {
       ...dockerLogConfig,

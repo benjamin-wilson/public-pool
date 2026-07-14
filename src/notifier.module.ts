@@ -3,12 +3,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { createDatabaseOptions } from './database.config';
-import { AcceptedShareEntity } from './ORM/accepted-share/accepted-share.entity';
 import { PayoutSnapshotModule } from './ORM/payout-snapshot/payout-snapshot.module';
 import { RpcBlocksModule } from './ORM/rpc-block/rpc-block.module';
-import { ShareAccountingService } from './ORM/share-accounting/share-accounting.service';
 import { BitcoinRpcService } from './services/bitcoin-rpc.service';
-import { PoolSummaryRefreshService } from './services/pool-summary-refresh.service';
 import { RedisMessagingModule } from './services/redis-messaging.module';
 
 /**
@@ -33,15 +30,12 @@ import { RedisMessagingModule } from './services/redis-messaging.module';
                 DB_POOL_SIZE: configService.get('DB_POOL_SIZE'),
             }),
         }),
-        TypeOrmModule.forFeature([AcceptedShareEntity]),
         RedisMessagingModule,
         RpcBlocksModule,
         PayoutSnapshotModule,
     ],
     providers: [
         BitcoinRpcService,
-        PoolSummaryRefreshService,
-        ShareAccountingService,
     ],
 })
 export class NotifierModule { }

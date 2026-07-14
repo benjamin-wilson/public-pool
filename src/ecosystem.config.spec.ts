@@ -46,6 +46,19 @@ describe('PM2 worker sizing', () => {
     );
   });
 
+  it('runs maintenance duties outside the isolated notifier process', () => {
+    const config = require('../ecosystem.config.js');
+
+    expect(config.apps.find((app) => app.name === 'maintenance')).toEqual(
+      expect.objectContaining({
+        script: './dist/maintenance-main.js',
+        instances: 1,
+        exec_mode: 'fork',
+        env: expect.objectContaining({ MASTER: 'true', API_ENABLED: 'false' }),
+      }),
+    );
+  });
+
   it('rejects invalid fixed worker counts instead of silently starting no workers', () => {
     process.env.STRATUM_WORKERS = 'many';
 
