@@ -360,11 +360,7 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
             return cached;
         }
 
-        if (process.env.API_ONLY === 'true') {
-            return this.emptySummary();
-        }
-
-        return this.getSummary({ payoutMode: mode });
+        return this.withPoolRollupOverlay(await this.getSummary({ payoutMode: mode }), mode);
     }
 
     public async refreshPoolSummary(payoutMode?: PayoutMode): Promise<ShareAccountingSummary> {
@@ -380,10 +376,6 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
     }
 
     private async withPoolRollupOverlay(summary: ShareAccountingSummary, payoutMode?: PayoutMode): Promise<ShareAccountingSummary> {
-        if (process.env.API_ONLY === 'true') {
-            return summary;
-        }
-
         const [currentRoundRow] = await this.acceptedShareRepository.query(`
                 WITH latest_found_block AS (
                     SELECT COALESCE(MAX("height"), 0) AS "height"
