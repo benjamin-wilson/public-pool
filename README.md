@@ -125,7 +125,7 @@ Standard and extended candidates retain exact header/body reconstruction, and
 late network-target candidates remain recoverable without crediting stale shares.
 Pending SV2 canonical jobs are coalesced per client, while a new-tip activation
 is moved ahead of any not-yet-started canonical work for that tip. The finite
-defaults are 16 retained jobs per channel, four queued operations, 256 KiB of
+defaults are 64 retained jobs per channel, four queued operations, 256 KiB of
 outstanding socket writes, and a two-second write-callback deadline. A client is
 disconnected if `SV2_MAX_RETAINED_JOBS_PER_CHANNEL`,
 `SV2_MAX_QUEUED_JOB_OPERATIONS`, `SV2_MAX_SOCKET_BUFFER_BYTES`, or

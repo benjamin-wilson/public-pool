@@ -927,6 +927,41 @@ describe('StratumV2Client extended channels', () => {
         )).toBe(true);
     });
 
+    it('keeps enough retained SV2 jobs for repeated fast activation and full-template followup cycles', async () => {
+        const { client, jobTemplate } = await createClient();
+        await (client as any).handleOpenExtendedMiningChannel(serializeOpenExtendedMiningChannel({
+            requestId: 1,
+            userIdentity: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4.worker',
+            nominalHashRate: 0,
+            maxTarget: Buffer.alloc(32, 0xff),
+            minExtranonceSize: 8,
+        }));
+
+        let currentTemplate = jobTemplate;
+        for (let index = 0; index < 20; index++) {
+            const activation = {
+                ...createActivationTemplate(currentTemplate),
+                previousblockhash: (index + 1).toString(16).padStart(64, '0'),
+                mintime: parseInt(MockRecording1.TIME, 16) + index + 1,
+                curtime: parseInt(MockRecording1.TIME, 16) + index + 1,
+            };
+            await client.enqueueWorkActivation(activation as any);
+            currentTemplate = {
+                ...createCanonicalFollowup(currentTemplate, activation),
+                blockData: {
+                    ...createCanonicalFollowup(currentTemplate, activation).blockData,
+                    id: `canonical-followup-${index}`,
+                },
+            };
+            await client.enqueueCanonicalJob(currentTemplate);
+        }
+
+        expect((client as any).socket.destroyed).toBe(false);
+        const channel = (client as any).channels.get(1);
+        expect(channel.extendedJobs.size).toBeLessThanOrEqual((client as any).maxRetainedJobsPerChannel);
+        expect(channel.stagedFutureJobId).toBeDefined();
+    });
+
     it('activates a staged standard future and rejects incompatible activation versions', async () => {
         const { client, sentFrames, jobTemplate } = await createClient();
         await (client as any).handleOpenStandardMiningChannel(serializeOpenStandardMiningChannel({
