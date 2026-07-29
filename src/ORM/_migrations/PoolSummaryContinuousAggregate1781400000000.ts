@@ -20,7 +20,7 @@ export class PoolSummaryContinuousAggregate1781400000000 implements MigrationInt
         await queryRunner.query(`
             SELECT add_continuous_aggregate_policy(
                 'accepted_share_pool_10m',
-                start_offset => INTERVAL '2 days',
+                start_offset => INTERVAL '25 hours',
                 end_offset => INTERVAL '1 minute',
                 schedule_interval => INTERVAL '1 minute',
                 if_not_exists => TRUE
