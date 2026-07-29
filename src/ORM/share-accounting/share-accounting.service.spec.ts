@@ -318,7 +318,7 @@ describe('ShareAccountingService', () => {
 
         expect(repository.query).toHaveBeenNthCalledWith(
             1,
-            expect.stringContaining('FROM "accepted_share_10m"'),
+            expect.stringContaining('FROM "accepted_share_pool_10m"'),
             ['solo'],
         );
         expect(repository.query).toHaveBeenNthCalledWith(
@@ -413,6 +413,11 @@ describe('ShareAccountingService', () => {
             networkDifficultyPercent: 35.2,
             latestShareAt: '2026-06-07T12:10:00.000Z',
         }));
+        expect(repository.query).toHaveBeenNthCalledWith(
+            1,
+            expect.stringContaining('FROM "accepted_share_pool_10m"'),
+            [],
+        );
         expect(repository.query).toHaveBeenNthCalledWith(
             2,
             expect.stringContaining('FROM "accepted_share_block_10m"'),

@@ -18,6 +18,7 @@ import { PayoutModes1781300000000 } from './ORM/_migrations/PayoutModes178130000
 import { ShareRollupStoragePolicy1781305000000 } from './ORM/_migrations/ShareRollupStoragePolicy1781305000000';
 import { AcceptedShareHighScores1781309000000 } from './ORM/_migrations/AcceptedShareHighScores1781309000000';
 import { UserAgentReportNonzeroHashrate1781313000000 } from './ORM/_migrations/UserAgentReportNonzeroHashrate1781313000000';
+import { PoolSummaryContinuousAggregate1781400000000 } from './ORM/_migrations/PoolSummaryContinuousAggregate1781400000000';
 import { UserAgentReportView } from './ORM/_views/user-agent-report/user-agent-report.view';
 import { AcceptedShareEntity } from './ORM/accepted-share/accepted-share.entity';
 import { AddressSettingsEntity } from './ORM/address-settings/address-settings.entity';
@@ -62,6 +63,7 @@ export const databaseMigrations = [
     ShareRollupStoragePolicy1781305000000,
     AcceptedShareHighScores1781309000000,
     UserAgentReportNonzeroHashrate1781313000000,
+    PoolSummaryContinuousAggregate1781400000000,
 ];
 
 export function createDatabaseOptions(env: NodeJS.ProcessEnv): TypeOrmModuleOptions & DataSourceOptions {

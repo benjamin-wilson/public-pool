@@ -605,6 +605,16 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
     }
 
     private async loadSummary(filter: AccountingFilter): Promise<ShareAccountingSummary> {
+        if (this.isPoolSummaryFilter(filter)) {
+            try {
+                return await this.loadPoolSummary(filter.payoutMode);
+            } catch (error) {
+                if (error?.code !== '42P01') {
+                    throw error;
+                }
+            }
+        }
+
         const { whereSql, params } = this.buildWhereClause(filter);
         const [summary] = await this.acceptedShareRepository.query(`
             WITH clock AS MATERIALIZED (
@@ -649,6 +659,59 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
             FROM filtered_rows
         `, params);
 
+        return this.mapSummaryRow(summary);
+    }
+
+    private async loadPoolSummary(payoutMode?: PayoutMode): Promise<ShareAccountingSummary> {
+        const params = payoutMode == null ? [] : [payoutMode];
+        const whereSql = payoutMode == null
+            ? 'WHERE "accepted_share_pool_10m"."bucket" <= bounds."latestCompletedBucket"'
+            : 'WHERE "accepted_share_pool_10m"."payoutMode" = $1 AND "accepted_share_pool_10m"."bucket" <= bounds."latestCompletedBucket"';
+        const [summary] = await this.acceptedShareRepository.query(`
+            WITH clock AS MATERIALIZED (
+                SELECT
+                    time_bucket(INTERVAL '10 minutes', NOW()) AS "currentBucket"
+            ),
+            latest_bucket AS MATERIALIZED (
+                SELECT "bucket"
+                FROM "accepted_share_pool_10m", clock
+                WHERE "bucket" < clock."currentBucket"
+                ORDER BY "bucket" DESC
+                LIMIT 1
+            ),
+            bounds AS MATERIALIZED (
+                SELECT
+                    "currentBucket",
+                    COALESCE(
+                        (SELECT "bucket" FROM latest_bucket),
+                        "currentBucket" - INTERVAL '10 minutes'
+                    ) AS "latestCompletedBucket"
+                FROM clock
+            ),
+            filtered_rows AS (
+                SELECT "accepted_share_pool_10m".*, bounds."currentBucket", bounds."latestCompletedBucket"
+                FROM "accepted_share_pool_10m", bounds
+                ${whereSql}
+            )
+            SELECT
+                COALESCE(SUM("acceptedCount"), 0)::int AS "totalAcceptedShares",
+                COALESCE(SUM("shares"), 0)::float AS "totalCreditedDifficulty",
+                COALESCE(SUM("acceptedCount") FILTER (WHERE "bucket" = "latestCompletedBucket"), 0)::int AS "acceptedSharesLast10Minutes",
+                COALESCE(SUM("shares") FILTER (WHERE "bucket" = "latestCompletedBucket"), 0)::float AS "creditedDifficultyLast10Minutes",
+                COALESCE(SUM("acceptedCount") FILTER (WHERE "bucket" > "latestCompletedBucket" - INTERVAL '1 hour' AND "bucket" <= "latestCompletedBucket"), 0)::int AS "acceptedSharesLastHour",
+                COALESCE(SUM("shares") FILTER (WHERE "bucket" > "latestCompletedBucket" - INTERVAL '1 hour' AND "bucket" <= "latestCompletedBucket"), 0)::float AS "creditedDifficultyLastHour",
+                COALESCE(SUM("acceptedCount") FILTER (WHERE "bucket" > "latestCompletedBucket" - INTERVAL '1 day' AND "bucket" <= "latestCompletedBucket"), 0)::int AS "acceptedSharesLastDay",
+                COALESCE(SUM("shares") FILTER (WHERE "bucket" > "latestCompletedBucket" - INTERVAL '1 day' AND "bucket" <= "latestCompletedBucket"), 0)::float AS "creditedDifficultyLastDay",
+                COALESCE((SUM("shares") FILTER (WHERE "bucket" = "latestCompletedBucket") * ${HASHES_PER_DIFFICULTY}) / ${ROLLUP_BUCKET_SECONDS}, 0)::float AS "hashRateLast10Minutes",
+                COALESCE((SUM("shares") FILTER (WHERE "bucket" > "latestCompletedBucket" - INTERVAL '1 hour' AND "bucket" <= "latestCompletedBucket") * ${HASHES_PER_DIFFICULTY}) / 3600, 0)::float AS "hashRateLastHour",
+                MAX("bucket") AS "latestShareAt"
+            FROM filtered_rows
+        `, params);
+
+        return this.mapSummaryRow(summary);
+    }
+
+    private mapSummaryRow(summary: Record<string, unknown> | undefined): ShareAccountingSummary {
         return {
             totalAcceptedShares: this.toNumber(summary?.totalAcceptedShares),
             totalCreditedDifficulty: this.toNumber(summary?.totalCreditedDifficulty),
@@ -669,9 +732,15 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
             blockCandidateCount: 0,
             latestShareAt: summary?.latestShareAt == null
                 ? null
-                : new Date(summary.latestShareAt).toISOString(),
+                : new Date(summary.latestShareAt as string | Date).toISOString(),
             protocolBreakdown: [],
         };
+    }
+
+    private isPoolSummaryFilter(filter: AccountingFilter): boolean {
+        return filter.address == null
+            && filter.clientName == null
+            && filter.clientId == null;
     }
 
     private scheduleFlush(): void {
