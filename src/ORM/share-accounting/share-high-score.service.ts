@@ -139,6 +139,11 @@ export class ShareHighScoreService implements OnModuleInit, OnModuleDestroy {
             });
         }
 
+        const allTimeRecords = await this.loadAllTimeRecords(manager, payoutMode);
+        for (const record of allTimeRecords) {
+            updatedRows += await this.upsertHighScore(manager, record);
+        }
+
         return updatedRows;
     }
 
@@ -167,8 +172,128 @@ export class ShareHighScoreService implements OnModuleInit, OnModuleDestroy {
                 "blockHeight"::text AS "blockHeight",
                 "bestSubmissionDifficulty"::text AS "bestSubmissionDifficulty"
             FROM candidate_rows
-            ORDER BY "bucketDate", "bestSubmissionDifficulty" DESC, "bucket" DESC
+            ORDER BY "bucketDate", "bestSubmissionDifficulty"::numeric DESC, "bucket" DESC
         `, params);
+    }
+
+    private async loadAllTimeRecords(manager: EntityManager, payoutMode: HighScorePayoutMode): Promise<HighScoreRecord[]> {
+        const records: HighScoreRecord[] = [];
+        const rollupCandidate = await this.loadRollupAllTimeCandidate(manager, payoutMode);
+        if (rollupCandidate != null) {
+            records.push(this.toRecord('all_time', payoutMode, ALL_TIME_BUCKET_DATE, rollupCandidate, null));
+        }
+
+        const clientRecord = await this.loadClientAllTimeRecord(manager, payoutMode);
+        if (clientRecord != null) {
+            records.push(clientRecord);
+        }
+
+        if (payoutMode === 'all') {
+            const addressRecord = await this.loadAddressSettingsAllTimeRecord(manager);
+            if (addressRecord != null) {
+                records.push(addressRecord);
+            }
+        }
+
+        return records;
+    }
+
+    private async loadRollupAllTimeCandidate(
+        manager: EntityManager,
+        payoutMode: HighScorePayoutMode,
+    ): Promise<HighScoreCandidate | null> {
+        const params: unknown[] = [];
+        const modeFilter = payoutMode === 'all'
+            ? ''
+            : `AND "payoutMode" = $${params.push(payoutMode)}`;
+        const rows = await manager.query(`
+            SELECT
+                date_trunc('day', "bucket")::date::text AS "bucketDate",
+                "bucket",
+                "blockHeight"::text AS "blockHeight",
+                "bestSubmissionDifficulty"::text AS "bestSubmissionDifficulty"
+            FROM "accepted_share_block_10m"
+            WHERE "bestSubmissionDifficulty" IS NOT NULL
+              AND "bestSubmissionDifficulty" > 0
+              ${modeFilter}
+            ORDER BY "bestSubmissionDifficulty" DESC, "bucket" DESC
+            LIMIT 1
+        `, params);
+
+        return rows[0] ?? null;
+    }
+
+    private async loadClientAllTimeRecord(
+        manager: EntityManager,
+        payoutMode: HighScorePayoutMode,
+    ): Promise<HighScoreRecord | null> {
+        const params: unknown[] = [];
+        const modeFilter = payoutMode === 'all'
+            ? ''
+            : `AND "payoutMode" = $${params.push(payoutMode)}`;
+        const rows = await manager.query(`
+            SELECT
+                "bestDifficulty"::text AS "submissionDifficulty",
+                "updatedAt" AS "acceptedAt",
+                "address",
+                "clientName",
+                "userAgent" AS "protocol"
+            FROM "client_entity"
+            WHERE "bestDifficulty" IS NOT NULL
+              AND "bestDifficulty" > 0
+              ${modeFilter}
+            ORDER BY "bestDifficulty" DESC, "updatedAt" DESC
+            LIMIT 1
+        `, params);
+        const row = rows[0];
+        if (row == null) {
+            return null;
+        }
+
+        return {
+            scope: 'all_time',
+            payoutMode,
+            bucketDate: ALL_TIME_BUCKET_DATE,
+            submissionDifficulty: row.submissionDifficulty,
+            acceptedAt: row.acceptedAt ?? null,
+            bucket: null,
+            blockHeight: null,
+            address: row.address ?? null,
+            clientName: row.clientName ?? null,
+            protocol: row.protocol ?? null,
+        };
+    }
+
+    private async loadAddressSettingsAllTimeRecord(manager: EntityManager): Promise<HighScoreRecord | null> {
+        const rows = await manager.query(`
+            SELECT
+                "bestDifficulty"::text AS "submissionDifficulty",
+                "updatedAt" AS "acceptedAt",
+                "address",
+                "bestDifficultyUserAgent" AS "protocol"
+            FROM "address_settings_entity"
+            WHERE "bestDifficulty" IS NOT NULL
+              AND "bestDifficulty" > 0
+            ORDER BY "bestDifficulty" DESC, "updatedAt" DESC
+            LIMIT 1
+        `);
+        const row = rows[0];
+        if (row == null) {
+            return null;
+        }
+
+        return {
+            scope: 'all_time',
+            payoutMode: 'all',
+            bucketDate: ALL_TIME_BUCKET_DATE,
+            submissionDifficulty: row.submissionDifficulty,
+            acceptedAt: row.acceptedAt ?? null,
+            bucket: null,
+            blockHeight: null,
+            address: row.address ?? null,
+            clientName: null,
+            protocol: row.protocol ?? null,
+        };
     }
 
     private async loadExactHighScore(
