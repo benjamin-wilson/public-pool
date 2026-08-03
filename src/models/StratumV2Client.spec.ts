@@ -991,7 +991,7 @@ describe('StratumV2Client extended channels', () => {
             .toBe(parseInt(activation.bits, 16));
     });
 
-    it('validates fixed/rolling versions, required bits, and the advertised minimum nTime', async () => {
+    it('validates BIP320 version rolling, required bits, and the advertised minimum nTime', async () => {
         const { client } = await createClient();
         const now = process.hrtime.bigint();
         const context = {
@@ -1007,11 +1007,12 @@ describe('StratumV2Client extended channels', () => {
         };
 
         expect((client as any).isSubmissionHeaderValid(context, 0x20000004, 100)).toBe(true);
-        expect((client as any).isSubmissionHeaderValid(context, 0x20002004, 100)).toBe(false);
+        expect((client as any).isSubmissionHeaderValid(context, 0x20002004, 100)).toBe(true);
         expect((client as any).isSubmissionHeaderValid(context, 0x20000004, 99)).toBe(false);
         expect((client as any).isSubmissionHeaderValid(context, 0x20000004, 101)).toBe(true);
         expect((client as any).isSubmissionHeaderValid(context, 0x20000004, 0xffffffff)).toBe(true);
         expect((client as any).isSubmissionHeaderValid(context, 0x20000004, 0x1_0000_0000)).toBe(false);
+        expect((client as any).isSubmissionHeaderValid(context, 0x00000004, 100)).toBe(false);
 
         (client as any).versionRollingEnabled = true;
         expect((client as any).isSubmissionHeaderValid(context, 0x20002004, 100)).toBe(true);

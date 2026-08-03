@@ -2088,11 +2088,11 @@ export class StratumV2Client {
     ): boolean {
         const submitted = submittedVersion >>> 0;
         const base = headerContext.baseVersion >>> 0;
-        if (this.versionRollingEnabled) {
-            if (((submitted ^ base) & BIP320_CONSENSUS_VERSION_MASK) !== 0) {
-                return false;
-            }
-        } else if (submitted !== base) {
+        // Some SV2 clients roll BIP320 general-purpose version bits even when
+        // they did not explicitly require version rolling during setup. Those
+        // bits are non-consensus signalling space; reject only changes outside
+        // that mask and continue enforcing required bits below.
+        if (((submitted ^ base) & BIP320_CONSENSUS_VERSION_MASK) !== 0) {
             return false;
         }
         if ((submitted & headerContext.requiredVersionBits) !== headerContext.requiredVersionBits) {
