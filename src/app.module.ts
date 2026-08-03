@@ -33,6 +33,7 @@ import { StratumV1Service } from './services/stratum-v1.service';
 import { Sv2JobDeclarationRegistryService } from './services/sv2-job-declaration-registry.service';
 import { Sv2JobDeclarationService } from './services/sv2-job-declaration.service';
 import { Sv2TemplateDistributionService } from './services/sv2-template-distribution.service';
+import { Sv2AuthorityService } from './services/sv2-authority.service';
 import { StratumV2Service } from './services/stratum-v2.service';
 import { TelegramService } from './services/telegram.service';
 import { TemplateProviderService } from './services/template-provider.service';
@@ -94,6 +95,7 @@ const ORMModules = [
         Sv2JobDeclarationRegistryService,
         Sv2JobDeclarationService,
         Sv2TemplateDistributionService,
+        Sv2AuthorityService,
         CustomWorkService,
         DatumService,
         BTCPayService,

@@ -7,6 +7,7 @@ import { readFileSync, watch } from 'fs';
 import * as path from 'path';
 import * as ecc from 'tiny-secp256k1';
 
+import { ApiModule } from './api.module';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -32,7 +33,8 @@ async function bootstrap() {
     };
   }
 
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(options));
+  const appModule = process.env.API_ONLY === 'true' ? ApiModule : AppModule;
+  const app = await NestFactory.create<NestFastifyApplication>(appModule, new FastifyAdapter(options));
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
     new ValidationPipe({
@@ -54,7 +56,7 @@ async function bootstrap() {
   });
 
   app.enableCors();
-  useContainer(app.select(AppModule), { fallbackOnErrors: true });
+  useContainer(app.select(appModule), { fallbackOnErrors: true });
 
   // Taproot
   bitcoinjs.initEccLib(ecc);

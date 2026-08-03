@@ -6,7 +6,7 @@ describe('AppController', () => {
     blocksService?: any;
     addressSettingsService?: any;
     userAgentReportService?: any;
-    stratumV2Service?: any;
+    sv2AuthorityService?: any;
     redisMessagingService?: any;
   } = {}) => {
     return new AppController(
@@ -26,7 +26,7 @@ describe('AppController', () => {
       overrides.userAgentReportService ?? {
         getReport: jest.fn().mockResolvedValue([]),
       },
-      overrides.stratumV2Service ?? {
+      overrides.sv2AuthorityService ?? {
         getPoolAuthorityPublicKey: jest.fn().mockResolvedValue({
           publicKey: '',
           configured: false,

@@ -10,9 +10,9 @@ import { ClientStatisticsService } from './ORM/client-statistics/client-statisti
 import { ClientService } from './ORM/client/client.service';
 import { BitcoinRpcService } from './services/bitcoin-rpc.service';
 import { UserAgentReportView } from './ORM/_views/user-agent-report/user-agent-report.view';
-import { StratumV2Service } from './services/stratum-v2.service';
 import { ShareAccountingService } from './ORM/share-accounting/share-accounting.service';
 import { RedisMessagingService } from './services/redis-messaging.service';
+import { Sv2AuthorityService } from './services/sv2-authority.service';
 import { normalizePayoutMode } from './types/payout-mode';
 
 @Controller()
@@ -30,7 +30,7 @@ export class AppController {
     private readonly bitcoinRpcService: BitcoinRpcService,
     private readonly addressSettingsService: AddressSettingsService,
     private readonly userAgentReportService: UserAgentReportService,
-    private readonly stratumV2Service: StratumV2Service,
+    private readonly sv2AuthorityService: Sv2AuthorityService,
     private readonly shareAccountingService: ShareAccountingService,
     private readonly redisMessagingService: RedisMessagingService
   ) { }
@@ -78,7 +78,7 @@ export class AppController {
     const [blockData, highScores, poolAuthority, userAgentReport] = await Promise.all([
       withInfoTimeout('found blocks', this.blocksService.getFoundBlocks(), staleInfo?.blockData ?? []),
       withInfoTimeout('high scores', this.addressSettingsService.getHighScores(), staleInfo?.highScores ?? []),
-      withInfoTimeout('SV2 authority', this.stratumV2Service.getPoolAuthorityPublicKey(), {
+      withInfoTimeout('SV2 authority', this.sv2AuthorityService.getPoolAuthorityPublicKey(), {
         publicKey: staleInfo?.sv2?.poolAuthorityPublicKey ?? '',
         configured: staleInfo?.sv2?.authorityKeyConfigured ?? false
       }),
