@@ -15,6 +15,7 @@ const DEFAULT_API_KEEP_ALIVE_TIMEOUT_MS = 5_000;
 const DEFAULT_API_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_API_HEADERS_TIMEOUT_MS = 10_000;
 const DEFAULT_API_MAX_REQUESTS_PER_SOCKET = 100;
+const DEFAULT_API_MAX_CONNECTIONS_PER_WORKER = 500;
 
 function readPositiveInt(name: string, fallback: number): number {
   const value = Number(process.env[name]);
@@ -93,6 +94,11 @@ async function bootstrap() {
 
   const server: any = app.getHttpServer();
   server.headersTimeout = readPositiveInt('API_HEADERS_TIMEOUT_MS', DEFAULT_API_HEADERS_TIMEOUT_MS);
+  server.maxConnections = readPositiveInt(
+    'API_MAX_CONNECTIONS_PER_WORKER',
+    DEFAULT_API_MAX_CONNECTIONS_PER_WORKER,
+  );
+  server.dropMaxConnection = true;
 
   // --- Live-reload TLS certs/keys when they change on disk ---
   if (secure) {
