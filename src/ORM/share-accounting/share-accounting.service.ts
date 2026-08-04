@@ -102,6 +102,7 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
     private rollupTimer: NodeJS.Timeout | null = null;
     private activeRollup: Promise<void> | null = null;
     private summaryCache = new Map<string, SummaryCacheEntry>();
+    private summaryInFlight = new Map<string, Promise<ShareAccountingSummary>>();
     private readonly poolSummaryCacheKey = 'accounting:pool-summary';
     private readonly batchSize = this.readPositiveInt('SHARE_ACCOUNTING_BATCH_SIZE', DEFAULT_BATCH_SIZE);
     private readonly flushIntervalMs = this.readPositiveInt('SHARE_ACCOUNTING_FLUSH_INTERVAL_MS', DEFAULT_FLUSH_INTERVAL_MS);
@@ -565,18 +566,31 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
             return cached.value;
         }
 
-        const value = this.loadCachedSummary(filter, cacheKey).catch(error => {
+        if (cached != null) {
             this.summaryCache.delete(cacheKey);
-            throw error;
-        });
-
-        if (this.summaryCacheMs > 0) {
-            this.summaryCache.set(cacheKey, {
-                expiresAt: now + this.summaryCacheMs,
-                value,
-            });
-            this.trimSummaryCache();
         }
+
+        const inFlight = this.summaryInFlight.get(cacheKey);
+        if (inFlight != null) {
+            return inFlight;
+        }
+
+        const value = this.loadCachedSummary(filter, cacheKey)
+            .then(summary => {
+                if (this.summaryCacheMs > 0) {
+                    this.summaryCache.set(cacheKey, {
+                        expiresAt: Date.now() + this.summaryCacheMs,
+                        value: summary,
+                    });
+                    this.trimSummaryCache();
+                }
+                return summary;
+            })
+            .finally(() => {
+                this.summaryInFlight.delete(cacheKey);
+            });
+
+        this.summaryInFlight.set(cacheKey, value);
 
         return value;
     }
@@ -865,6 +879,13 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
     }
 
     private trimSummaryCache(): void {
+        const now = Date.now();
+        for (const [key, entry] of this.summaryCache) {
+            if (entry.expiresAt <= now) {
+                this.summaryCache.delete(key);
+            }
+        }
+
         while (this.summaryCache.size > this.summaryCacheMax) {
             const firstKey = this.summaryCache.keys().next().value;
             if (firstKey == null) {
@@ -901,5 +922,5 @@ interface PendingShare {
 
 interface SummaryCacheEntry {
     expiresAt: number;
-    value: Promise<ShareAccountingSummary>;
+    value: ShareAccountingSummary;
 }
