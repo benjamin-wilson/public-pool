@@ -51,10 +51,16 @@ export class StratumV1ClientStatistics {
             return pre;
         }, 0);
         const diffSeconds = (this.submissionCache[this.submissionCache.length - 1].time.getTime() - this.submissionCache[0].time.getTime()) / 1000;
+        if (!Number.isFinite(diffSeconds) || diffSeconds <= 0) {
+            return null;
+        }
 
         const difficultyPerSecond = sum / diffSeconds;
 
         const targetDifficulty = difficultyPerSecond * this.targetSubmitShareEveryNSeconds;
+        if (!Number.isFinite(targetDifficulty) || targetDifficulty <= 0) {
+            return null;
+        }
 
         if ((clientDifficulty * 2) < targetDifficulty || (clientDifficulty / 2) > targetDifficulty) {
             return this.nearestPowerOfTwo(targetDifficulty)
@@ -63,27 +69,15 @@ export class StratumV1ClientStatistics {
         return null;
     }
 
-    private nearestPowerOfTwo(val): number {
-        if (val === 0) {
+    private nearestPowerOfTwo(val: number): number {
+        if (!Number.isFinite(val) || val <= 0) {
             return null;
         }
-        if (val < this.minDifficulty) {
+        if (val <= this.minDifficulty) {
             return this.minDifficulty;
         }
-        let x = val | (val >> 1);
-        x = x | (x >> 2);
-        x = x | (x >> 4);
-        x = x | (x >> 8);
-        x = x | (x >> 16);
-        x = x | (x >> 32);
-        const res = x - (x >> 1);
-        if (res == 0 && val * 100 < this.minDifficulty) {
-            return this.minDifficulty;
-        }
-        if (res == 0) {
-            return this.nearestPowerOfTwo(val * 100) / 100;
-        }
-        return res;
+        const result = 2 ** Math.floor(Math.log2(val));
+        return Number.isFinite(result) ? Math.max(this.minDifficulty, result) : null;
     }
 
 }

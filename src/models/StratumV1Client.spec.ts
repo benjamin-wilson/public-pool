@@ -169,6 +169,59 @@ describe('StratumV1Client', () => {
         expect(socket.on).toHaveBeenCalled();
     });
 
+    it('disconnects when an unterminated inbound message exceeds the configured limit', async () => {
+        (configService.get as jest.Mock).mockImplementation((key: string) => {
+            if (key === 'STRATUM_MAX_INBOUND_LINE_BYTES') return '16';
+            if (key === 'NETWORK') return 'testnet';
+            return null;
+        });
+        client = new StratumV1Client(
+            socket,
+            stratumV1JobsService,
+            bitcoinRpcService,
+            clientService,
+            notificationService,
+            blocksService,
+            configService,
+            addressSettings,
+            shareAccountingService as any,
+            redisMessagingService as any,
+        );
+
+        socketEmitter(Buffer.from('x'.repeat(17)));
+        await Promise.resolve();
+
+        expect(socket.destroy).toHaveBeenCalled();
+        expect((client as any).buffer).toBe('');
+    });
+
+    it('accepts multiple complete messages when each line is within the inbound limit', async () => {
+        (configService.get as jest.Mock).mockImplementation((key: string) => {
+            if (key === 'STRATUM_MAX_INBOUND_LINE_BYTES') return '64';
+            if (key === 'NETWORK') return 'testnet';
+            return null;
+        });
+        client = new StratumV1Client(
+            socket,
+            stratumV1JobsService,
+            bitcoinRpcService,
+            clientService,
+            notificationService,
+            blocksService,
+            configService,
+            addressSettings,
+            shareAccountingService as any,
+            redisMessagingService as any,
+        );
+        jest.spyOn(client as any, 'handleMessage').mockResolvedValue(undefined);
+
+        socketEmitter(Buffer.from('{"id":1}\n{"id":2}\n'));
+        await Promise.resolve();
+
+        expect((client as any).handleMessage).toHaveBeenCalledTimes(2);
+        expect(socket.destroy).not.toHaveBeenCalled();
+    });
+
     it('should clean up socket state only once when destroyed repeatedly', async () => {
         const timer = setInterval(() => undefined, 1000);
         const removeListenerSpy = jest.spyOn(socket, 'removeListener');
@@ -805,6 +858,7 @@ describe('StratumV1Client', () => {
         await new Promise((r) => setTimeout(r, 100));
 
         expect((client as any).isDuplicateSubmission('old-tip-share')).toBe(false);
+        expect((client as any).rememberSubmission('old-tip-share', '1')).toBe(true);
         const nextTip = {
             ...MockRecording1.BLOCK_TEMPLATE,
             previousblockhash: '11'.repeat(32),
@@ -817,7 +871,9 @@ describe('StratumV1Client', () => {
         expect((client as any).isDuplicateSubmission('old-tip-share')).toBe(true);
     });
 
-    it('should bound duplicate tracking and expire entries by TTL', () => {
+    it('should preserve live accepted-share dedup entries when capacity is reached', () => {
+        const getSubmissionContext = jest.spyOn(stratumV1JobsService, 'getSubmissionContext')
+            .mockReturnValue({} as any);
         (configService.get as jest.Mock).mockImplementation((key: string) => {
             if (key === 'STRATUM_SUBMISSION_DEDUP_TTL_MS') return '1000';
             if (key === 'STRATUM_SUBMISSION_DEDUP_MAX_ENTRIES') return '2';
@@ -826,13 +882,18 @@ describe('StratumV1Client', () => {
         });
 
         expect((client as any).isDuplicateSubmission('one')).toBe(false);
+        expect((client as any).rememberSubmission('one', '1')).toBe(true);
         expect((client as any).isDuplicateSubmission('two')).toBe(false);
-        expect((client as any).isDuplicateSubmission('three')).toBe(false);
-        expect([...(client as any).miningSubmissionHashes.keys()]).toEqual(['two', 'three']);
+        expect((client as any).rememberSubmission('two', '1')).toBe(true);
+        expect((client as any).rememberSubmission('three', '1')).toBe(false);
+        expect([...(client as any).miningSubmissionHashes.keys()]).toEqual(['one', 'two']);
 
         jest.advanceTimersByTime(1001);
+        expect((client as any).isDuplicateSubmission('two')).toBe(true);
+        getSubmissionContext.mockReturnValue(null);
         expect((client as any).isDuplicateSubmission('two')).toBe(false);
-        expect([...(client as any).miningSubmissionHashes.keys()]).toEqual(['two']);
+        expect((client as any).rememberSubmission('three', '1')).toBe(true);
+        expect([...(client as any).miningSubmissionHashes.keys()]).toEqual(['three']);
     });
 
     it('should hash and reject stale non-block shares without accounting them', async () => {
@@ -980,6 +1041,32 @@ describe('StratumV1Client', () => {
 
         expect((client as any).write).lastCalledWith(`{"id":5,"result":null,"error":[23,"Difficulty too low",""]}\n`);
         expect(await clientService.connectedClientCount()).toBe(1);
+        expect(shareAccountingService.recordAcceptedShare).not.toHaveBeenCalled();
+        expect((client as any).miningSubmissionHashes.size).toBe(0);
+    });
+
+    it.each([
+        { label: 'before the advertised job time', offsetSeconds: -1 },
+        { label: 'more than two hours in the future', offsetSeconds: (2 * 60 * 60) + 1 },
+    ])('rejects ntime $label before hashing or accounting', async ({ offsetSeconds }) => {
+        jest.spyOn(client as any, 'write').mockResolvedValue(true);
+        const calculateDifficultySpy = jest.spyOn(client as any, 'calculateDifficulty');
+
+        emitMessage(MockRecording1.MINING_SUBSCRIBE);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(MockRecording1.MINING_AUTHORIZE);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        const submission = JSON.parse(MockRecording1.MINING_SUBMIT);
+        const baseTime = parseInt(MockRecording1.TIME, 16);
+        submission.params[3] = (baseTime + offsetSeconds).toString(16).padStart(8, '0');
+        emitMessage(JSON.stringify(submission));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        expect((client as any).write).lastCalledWith(
+            `{"id":5,"result":null,"error":[20,"Invalid ntime",""]}\n`,
+        );
+        expect(calculateDifficultySpy).not.toHaveBeenCalled();
         expect(shareAccountingService.recordAcceptedShare).not.toHaveBeenCalled();
     });
 

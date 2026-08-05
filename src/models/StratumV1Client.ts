@@ -46,6 +46,8 @@ const DEFAULT_CLIENT_HASHRATE_PERSIST_INTERVAL_MS = 60 * 1000;
 const DEFAULT_SUBMISSION_DEDUP_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_SUBMISSION_DEDUP_MAX_ENTRIES = 10_000;
 const DEFAULT_MAX_SOCKET_BUFFER_BYTES = 256 * 1024;
+const DEFAULT_MAX_INBOUND_LINE_BYTES = 64 * 1024;
+const MAX_NTIME_FUTURE_SECONDS = 2 * 60 * 60;
 const VERSION_ROLLING_MASK = 0x1fffe000;
 
 export interface MiningJobBroadcastResult {
@@ -53,6 +55,11 @@ export interface MiningJobBroadcastResult {
     bytes: number;
     bufferedBytes: number;
     preStaged?: boolean;
+}
+
+interface SubmissionDedupEntry {
+    expiresAt: number;
+    jobId: string;
 }
 
 export class StratumV1Client {
@@ -90,8 +97,9 @@ export class StratumV1Client {
     private lastHashRatePersistedAt = 0;
     private readonly network: bitcoinjs.Network;
     private readonly maxSocketBufferBytes: number;
+    private readonly maxInboundLineBytes: number;
 
-    private miningSubmissionHashes = new Map<string, number>();
+    private miningSubmissionHashes = new Map<string, SubmissionDedupEntry>();
 
     constructor(
         public readonly socket: Socket,
@@ -115,6 +123,7 @@ export class StratumV1Client {
         this.socket.on('data', this.socketDataHandler);
         this.network = this.getNetwork();
         this.maxSocketBufferBytes = this.readMaxSocketBufferBytes();
+        this.maxInboundLineBytes = this.readMaxInboundLineBytes();
 
 
     }
@@ -150,9 +159,15 @@ export class StratumV1Client {
             return;
         }
 
-        this.buffer += data.toString();
-        const lines = this.buffer.split('\n');
-        this.buffer = lines.pop() || ''; // Save the last part of the data (incomplete line) to the buffer
+        const lines = `${this.buffer}${data.toString()}`.split('\n');
+        const incompleteLine = lines.pop() || '';
+        if (Buffer.byteLength(incompleteLine) > this.maxInboundLineBytes
+            || lines.some(line => Buffer.byteLength(line) > this.maxInboundLineBytes)) {
+            this.buffer = '';
+            this.closeSocket();
+            return;
+        }
+        this.buffer = incompleteLine;
 
         for (const m of lines.filter(l => l.length > 0)) {
             if (this.connectionClosed || this.socket.destroyed || this.socket.writableEnded) {
@@ -679,6 +694,15 @@ export class StratumV1Client {
             );
             return false;
         }
+        const maximumNtime = Math.floor(Date.now() / 1000) + MAX_NTIME_FUTURE_SECONDS;
+        if (timestamp < jobTemplate.block.timestamp || timestamp > maximumNtime) {
+            await this.writeSubmissionError(
+                submission,
+                eStratumErrorCode.OtherUnknown,
+                'Invalid ntime',
+            );
+            return false;
+        }
         // The optional BIP310 field contains replacement bits, not an XOR
         // delta. A legacy five-field submission leaves the advertised version
         // unchanged, including any bits already set inside the rolling mask.
@@ -757,6 +781,15 @@ export class StratumV1Client {
         const creditedDifficulty = isBlockCandidate && !meetsSessionTarget
             ? Math.min(this.sessionDifficulty, submissionDifficulty)
             : this.sessionDifficulty;
+        if (!this.rememberSubmission(submissionHash, job.jobId)) {
+            await this.writeSubmissionError(
+                submission,
+                eStratumErrorCode.OtherUnknown,
+                'Submission dedup capacity exceeded',
+            );
+            this.closeSocket();
+            return false;
+        }
 
         let blockSubmissionResult: string = null;
         if (status === 'stale') {
@@ -1052,33 +1085,31 @@ export class StratumV1Client {
 
     private isDuplicateSubmission(submissionHash: string): boolean {
         const now = Date.now();
-        const existingExpiry = this.miningSubmissionHashes.get(submissionHash);
-        if (existingExpiry != null && existingExpiry > now) {
-            return true;
-        }
-        if (existingExpiry != null) {
-            this.miningSubmissionHashes.delete(submissionHash);
-        }
+        this.pruneExpiredSubmissions(now);
+        return this.miningSubmissionHashes.has(submissionHash);
+    }
 
-        for (const [hash, expiresAt] of this.miningSubmissionHashes) {
-            if (expiresAt <= now) {
+    private rememberSubmission(submissionHash: string, jobId: string): boolean {
+        const now = Date.now();
+        this.pruneExpiredSubmissions(now);
+        if (this.miningSubmissionHashes.has(submissionHash)
+            || this.miningSubmissionHashes.size >= this.getSubmissionDedupMaxEntries()) {
+            return false;
+        }
+        this.miningSubmissionHashes.set(submissionHash, {
+            expiresAt: now + this.getSubmissionDedupTtlMs(),
+            jobId,
+        });
+        return true;
+    }
+
+    private pruneExpiredSubmissions(now: number): void {
+        for (const [hash, entry] of this.miningSubmissionHashes) {
+            if (entry.expiresAt <= now
+                && this.stratumV1JobsService.getSubmissionContext(entry.jobId) == null) {
                 this.miningSubmissionHashes.delete(hash);
             }
         }
-
-        this.miningSubmissionHashes.set(
-            submissionHash,
-            now + this.getSubmissionDedupTtlMs(),
-        );
-        const maxEntries = this.getSubmissionDedupMaxEntries();
-        while (this.miningSubmissionHashes.size > maxEntries) {
-            const oldestHash = this.miningSubmissionHashes.keys().next().value;
-            if (oldestHash == null) {
-                break;
-            }
-            this.miningSubmissionHashes.delete(oldestHash);
-        }
-        return false;
     }
 
     private getSubmissionDedupTtlMs(): number {
@@ -1109,6 +1140,16 @@ export class StratumV1Client {
         return Number.isSafeInteger(configured) && configured > 0
             ? configured
             : DEFAULT_MAX_SOCKET_BUFFER_BYTES;
+    }
+
+    private readMaxInboundLineBytes(): number {
+        const configured = Number(
+            this.configService.get<string>('STRATUM_MAX_INBOUND_LINE_BYTES')
+            ?? process.env.STRATUM_MAX_INBOUND_LINE_BYTES,
+        );
+        return Number.isSafeInteger(configured) && configured > 0
+            ? configured
+            : DEFAULT_MAX_INBOUND_LINE_BYTES;
     }
 
     private getValidationErrorSignature(errors: ValidationError[]): string {
