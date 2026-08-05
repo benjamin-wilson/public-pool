@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
 
 import { AcceptedShareEntity } from '../accepted-share/accepted-share.entity';
@@ -88,7 +89,10 @@ const DEFAULT_FLUSH_INTERVAL_MS = 25;
 const DEFAULT_MAX_QUEUE_SIZE = 50000;
 const DEFAULT_SUMMARY_CACHE_MS = 2500;
 const DEFAULT_SUMMARY_CACHE_MAX = 10000;
-const DEFAULT_REDIS_SUMMARY_CACHE_MS = 30000;
+const DEFAULT_REDIS_SUMMARY_CACHE_MS = 5 * 60 * 1000;
+const DEFAULT_REDIS_SUMMARY_STALE_CACHE_MS = 60 * 60 * 1000;
+const DEFAULT_REDIS_SUMMARY_LOCK_MS = 30 * 1000;
+const DEFAULT_REDIS_SUMMARY_LOCK_WAIT_MS = 5 * 1000;
 const DEFAULT_ROLLUP_INTERVAL_MS = 60000;
 const DEFAULT_ROLLUP_SAFETY_LAG_SECONDS = 10;
 const DEFAULT_ROLLUP_MAX_SHARES_PER_BATCH = 5000000;
@@ -103,6 +107,7 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
     private activeRollup: Promise<void> | null = null;
     private summaryCache = new Map<string, SummaryCacheEntry>();
     private summaryInFlight = new Map<string, Promise<ShareAccountingSummary>>();
+    private redisSummaryRefreshInFlight = new Map<string, Promise<void>>();
     private readonly poolSummaryCacheKey = 'accounting:pool-summary';
     private readonly batchSize = this.readPositiveInt('SHARE_ACCOUNTING_BATCH_SIZE', DEFAULT_BATCH_SIZE);
     private readonly flushIntervalMs = this.readPositiveInt('SHARE_ACCOUNTING_FLUSH_INTERVAL_MS', DEFAULT_FLUSH_INTERVAL_MS);
@@ -110,6 +115,12 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
     private readonly summaryCacheMs = this.readNonNegativeInt('SHARE_ACCOUNTING_SUMMARY_CACHE_MS', DEFAULT_SUMMARY_CACHE_MS);
     private readonly summaryCacheMax = this.readPositiveInt('SHARE_ACCOUNTING_SUMMARY_CACHE_MAX', DEFAULT_SUMMARY_CACHE_MAX);
     private readonly redisSummaryCacheMs = this.readNonNegativeInt('SHARE_ACCOUNTING_REDIS_SUMMARY_CACHE_MS', DEFAULT_REDIS_SUMMARY_CACHE_MS);
+    private readonly redisSummaryStaleCacheMs = Math.max(
+        this.redisSummaryCacheMs,
+        this.readPositiveInt('SHARE_ACCOUNTING_REDIS_SUMMARY_STALE_CACHE_MS', DEFAULT_REDIS_SUMMARY_STALE_CACHE_MS),
+    );
+    private readonly redisSummaryLockMs = this.readPositiveInt('SHARE_ACCOUNTING_REDIS_SUMMARY_LOCK_MS', DEFAULT_REDIS_SUMMARY_LOCK_MS);
+    private readonly redisSummaryLockWaitMs = this.readPositiveInt('SHARE_ACCOUNTING_REDIS_SUMMARY_LOCK_WAIT_MS', DEFAULT_REDIS_SUMMARY_LOCK_WAIT_MS);
     private readonly shareRollupEnabled = this.readBoolean('SHARE_ROLLUP_ENABLED', true);
     private readonly shareRollupIntervalMs = this.readPositiveInt('SHARE_ROLLUP_INTERVAL_MS', DEFAULT_ROLLUP_INTERVAL_MS);
     private readonly shareRollupSafetyLagSeconds = this.readNonNegativeInt('SHARE_ROLLUP_SAFETY_LAG_SECONDS', DEFAULT_ROLLUP_SAFETY_LAG_SECONDS);
@@ -597,25 +608,175 @@ export class ShareAccountingService implements OnModuleInit, OnModuleDestroy {
 
     private async loadCachedSummary(filter: AccountingFilter, cacheKey: string): Promise<ShareAccountingSummary> {
         const redisCacheKey = `accounting:summary:${cacheKey}`;
+        if (this.redisMessagingService == null || this.redisSummaryCacheMs <= 0) {
+            return this.loadSummary(filter);
+        }
+
+        const cached = await this.readRedisSummaryCache(redisCacheKey);
+        if (cached != null) {
+            if (Date.now() - cached.refreshedAtMs >= this.redisSummaryCacheMs) {
+                this.refreshRedisSummaryCacheInBackground(filter, redisCacheKey);
+            }
+            return cached.value;
+        }
+
+        return this.loadColdRedisSummaryCache(filter, redisCacheKey);
+    }
+
+    private async readRedisSummaryCache(redisCacheKey: string): Promise<RedisSummaryCacheEntry | null> {
         const cached = await this.redisMessagingService
-            ?.getJsonCache<ShareAccountingSummary>(redisCacheKey)
+            ?.getJsonCache<RedisSummaryCacheEntry | ShareAccountingSummary>(redisCacheKey)
             .catch(error => {
                 console.error(`Share accounting summary cache read failed: ${error.message}`);
                 return null;
             });
-        if (cached != null) {
+        if (cached == null) {
+            return null;
+        }
+
+        if (this.isRedisSummaryCacheEntry(cached)) {
             return cached;
         }
 
+        // Cache entries written by older workers have no timestamp. Their old
+        // short Redis TTL still bounds how long they can be treated as fresh.
+        return {
+            schemaVersion: 1,
+            refreshedAtMs: Date.now(),
+            value: cached,
+        };
+    }
+
+    private async loadColdRedisSummaryCache(
+        filter: AccountingFilter,
+        redisCacheKey: string,
+    ): Promise<ShareAccountingSummary> {
+        if (!this.supportsRedisSummaryLock()) {
+            const summary = await this.loadSummary(filter);
+            await this.storeRedisSummaryCache(redisCacheKey, summary);
+            return summary;
+        }
+
+        const owner = randomUUID();
+        const acquired = await this.tryAcquireRedisSummaryLock(redisCacheKey, owner);
+        if (acquired === true) {
+            return this.loadAndStoreRedisSummary(filter, redisCacheKey, owner);
+        }
+        if (acquired == null) {
+            const summary = await this.loadSummary(filter);
+            await this.storeRedisSummaryCache(redisCacheKey, summary);
+            return summary;
+        }
+
+        const deadline = Date.now() + this.redisSummaryLockWaitMs;
+        while (Date.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const cached = await this.readRedisSummaryCache(redisCacheKey);
+            if (cached != null) {
+                return cached.value;
+            }
+        }
+
+        // Redis locking is an optimization, not an availability dependency.
+        // If a lock holder died or a refresh exceeded its budget, fail open.
         const summary = await this.loadSummary(filter);
+        await this.storeRedisSummaryCache(redisCacheKey, summary);
+        return summary;
+    }
+
+    private refreshRedisSummaryCacheInBackground(filter: AccountingFilter, redisCacheKey: string): void {
+        if (this.redisSummaryRefreshInFlight.has(redisCacheKey)) {
+            return;
+        }
+
+        const refresh = this.refreshRedisSummaryCache(filter, redisCacheKey)
+            .catch(error => {
+                console.error(`Share accounting summary background refresh failed: ${error.message}`);
+            })
+            .finally(() => {
+                this.redisSummaryRefreshInFlight.delete(redisCacheKey);
+            });
+        this.redisSummaryRefreshInFlight.set(redisCacheKey, refresh);
+    }
+
+    private async refreshRedisSummaryCache(filter: AccountingFilter, redisCacheKey: string): Promise<void> {
+        if (!this.supportsRedisSummaryLock()) {
+            const summary = await this.loadSummary(filter);
+            await this.storeRedisSummaryCache(redisCacheKey, summary);
+            return;
+        }
+
+        const owner = randomUUID();
+        if (await this.tryAcquireRedisSummaryLock(redisCacheKey, owner) !== true) {
+            return;
+        }
+
+        await this.loadAndStoreRedisSummary(filter, redisCacheKey, owner);
+    }
+
+    private async loadAndStoreRedisSummary(
+        filter: AccountingFilter,
+        redisCacheKey: string,
+        owner: string,
+    ): Promise<ShareAccountingSummary> {
+        try {
+            const summary = await this.loadSummary(filter);
+            await this.storeRedisSummaryCache(redisCacheKey, summary);
+            return summary;
+        } finally {
+            if (this.supportsRedisSummaryLock()) {
+                await this.redisMessagingService
+                    .releaseJsonCacheLock(redisCacheKey, owner)
+                    .catch(error => {
+                        console.error(`Share accounting summary cache lock release failed: ${error.message}`);
+                    });
+            }
+        }
+    }
+
+    private async storeRedisSummaryCache(
+        redisCacheKey: string,
+        summary: ShareAccountingSummary,
+    ): Promise<void> {
+        const entry: RedisSummaryCacheEntry = {
+            schemaVersion: 1,
+            refreshedAtMs: Date.now(),
+            value: summary,
+        };
 
         await this.redisMessagingService
-            ?.setJsonCache(redisCacheKey, summary, this.redisSummaryCacheMs)
+            ?.setJsonCache(redisCacheKey, entry, this.redisSummaryStaleCacheMs)
             .catch(error => {
                 console.error(`Share accounting summary cache write failed: ${error.message}`);
             });
+    }
 
-        return summary;
+    private async tryAcquireRedisSummaryLock(redisCacheKey: string, owner: string): Promise<boolean | null> {
+        if (!this.supportsRedisSummaryLock()) {
+            return null;
+        }
+
+        try {
+            return await this.redisMessagingService
+                .tryAcquireJsonCacheLock(redisCacheKey, owner, this.redisSummaryLockMs);
+        } catch (error) {
+            console.error(`Share accounting summary cache lock failed: ${error.message}`);
+            return null;
+        }
+    }
+
+    private supportsRedisSummaryLock(): boolean {
+        return typeof this.redisMessagingService?.tryAcquireJsonCacheLock === 'function'
+            && typeof this.redisMessagingService?.releaseJsonCacheLock === 'function';
+    }
+
+    private isRedisSummaryCacheEntry(
+        cached: RedisSummaryCacheEntry | ShareAccountingSummary,
+    ): cached is RedisSummaryCacheEntry {
+        const candidate = cached as Partial<RedisSummaryCacheEntry>;
+        return candidate.schemaVersion === 1
+            && Number.isFinite(candidate.refreshedAtMs)
+            && candidate.value != null;
     }
 
     private async loadSummary(filter: AccountingFilter): Promise<ShareAccountingSummary> {
@@ -922,5 +1083,11 @@ interface PendingShare {
 
 interface SummaryCacheEntry {
     expiresAt: number;
+    value: ShareAccountingSummary;
+}
+
+interface RedisSummaryCacheEntry {
+    schemaVersion: 1;
+    refreshedAtMs: number;
     value: ShareAccountingSummary;
 }

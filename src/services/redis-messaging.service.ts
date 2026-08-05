@@ -32,6 +32,7 @@ const blockTemplateHeightPointerKey = (height: number, payoutMode: PayoutMode) =
 const blockTemplateLatestPointerKey = (payoutMode: PayoutMode) =>
     `${BLOCK_TEMPLATE_LATEST_KEY}:${payoutMode}`;
 const jsonCacheKey = (key: string) => `json-cache:${key}`;
+const jsonCacheLockKey = (key: string) => `json-cache-lock:${key}`;
 
 export interface BlockTemplateUpdate {
     schemaVersion: 1;
@@ -521,6 +522,41 @@ export class RedisMessagingService implements OnModuleInit, OnModuleDestroy {
             jsonCacheKey(key),
             Math.max(1, Math.ceil(ttlMs / 1000)),
             JSON.stringify(value),
+        );
+    }
+
+    public async tryAcquireJsonCacheLock(key: string, owner: string, ttlMs: number): Promise<boolean | null> {
+        if (!await this.ensureConnected()) {
+            return null;
+        }
+        if (owner.length === 0 || ttlMs <= 0) {
+            return false;
+        }
+
+        const result = await this.publisher.set(
+            jsonCacheLockKey(key),
+            owner,
+            { NX: true, PX: Math.max(1, Math.ceil(ttlMs)) },
+        );
+        return result === 'OK';
+    }
+
+    public async releaseJsonCacheLock(key: string, owner: string): Promise<void> {
+        if (!await this.ensureConnected() || owner.length === 0) {
+            return;
+        }
+
+        await this.publisher.eval(
+            `
+                if redis.call('GET', KEYS[1]) == ARGV[1] then
+                    return redis.call('DEL', KEYS[1])
+                end
+                return 0
+            `,
+            {
+                keys: [jsonCacheLockKey(key)],
+                arguments: [owner],
+            },
         );
     }
 

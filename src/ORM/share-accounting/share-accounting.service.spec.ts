@@ -365,9 +365,63 @@ describe('ShareAccountingService', () => {
         expect(repository.query).toHaveBeenCalledTimes(1);
         expect(redis.setJsonCache).toHaveBeenCalledWith(
             expect.stringContaining('accounting:summary:'),
-            expect.objectContaining({ totalAcceptedShares: 1 }),
-            30000,
+            expect.objectContaining({
+                schemaVersion: 1,
+                refreshedAtMs: expect.any(Number),
+                value: expect.objectContaining({ totalAcceptedShares: 1 }),
+            }),
+            3600000,
         );
+    });
+
+    it('serves a stale shared summary while one API worker refreshes it', async () => {
+        process.env.SHARE_ACCOUNTING_SUMMARY_CACHE_MS = '0';
+        process.env.SHARE_ACCOUNTING_REDIS_SUMMARY_CACHE_MS = '100';
+        const staleSummary = {
+            ...new ShareAccountingService({} as any).emptySummary(),
+            totalAcceptedShares: 7,
+        };
+        const repository = {
+            query: jest.fn().mockResolvedValueOnce([{
+                totalAcceptedShares: '8',
+                totalCreditedDifficulty: '256',
+                acceptedSharesLast10Minutes: '1',
+                creditedDifficultyLast10Minutes: '32',
+                acceptedSharesLastHour: '8',
+                creditedDifficultyLastHour: '256',
+                acceptedSharesLastDay: '8',
+                creditedDifficultyLastDay: '256',
+                hashRateLast10Minutes: '1',
+                hashRateLastHour: '1',
+                latestShareAt: null,
+            }]),
+        };
+        const redis = {
+            getJsonCache: jest.fn().mockResolvedValue({
+                schemaVersion: 1,
+                refreshedAtMs: Date.now() - 1000,
+                value: staleSummary,
+            }),
+            setJsonCache: jest.fn().mockResolvedValue(undefined),
+            tryAcquireJsonCacheLock: jest.fn().mockResolvedValue(true),
+            releaseJsonCacheLock: jest.fn().mockResolvedValue(undefined),
+        };
+        const service = new ShareAccountingService(repository as any, redis as any);
+
+        await expect(service.getAddressSummary('bc1qstale')).resolves.toEqual(staleSummary);
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(repository.query).toHaveBeenCalledTimes(1);
+        expect(redis.tryAcquireJsonCacheLock).toHaveBeenCalledTimes(1);
+        expect(redis.setJsonCache).toHaveBeenCalledWith(
+            expect.stringContaining('accounting:summary:'),
+            expect.objectContaining({
+                schemaVersion: 1,
+                value: expect.objectContaining({ totalAcceptedShares: 8 }),
+            }),
+            3600000,
+        );
+        expect(redis.releaseJsonCacheLock).toHaveBeenCalledTimes(1);
     });
 
     it('should refresh pool summaries from completed rollup buckets and current round rollups', async () => {

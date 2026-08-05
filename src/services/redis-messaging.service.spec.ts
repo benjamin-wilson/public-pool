@@ -120,6 +120,19 @@ describe('RedisMessagingService', () => {
         consoleSpy.mockRestore();
     });
 
+    it('uses an owner token when locking JSON cache refreshes', async () => {
+        await service.connect();
+
+        await expect(service.tryAcquireJsonCacheLock('summary', 'owner-a', 1000)).resolves.toBe(true);
+        await expect(service.tryAcquireJsonCacheLock('summary', 'owner-b', 1000)).resolves.toBe(false);
+
+        await service.releaseJsonCacheLock('summary', 'owner-b');
+        await expect(service.tryAcquireJsonCacheLock('summary', 'owner-b', 1000)).resolves.toBe(false);
+
+        await service.releaseJsonCacheLock('summary', 'owner-a');
+        await expect(service.tryAcquireJsonCacheLock('summary', 'owner-b', 1000)).resolves.toBe(true);
+    });
+
     it('stores payout variants and same-height reorg templates under distinct tip keys', async () => {
         await service.connect();
         const firstHash = '11'.repeat(32);
@@ -493,7 +506,10 @@ function createRedisClient() {
         connect: jest.fn().mockResolvedValue(undefined),
         quit: jest.fn().mockResolvedValue(undefined),
         on: jest.fn(),
-        set: jest.fn((key: string, value: string) => {
+        set: jest.fn((key: string, value: string, options?: { NX?: boolean }) => {
+            if (options?.NX && store.has(key)) {
+                return Promise.resolve(null);
+            }
             store.set(key, value);
             return Promise.resolve('OK');
         }),
@@ -511,6 +527,15 @@ function createRedisClient() {
                 deleted += sets.delete(item) ? 1 : 0;
             });
             return Promise.resolve(deleted);
+        }),
+        eval: jest.fn((_script: string, options: { keys: string[], arguments: string[] }) => {
+            const [key] = options.keys;
+            const [owner] = options.arguments;
+            if (store.get(key) !== owner) {
+                return Promise.resolve(0);
+            }
+            store.delete(key);
+            return Promise.resolve(1);
         }),
         sAdd: jest.fn((key: string, value: string) => {
             const set = sets.get(key) ?? new Set<string>();
