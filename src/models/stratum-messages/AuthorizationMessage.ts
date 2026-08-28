@@ -1,9 +1,10 @@
 import { Expose, Transform } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsNumber, IsOptional, IsPositive, IsString, Max, MaxLength } from 'class-validator';
 
 import { eRequestMethod } from '../enums/eRequestMethod';
 import { IsBitcoinAddress } from '../validators/bitcoin-address.validator';
 import { StratumBaseMessage } from './StratumBaseMessage';
+import { MAX_STRATUM_DIFFICULTY } from './SuggestDifficultyMessage';
 
 export class AuthorizationMessage extends StratumBaseMessage {
 
@@ -35,6 +36,8 @@ export class AuthorizationMessage extends StratumBaseMessage {
 
     @Expose()
     @IsNumber()
+    @IsPositive()
+    @Max(MAX_STRATUM_DIFFICULTY)
     @Transform(({ value, key, obj, type }) => {
         const password: string | null = obj.params[1];
         if (password?.includes('d=')) {

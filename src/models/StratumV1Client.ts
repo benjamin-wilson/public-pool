@@ -464,8 +464,11 @@ export class StratumV1Client {
         }
 
         this.backgroundWork.push(
-            setInterval(async () => {
-                await this.checkDifficulty();
+            setInterval(() => {
+                void this.checkDifficulty().catch((error) => {
+                    console.error('Stratum difficulty check failed; closing client connection', error);
+                    this.closeSocket();
+                });
             }, 60 * 1000)
         );
 

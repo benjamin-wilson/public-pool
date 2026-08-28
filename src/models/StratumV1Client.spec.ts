@@ -462,24 +462,47 @@ describe('StratumV1Client', () => {
         expect(socket.write).toHaveBeenCalledWith(`{"id":null,"method":"mining.set_difficulty","params":[512]}\n`, expect.any(Function));
     });
 
-    it('should clamp suggested difficulty to the configured minimum', async () => {
-        (configService.get as jest.Mock).mockImplementation((key: string) => {
-            switch (key) {
-                case 'STRATUM_MIN_DIFFICULTY':
-                    return '1';
-                case 'DEV_FEE_ADDRESS':
-                    return 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4';
-                case 'NETWORK':
-                    return 'testnet';
-            }
-            return null;
-        });
+    it('should reject suggested difficulty below the protocol minimum', async () => {
         jest.spyOn(socket, 'write').mockImplementation((data) => true);
 
         emitMessage(`{"id":4,"method":"mining.suggest_difficulty","params":[0]}`);
         await new Promise((r) => setTimeout(r, 1));
 
-        expect(socket.write).toHaveBeenCalledWith(`{"id":null,"method":"mining.set_difficulty","params":[1]}\n`, expect.any(Function));
+        expect(socket.write).toHaveBeenCalledWith(
+            expect.stringContaining('Suggest difficulty validation error'),
+            expect.any(Function),
+        );
+        expect((client as any).sessionDifficulty).toBe(100000);
+    });
+
+    it.each([12884901888, 1e303])(
+        'should reject excessive suggested difficulty %s',
+        async (suggestedDifficulty) => {
+            jest.spyOn(socket, 'write').mockImplementation((data) => true);
+
+            emitMessage(`{"id":4,"method":"mining.suggest_difficulty","params":[${suggestedDifficulty}]}`);
+            await new Promise((r) => setTimeout(r, 1));
+
+            expect(socket.write).toHaveBeenCalledWith(
+                expect.stringContaining('Suggest difficulty validation error'),
+                expect.any(Function),
+            );
+            expect((client as any).sessionDifficulty).toBe(100000);
+        },
+    );
+
+    it('should reject excessive password-provided starting difficulty', async () => {
+        jest.spyOn(socket, 'write').mockImplementation((data) => true);
+
+        emitMessage(MockRecording1.MINING_SUBSCRIBE);
+        emitMessage(`{"id":3,"method":"mining.authorize","params":["tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4.worker","d=12884901888"]}`);
+        await new Promise((r) => setTimeout(r, 1));
+
+        expect(socket.write).toHaveBeenCalledWith(
+            expect.stringContaining('Authorization validation error'),
+            expect.any(Function),
+        );
+        expect((client as any).sessionDifficulty).toBe(100000);
     });
 
     it('should set difficulty', async () => {
@@ -535,7 +558,7 @@ describe('StratumV1Client', () => {
         jest.spyOn(client as any, 'write').mockImplementation((data) => Promise.resolve(true));
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
         emitMessage(MockRecording1.MINING_SUBMIT);
@@ -563,7 +586,7 @@ describe('StratumV1Client', () => {
 
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
 
 
@@ -589,7 +612,7 @@ describe('StratumV1Client', () => {
             sessionId: MockRecording1.EXTRA_NONCE,
             jobId: '1',
             jobTemplateId: '1',
-            creditedDifficulty: 0,
+            creditedDifficulty: 1e-9,
             isBlockCandidate: false,
         }));
     });
@@ -600,7 +623,7 @@ describe('StratumV1Client', () => {
         const fullBlockSpy = jest.spyOn(MiningJob.prototype, 'copyAndUpdateBlock');
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
@@ -616,7 +639,7 @@ describe('StratumV1Client', () => {
         jest.spyOn(client as any, 'write').mockImplementation((data) => Promise.resolve(true));
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
@@ -650,7 +673,7 @@ describe('StratumV1Client', () => {
         const clientUpdateIfHigherSpy = jest.spyOn(clientService as any, 'updateBestDifficultyIfHigher').mockResolvedValue({ affected: 1 });
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
@@ -724,7 +747,7 @@ describe('StratumV1Client', () => {
         jest.spyOn(client as any, 'write').mockImplementation((data) => Promise.resolve(true));
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
@@ -746,7 +769,7 @@ describe('StratumV1Client', () => {
         });
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
@@ -765,7 +788,7 @@ describe('StratumV1Client', () => {
         jest.spyOn(client as any, 'write').mockImplementation((data) => Promise.resolve(true));
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
@@ -790,7 +813,7 @@ describe('StratumV1Client', () => {
         const calculateDifficultySpy = jest.spyOn(client as any, 'calculateDifficulty');
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
@@ -828,7 +851,7 @@ describe('StratumV1Client', () => {
         });
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
@@ -853,7 +876,7 @@ describe('StratumV1Client', () => {
         jest.spyOn(socket, 'write').mockImplementation(() => true);
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
@@ -907,7 +930,7 @@ describe('StratumV1Client', () => {
         const buildHeaderSpy = jest.spyOn(MiningJob.prototype, 'buildHeaderBuffer');
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
@@ -937,7 +960,7 @@ describe('StratumV1Client', () => {
         });
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
@@ -974,7 +997,7 @@ describe('StratumV1Client', () => {
         });
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
@@ -1000,7 +1023,7 @@ describe('StratumV1Client', () => {
         const hashSpy = jest.spyOn(MiningSubmitMessage.prototype, 'hash');
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
@@ -1017,7 +1040,7 @@ describe('StratumV1Client', () => {
         jest.spyOn(client as any, 'write').mockImplementation((data) => Promise.resolve(true));
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
         stratumV1JobsService.blocks = {};
@@ -1053,7 +1076,7 @@ describe('StratumV1Client', () => {
         const calculateDifficultySpy = jest.spyOn(client as any, 'calculateDifficulty');
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -1074,7 +1097,7 @@ describe('StratumV1Client', () => {
         jest.spyOn(client as any, 'write').mockImplementation(() => Promise.resolve(true));
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -1201,7 +1224,7 @@ describe('StratumV1Client', () => {
         jest.spyOn(addressSettings, 'resetBestDifficultyAndShares').mockResolvedValue(undefined);
 
         emitMessage(MockRecording1.MINING_SUBSCRIBE);
-        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [0]}`);
+        emitMessage(`{"id": 4, "method": "mining.suggest_difficulty", "params": [1e-9]}`);
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
