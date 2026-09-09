@@ -2,6 +2,8 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import * as fs from 'node:fs';
+import * as http from 'node:http';
+import * as https from 'node:https';
 import { BehaviorSubject, filter, shareReplay } from 'rxjs';
 import * as zmq from 'zeromq';
 
@@ -47,7 +49,9 @@ export class BitcoinRpcService implements OnModuleInit {
             auth: {
                 username: user,
                 password: pass
-            }
+            },
+            httpAgent: new http.Agent({ keepAlive: true }),
+            httpsAgent: new https.Agent({ keepAlive: true })
         });
 
         this.callRpc('getrpcinfo').then(() => {
