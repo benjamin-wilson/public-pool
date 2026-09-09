@@ -89,6 +89,7 @@ describe('MiningJob', () => {
                     networkDifficulty: 0,
                     height: 0,
                     clearJobs: false,
+                    blockWeight: block.weight()
                 }
             } as IJobTemplate;
         });
@@ -149,6 +150,7 @@ describe('MiningJob', () => {
         it('should use the POOL_IDENTIFIER if it doesn\'t make the script size too big with identifier abcabc', () => {
 
             jobTemplate.block.transactions = []; // remove transactions because we only want to test the script size
+            jobTemplate.blockData.blockWeight = jobTemplate.block.weight();
             const expectedMiningIdentifier = 'A'.repeat(84); // 84 chars fits after reserving 12 bytes for extranonce space
             configService.get = jest.fn((key: string) => {
                 switch (key) {
@@ -168,6 +170,7 @@ describe('MiningJob', () => {
         it('should remove pool identifier if script is too big with identifier', () => {
             const expectedMiningIdentifier = '';
             jobTemplate.block.transactions = []; // remove transactions because we only want to test the script size
+            jobTemplate.blockData.blockWeight = jobTemplate.block.weight();
             configService.get = jest.fn((key: string) => {
                 switch (key) {
                     case 'POOL_IDENTIFIER': return 'A'.repeat(85);
@@ -181,6 +184,15 @@ describe('MiningJob', () => {
             const miningIdentifier = extractPoolIdentifierFromScript(response.params[2]);
             expect(console.warn).toBeCalledWith('Pool identifier is too long, removing the pool identifier');
             expect(miningIdentifier).toBe(expectedMiningIdentifier);
+        });
+
+        it('should trust blockWeight from jobTemplate.blockData without calling block.weight()', () => {
+            const weightSpy = jest.spyOn(jobTemplate.block, 'weight');
+            jobTemplate.blockData.blockWeight = 12345;
+
+            new MiningJob(configService, bitcoinjs.networks.testnet, '1', payoutInformation, jobTemplate);
+
+            expect(weightSpy).not.toHaveBeenCalled();
         });
     });
 

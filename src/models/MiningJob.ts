@@ -74,7 +74,7 @@ export class MiningJob {
         this.coinbaseTransaction.addOutput(bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, jobTemplate.block.witnessCommit])]), 0);
 
         // Check if the pool identifier is too long
-        if ((this.coinbaseTransaction.weight() + jobTemplate.block.weight()) > MAX_BLOCK_WEIGHT) {
+        if ((this.coinbaseTransaction.weight() + jobTemplate.blockData.blockWeight) > MAX_BLOCK_WEIGHT) {
             console.warn('Block weight exceeds the maximum allowed weight, removing the pool identifier');
             let script = Buffer.concat([blockHeightLengthByte, blockHeightEncoded, padding]);
             this.coinbaseTransaction.ins[0].script = script;

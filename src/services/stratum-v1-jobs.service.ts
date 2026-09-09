@@ -18,6 +18,7 @@ export interface IJobTemplate {
         networkDifficulty: number;
         height: number;
         clearJobs: boolean;
+        blockWeight: number;
     };
 }
 
@@ -134,7 +135,8 @@ export class StratumV1JobsService {
                         coinbasevalue,
                         networkDifficulty,
                         height,
-                        clearJobs
+                        clearJobs,
+                        blockWeight: block.weight()
                     }
                 }
             }),
