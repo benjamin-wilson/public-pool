@@ -94,10 +94,12 @@ The docker-compose binds to `127.0.0.1` by default. To expose the Stratum servic
 +      - "3334"
 ```
 
-**note**: To successfully connect to the bitcoin RPC you will need to add
+**note**: To successfully connect to Bitcoin Core, configure your `bitcoin.conf`:
 
-```
+```ini
+# Allow RPC access from the container/host network:
 rpcallowip=172.16.0.0/12
-```
 
-to your bitcoin.conf.
+# Publish real-time block notifications via ZeroMQ (required for instant block detection):
+zmqpubhashblock=tcp://0.0.0.0:28332
+```

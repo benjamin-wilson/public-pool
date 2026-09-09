@@ -70,7 +70,7 @@ export class BitcoinRpcService implements OnModuleInit {
             });
 
             sock.connect(this.configService.get('BITCOIN_ZMQ_HOST'));
-            sock.subscribe('rawblock');
+            sock.subscribe('hashblock');
             // Don't await this, otherwise it will block the rest of the program
             this.listenForNewBlocks(sock);
             await this.pollMiningInfo();
@@ -82,7 +82,7 @@ export class BitcoinRpcService implements OnModuleInit {
 
     private async listenForNewBlocks(sock: zmq.Subscriber) {
         for await (const [topic, msg] of sock) {
-            console.log("New Block");
+            console.log(`New Block detected via ZMQ (${topic.toString()}): ${msg ? msg.toString('hex') : ''}`);
             await this.pollMiningInfo();
         }
     }
