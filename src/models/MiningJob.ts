@@ -9,6 +9,8 @@ import { TOTAL_EXTRANONCE_SIZE_BYTES } from './stratum.constants';
 
 const MAX_BLOCK_WEIGHT = 4000000;
 const MAX_SCRIPT_SIZE = 100; //   https://github.com/bitcoin/bitcoin/blob/ffdc3d6060f6e65e69cf115a13b83e6eb4a0a0a8/src/consensus/tx_check.cpp#L49
+const DEFAULT_POOL_IDENTIFIER = 'Public-Pool';
+const DEFAULT_POOL_IDENTIFIER_BUFFER = Buffer.from(DEFAULT_POOL_IDENTIFIER);
 interface AddressObject {
     address: string;
     percent: number;
@@ -22,12 +24,11 @@ export class MiningJob {
     private coinbasePart2Buffer: Buffer;
 
     public jobTemplateId: string;
-    public networkDifficulty: number;
     public creation: number;
 
     constructor(
         configService: ConfigService,
-        private network: bitcoinjs.networks.Network,
+        network: bitcoinjs.networks.Network,
         public jobId: string,
         payoutInformation: AddressObject[],
         jobTemplate: IJobTemplate
@@ -36,11 +37,13 @@ export class MiningJob {
         this.creation = new Date().getTime();
         this.jobTemplateId = jobTemplate.blockData.id;
 
-        this.coinbaseTransaction = this.createCoinbaseTransaction(payoutInformation, jobTemplate.blockData.coinbasevalue);
+        this.coinbaseTransaction = this.createCoinbaseTransaction(payoutInformation, jobTemplate.blockData.coinbasevalue, network);
 
         // Initial pool identifier
-        let poolIdentifier = configService.get('POOL_IDENTIFIER') || 'Public-Pool';
-        let extra = Buffer.from(poolIdentifier);
+        const poolIdentifier = configService.get('POOL_IDENTIFIER') || DEFAULT_POOL_IDENTIFIER;
+        const extra = poolIdentifier === DEFAULT_POOL_IDENTIFIER
+            ? DEFAULT_POOL_IDENTIFIER_BUFFER
+            : Buffer.from(poolIdentifier);
 
         // Encode the block height
         // https://github.com/bitcoin/bips/blob/master/bip-0034.mediawiki
@@ -163,7 +166,7 @@ export class MiningJob {
     }
 
 
-    private createCoinbaseTransaction(addresses: AddressObject[], reward: number): bitcoinjs.Transaction {
+    private createCoinbaseTransaction(addresses: AddressObject[], reward: number, network: bitcoinjs.networks.Network): bitcoinjs.Transaction {
         // Part 1
         const coinbaseTransaction = new bitcoinjs.Transaction();
 
@@ -179,7 +182,7 @@ export class MiningJob {
         addresses.forEach(recipientAddress => {
             const amount = Math.floor((recipientAddress.percent / 100) * reward);
             rewardBalance -= amount;
-            coinbaseTransaction.addOutput(this.getPaymentScript(recipientAddress.address), amount);
+            coinbaseTransaction.addOutput(this.getPaymentScript(recipientAddress.address, network), amount);
         })
 
         //Add any remaining sats from the Math.floor
@@ -193,23 +196,23 @@ export class MiningJob {
         return coinbaseTransaction;
     }
 
-    private getPaymentScript(address: string): Buffer {
+    private getPaymentScript(address: string, network: bitcoinjs.networks.Network): Buffer {
         const addressInfo = getAddressInfo(address);
         switch (addressInfo.type) {
             case AddressType.p2wpkh: {
-                return bitcoinjs.payments.p2wpkh({ address, network: this.network }).output;
+                return bitcoinjs.payments.p2wpkh({ address, network }).output;
             }
             case AddressType.p2pkh: {
-                return bitcoinjs.payments.p2pkh({ address, network: this.network }).output;
+                return bitcoinjs.payments.p2pkh({ address, network }).output;
             }
             case AddressType.p2sh: {
-                return bitcoinjs.payments.p2sh({ address, network: this.network }).output;
+                return bitcoinjs.payments.p2sh({ address, network }).output;
             }
             case AddressType.p2tr: {
-                return bitcoinjs.payments.p2tr({ address, network: this.network }).output;
+                return bitcoinjs.payments.p2tr({ address, network }).output;
             }
             case AddressType.p2wsh: {
-                return bitcoinjs.payments.p2wsh({ address, network: this.network }).output;
+                return bitcoinjs.payments.p2wsh({ address, network }).output;
             }
             default: {
                 return Buffer.alloc(0);
