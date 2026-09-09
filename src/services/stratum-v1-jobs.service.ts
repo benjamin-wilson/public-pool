@@ -36,6 +36,7 @@ export class StratumV1JobsService {
     // offset the interval so that all the cluster processes don't try and refresh at the same time.
     private delay = process.env.NODE_APP_INSTANCE == null ? 0 : parseInt(process.env.NODE_APP_INSTANCE) * 5000;
     private lastBlockHeight = 0;
+    private lastPrevHash: string;
     private lastWorkSignature: string;
 
     constructor(
@@ -59,11 +60,16 @@ export class StratumV1JobsService {
 
                 let clearJobs = false;
                 const currentBlockHeight = miningInfo.blocks;
+                const isNewHeight = this.lastBlockHeight === 0 || this.lastBlockHeight !== currentBlockHeight;
+                const isNewPrevHash = this.lastPrevHash != null && this.lastPrevHash !== blockTemplate.previousblockhash;
 
-                if (this.lastBlockHeight == 0 || this.lastBlockHeight != currentBlockHeight) {
+                if (isNewHeight || isNewPrevHash) {
                     clearJobs = true;
                     this.lastBlockHeight = currentBlockHeight;
-                    console.log('new block');
+                    this.lastPrevHash = blockTemplate.previousblockhash;
+                    console.log(`new block: height=${blockTemplate.height} (chain tip=${currentBlockHeight}), prevHash=${blockTemplate.previousblockhash}`);
+                } else if (this.lastPrevHash == null) {
+                    this.lastPrevHash = blockTemplate.previousblockhash;
                 }
 
                 const currentTime = Math.floor(new Date().getTime() / 1000);
