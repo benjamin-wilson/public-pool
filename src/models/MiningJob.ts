@@ -20,7 +20,6 @@ export class MiningJob {
     private coinbasePart2: string;
     private coinbasePart1Buffer: Buffer;
     private coinbasePart2Buffer: Buffer;
-    private merkleBranchBuffers: Buffer[];
 
     public jobTemplateId: string;
     public networkDifficulty: number;
@@ -36,18 +35,9 @@ export class MiningJob {
 
         this.creation = new Date().getTime();
         this.jobTemplateId = jobTemplate.blockData.id;
-        this.merkleBranchBuffers = jobTemplate.merkle_branch.map(branch => Buffer.from(branch, 'hex'));
 
         this.coinbaseTransaction = this.createCoinbaseTransaction(payoutInformation, jobTemplate.blockData.coinbasevalue);
 
-        //The commitment is recorded in a scriptPubKey of the coinbase transaction. It must be at least 38 bytes, with the first 6-byte of 0x6a24aa21a9ed, that is:
-        //     1-byte - OP_RETURN (0x6a)
-        //     1-byte - Push the following 36 bytes (0x24)
-        //     4-byte - Commitment header (0xaa21a9ed)
-        const segwitMagicBits = Buffer.from('aa21a9ed', 'hex');
-        //    32-byte - Commitment hash: Double-SHA256(witness root hash|witness reserved value)
-
-        //    39th byte onwards: Optional data with no consensus meaning
         // Initial pool identifier
         let poolIdentifier = configService.get('POOL_IDENTIFIER') || 'Public-Pool';
         let extra = Buffer.from(poolIdentifier);
@@ -71,7 +61,8 @@ export class MiningJob {
         }
 
         this.coinbaseTransaction.ins[0].script = script;
-        this.coinbaseTransaction.addOutput(bitcoinjs.script.compile([bitcoinjs.opcodes.OP_RETURN, Buffer.concat([segwitMagicBits, jobTemplate.block.witnessCommit])]), 0);
+        // Add pre-computed BIP 141 SegWit witness commitment output
+        this.coinbaseTransaction.addOutput(jobTemplate.witnessCommitScript, 0);
 
         // Check if the pool identifier is too long
         if ((this.coinbaseTransaction.weight() + jobTemplate.blockData.blockWeight) > MAX_BLOCK_WEIGHT) {
@@ -107,7 +98,7 @@ export class MiningJob {
             this.coinbasePart2Buffer,
         ]);
         const coinbaseHash = bitcoinjs.crypto.hash256(coinbaseBuffer);
-        const merkleRoot = this.calculateMerkleRootHash(coinbaseHash, this.merkleBranchBuffers);
+        const merkleRoot = this.calculateMerkleRootHash(coinbaseHash, jobTemplate.merkleBranchBuffers);
 
         let version = jobTemplate.block.version;
         if (versionMask !== undefined && versionMask != 0) {
@@ -147,7 +138,7 @@ export class MiningJob {
         testBlock.transactions[0].ins[0].script = Buffer.from(`${nonceScript.substring(0, nonceScript.length - (TOTAL_EXTRANONCE_SIZE_BYTES * 2))}${extraNonce}${extraNonce2}`, 'hex');
 
         //recompute the root since we updated the coinbase script with the nonces
-        testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].getHash(false), this.merkleBranchBuffers);
+        testBlock.merkleRoot = this.calculateMerkleRootHash(testBlock.transactions[0].getHash(false), jobTemplate.merkleBranchBuffers);
 
 
         testBlock.timestamp = timestamp;
@@ -233,33 +224,17 @@ export class MiningJob {
             method: eResponseMethod.MINING_NOTIFY,
             params: [
                 this.jobId,
-                this.swapEndianWords(jobTemplate.block.prevHash).toString('hex'),
+                jobTemplate.blockData.prevHashHex,
                 this.coinbasePart1,
                 this.coinbasePart2,
                 jobTemplate.merkle_branch,
-                jobTemplate.block.version.toString(16),
-                jobTemplate.block.bits.toString(16),
-                jobTemplate.block.timestamp.toString(16),
+                jobTemplate.blockData.versionHex,
+                jobTemplate.blockData.bitsHex,
+                jobTemplate.blockData.timestampHex,
                 jobTemplate.blockData.clearJobs
             ]
         };
 
         return JSON.stringify(job) + '\n';
     }
-
-
-    private swapEndianWords(buffer: Buffer): Buffer {
-        const swappedBuffer = Buffer.alloc(buffer.length);
-
-        for (let i = 0; i < buffer.length; i += 4) {
-            swappedBuffer[i] = buffer[i + 3];
-            swappedBuffer[i + 1] = buffer[i + 2];
-            swappedBuffer[i + 2] = buffer[i + 1];
-            swappedBuffer[i + 3] = buffer[i];
-        }
-
-        return swappedBuffer;
-    }
-
-
 }

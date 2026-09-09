@@ -677,7 +677,11 @@ export class StratumV1Client {
                 block: Object.assign(new bitcoinjs.Block(), jobTemplate.block, {
                     timestamp: nextTimestamp
                 }),
-                blockData: { ...jobTemplate.blockData, clearJobs: true }
+                blockData: {
+                    ...jobTemplate.blockData,
+                    timestampHex: nextTimestamp.toString(16),
+                    clearJobs: true
+                }
             };
             await this.sendNewMiningJob(refreshedJobTemplate);
 
