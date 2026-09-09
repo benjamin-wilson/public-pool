@@ -11,13 +11,20 @@ export interface IJobTemplate {
 
     block: bitcoinjs.Block;
     merkle_branch: string[];
+    merkleBranchBuffers: Buffer[];
+    witnessCommitScript: Buffer;
     blockData: {
-        id: string,
-        creation: number,
+        id: string;
+        creation: number;
         coinbasevalue: number;
         networkDifficulty: number;
         height: number;
         clearJobs: boolean;
+        blockWeight: number;
+        prevHashHex: string;
+        versionHex: string;
+        bitsHex: string;
+        timestampHex: string;
     };
 }
 
@@ -88,6 +95,8 @@ export class StratumV1JobsService {
                     bits: parseInt(blockTemplate.bits, 16),
                     prevHash: this.convertToLittleEndian(blockTemplate.previousblockhash),
                     transactions: blockTemplate.transactions.map(t => bitcoinjs.Transaction.fromHex(t.data)),
+                    txids: blockTemplate.transactions.map(t => t.txid),
+                    defaultWitnessCommitment: blockTemplate.default_witness_commitment,
                     coinbasevalue: blockTemplate.coinbasevalue,
                     timestamp,
                     networkDifficulty: this.calculateNetworkDifficulty(parseInt(blockTemplate.bits, 16)),
@@ -96,7 +105,7 @@ export class StratumV1JobsService {
                 };
             }),
             filter(next => next != null),
-            map(({ version, bits, prevHash, transactions, timestamp, coinbasevalue, networkDifficulty, clearJobs, height }) => {
+            map(({ version, bits, prevHash, transactions, txids, defaultWitnessCommitment, timestamp, coinbasevalue, networkDifficulty, clearJobs, height }) => {
                 const block = new bitcoinjs.Block();
 
                 //create an empty coinbase tx
@@ -106,14 +115,18 @@ export class StratumV1JobsService {
                 tempCoinbaseTx.ins[0].witness = [Buffer.alloc(32, 0)];
                 transactions.unshift(tempCoinbaseTx);
 
-                const transactionBuffers = transactions.map(tx => tx.getHash(false));
+                const transactionBuffers = [
+                    tempCoinbaseTx.getHash(false),
+                    ...txids.map(txid => Buffer.from(txid, 'hex').reverse())
+                ];
 
                 const merkleTree = merkle(transactionBuffers, bitcoinjs.crypto.hash256);
                 const merkleBranches: Buffer[] = merkleProof(merkleTree, transactionBuffers[0]).filter(h => h != null);
                 block.merkleRoot = merkleBranches.pop();
 
                 // remove the first (coinbase) and last (root) element from the branch
-                const merkle_branch = merkleBranches.slice(1, merkleBranches.length).map(b => b.toString('hex'))
+                const merkleBranchBuffers = merkleBranches.slice(1, merkleBranches.length);
+                const merkle_branch = merkleBranchBuffers.map(b => b.toString('hex'));
 
                 block.prevHash = prevHash;
                 block.version = version;
@@ -121,20 +134,42 @@ export class StratumV1JobsService {
                 block.timestamp = timestamp;
 
                 block.transactions = transactions;
-                block.witnessCommit = bitcoinjs.Block.calculateMerkleRoot(transactions, true);
+
+                // The commitment is recorded in a scriptPubKey of the coinbase transaction. It must be at least 38 bytes, with the first 6-byte of 0x6a24aa21a9ed, that is:
+                //     1-byte - OP_RETURN (0x6a)
+                //     1-byte - Push the following 36 bytes (0x24)
+                //     4-byte - Commitment header (0xaa21a9ed)
+                //    32-byte - Commitment hash: Double-SHA256(witness root hash|witness reserved value)
+                //    39th byte onwards: Optional data with no consensus meaning
+                // BIP 145: Use pre-computed witness commitment from getblocktemplate if available
+                const witnessCommitScript = defaultWitnessCommitment
+                    ? Buffer.from(defaultWitnessCommitment, 'hex')
+                    : bitcoinjs.script.compile([
+                        bitcoinjs.opcodes.OP_RETURN,
+                        Buffer.concat([Buffer.from('aa21a9ed', 'hex'), bitcoinjs.Block.calculateMerkleRoot(transactions, true)])
+                    ]);
+
+                block.witnessCommit = witnessCommitScript.subarray(6, 38);
 
                 const id = this.getNextTemplateId();
                 this.latestJobTemplateId++;
                 return {
                     block,
                     merkle_branch,
+                    merkleBranchBuffers,
+                    witnessCommitScript,
                     blockData: {
                         id,
                         creation: new Date().getTime(),
                         coinbasevalue,
                         networkDifficulty,
                         height,
-                        clearJobs
+                        clearJobs,
+                        blockWeight: block.weight(),
+                        prevHashHex: Buffer.from(block.prevHash).swap32().toString('hex'),
+                        versionHex: block.version.toString(16),
+                        bitsHex: block.bits.toString(16),
+                        timestampHex: block.timestamp.toString(16)
                     }
                 }
             }),

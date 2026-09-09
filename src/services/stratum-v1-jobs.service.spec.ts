@@ -1,3 +1,4 @@
+import * as bitcoinjs from 'bitcoinjs-lib';
 import { BehaviorSubject, firstValueFrom } from 'rxjs';
 
 import { MockRecording1 } from '../../test/models/MockRecording1';
@@ -134,5 +135,16 @@ describe('StratumV1JobsService', () => {
 
         expect(service.getNextId()).toBe('2');
         expect(service.getJobById('1')).toEqual(expect.objectContaining({ jobId: '1' }));
+    });
+
+    it('should use pre-computed txids and default_witness_commitment without redundant hashing', async () => {
+        const calculateMerkleSpy = jest.spyOn(bitcoinjs.Block, 'calculateMerkleRoot');
+        const getHashSpy = jest.spyOn(bitcoinjs.Transaction.prototype, 'getHash');
+
+        const jobTemplate = await firstValueFrom(service.newMiningJob$);
+
+        expect(calculateMerkleSpy).not.toHaveBeenCalled();
+        expect(getHashSpy).toHaveBeenCalledTimes(1);
+        expect(jobTemplate.witnessCommitScript).toEqual(Buffer.from(MockRecording1.BLOCK_TEMPLATE.default_witness_commitment, 'hex'));
     });
 });

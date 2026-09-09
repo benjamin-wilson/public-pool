@@ -79,9 +79,17 @@ describe('MiningJob', () => {
                 block.transactions.push(bitcoinjs.Transaction.fromHex("010000000001017405e391018c5e9dc79f324f9607c9c46d21b02f66dabaa870b4add871d6379f01000000171600148d7a0a3461e3891723e5fdf8129caa0075060cffffffffff01fcf60200000000001600148d7a0a3461e3891723e5fdf8129caa0075060cff0248304502210088025cffdaf69d310c6fed11832edd9c19b6a912c132262701ad0e6133227d9202207d73bbf777abd2aeae995d684e6bb1a048c5ac722e16de48bdd35643df7decf001210283409659355b6d1cc3c32decd5d561abaac86c37a353b52895a5e6c196d6f44800000000"));
             }
 
+            const segwitMagicBits = Buffer.from('aa21a9ed', 'hex');
+            const witnessCommitScript = bitcoinjs.script.compile([
+                bitcoinjs.opcodes.OP_RETURN,
+                Buffer.concat([segwitMagicBits, block.witnessCommit])
+            ]);
+
             jobTemplate = {
                 block: block,
                 merkle_branch: [],
+                merkleBranchBuffers: [],
+                witnessCommitScript,
                 blockData: {
                     id: '1',
                     creation: Date.now(),
@@ -89,8 +97,13 @@ describe('MiningJob', () => {
                     networkDifficulty: 0,
                     height: 0,
                     clearJobs: false,
+                    blockWeight: block.weight(),
+                    prevHashHex: '0000000000000000000000000000000000000000000000000000000000000000',
+                    versionHex: '20000000',
+                    bitsHex: '1d00ffff',
+                    timestampHex: '66df21a0'
                 }
-            } as IJobTemplate;
+            };
         });
 
         afterEach(() => {
@@ -149,6 +162,7 @@ describe('MiningJob', () => {
         it('should use the POOL_IDENTIFIER if it doesn\'t make the script size too big with identifier abcabc', () => {
 
             jobTemplate.block.transactions = []; // remove transactions because we only want to test the script size
+            jobTemplate.blockData.blockWeight = jobTemplate.block.weight();
             const expectedMiningIdentifier = 'A'.repeat(84); // 84 chars fits after reserving 12 bytes for extranonce space
             configService.get = jest.fn((key: string) => {
                 switch (key) {
@@ -168,6 +182,7 @@ describe('MiningJob', () => {
         it('should remove pool identifier if script is too big with identifier', () => {
             const expectedMiningIdentifier = '';
             jobTemplate.block.transactions = []; // remove transactions because we only want to test the script size
+            jobTemplate.blockData.blockWeight = jobTemplate.block.weight();
             configService.get = jest.fn((key: string) => {
                 switch (key) {
                     case 'POOL_IDENTIFIER': return 'A'.repeat(85);
@@ -181,6 +196,45 @@ describe('MiningJob', () => {
             const miningIdentifier = extractPoolIdentifierFromScript(response.params[2]);
             expect(console.warn).toBeCalledWith('Pool identifier is too long, removing the pool identifier');
             expect(miningIdentifier).toBe(expectedMiningIdentifier);
+        });
+
+        it('should trust blockWeight from jobTemplate.blockData without calling block.weight()', () => {
+            const weightSpy = jest.spyOn(jobTemplate.block, 'weight');
+            jobTemplate.blockData.blockWeight = 12345;
+
+            new MiningJob(configService, bitcoinjs.networks.testnet, '1', payoutInformation, jobTemplate);
+
+            expect(weightSpy).not.toHaveBeenCalled();
+        });
+
+        it('should reuse pre-computed merkleBranchBuffers and witnessCommitScript from jobTemplate', () => {
+            const testBranchBuffer = Buffer.from('aa'.repeat(32), 'hex');
+            jobTemplate.merkleBranchBuffers = [testBranchBuffer];
+            const testWitnessScript = Buffer.from('6a24aa21a9ed' + 'bb'.repeat(32), 'hex');
+            jobTemplate.witnessCommitScript = testWitnessScript;
+
+            const miningJob = new MiningJob(configService, bitcoinjs.networks.testnet, '1', payoutInformation, jobTemplate);
+
+            const calculateMerkleSpy = jest.spyOn(miningJob as any, 'calculateMerkleRootHash');
+            miningJob.buildHeaderBuffer(jobTemplate, 0, 1234, '00', '00', 123456);
+
+            expect(calculateMerkleSpy).toHaveBeenCalledWith(expect.any(Buffer), jobTemplate.merkleBranchBuffers);
+            expect((miningJob as any).coinbaseTransaction.outs[1].script).toEqual(testWitnessScript);
+        });
+
+        it('should reuse pre-computed hex strings in response() without recomputing', () => {
+            jobTemplate.blockData.prevHashHex = 'custom-prev-hash-hex';
+            jobTemplate.blockData.versionHex = 'custom-version-hex';
+            jobTemplate.blockData.bitsHex = 'custom-bits-hex';
+            jobTemplate.blockData.timestampHex = 'custom-time-hex';
+
+            const miningJob = new MiningJob(configService, bitcoinjs.networks.testnet, '1', payoutInformation, jobTemplate);
+            const response = JSON.parse(miningJob.response(jobTemplate));
+
+            expect(response.params[1]).toBe('custom-prev-hash-hex');
+            expect(response.params[5]).toBe('custom-version-hex');
+            expect(response.params[6]).toBe('custom-bits-hex');
+            expect(response.params[7]).toBe('custom-time-hex');
         });
     });
 
