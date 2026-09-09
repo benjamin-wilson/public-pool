@@ -70,7 +70,6 @@ export class BitcoinRpcService implements OnModuleInit {
             });
 
             sock.connect(this.configService.get('BITCOIN_ZMQ_HOST'));
-            sock.subscribe('rawblock');
             sock.subscribe('hashblock');
             // Don't await this, otherwise it will block the rest of the program
             this.listenForNewBlocks(sock);
