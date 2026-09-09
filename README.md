@@ -101,5 +101,5 @@ The docker-compose binds to `127.0.0.1` by default. To expose the Stratum servic
 rpcallowip=172.16.0.0/12
 
 # Publish real-time block notifications via ZeroMQ (required for instant block detection):
-zmqpubhashblock=tcp://0.0.0.0:28334
+zmqpubhashblock=tcp://0.0.0.0:28332
 ```
