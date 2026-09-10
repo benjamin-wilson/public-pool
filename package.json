@@ -1,10 +1,10 @@
 {
   "name": "public-pool",
   "version": "0.0.1",
-  "description": "",
+  "description": "A NestJS and TypeScript Bitcoin Stratum V1 solo mining server.",
   "author": "",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "GPL-3.0",
   "engines": {
     "node": ">=22.12.0"
   },
