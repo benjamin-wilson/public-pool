@@ -32,7 +32,30 @@ describe('StratumV1ClientStatistics', () => {
             await statistics.addShares(client, 64);
         }
 
-        expect(statistics.hashRate).toBeGreaterThan(0);
+        expect(statistics.hashRate).toBeCloseTo((64 * 4294967296) / 62);
+    });
+
+    it('keeps exactly the configured number of share samples', async () => {
+        for (let i = 0; i < 31; i++) {
+            jest.setSystemTime(new Date(Date.parse('2026-05-06T12:00:00Z') + (i * 31000)));
+            await statistics.addShares(client, 64);
+        }
+
+        expect((statistics as any).submissionCache).toHaveLength(30);
+        expect((statistics as any).submissionCacheDifficultySum).toBe(30 * 64);
+    });
+
+    it('excludes pre-window work and corrects share-terminated sampling bias', async () => {
+        for (let i = 0; i < 30; i++) {
+            jest.setSystemTime(new Date(Date.parse('2026-05-06T12:00:00Z') + (i * 31000)));
+            await statistics.addShares(client, 64);
+        }
+
+        const elapsedSeconds = 29 * 31;
+        const expectedUnbiasedDifficulty = 28 * 64;
+        expect(statistics.hashRate).toBeCloseTo(
+            (expectedUnbiasedDifficulty * 4294967296) / elapsedSeconds,
+        );
     });
 
     it('should not suggest a difficulty change before enough time or shares have passed', () => {
@@ -51,7 +74,7 @@ describe('StratumV1ClientStatistics', () => {
             await statistics.addShares(client, 64);
         }
 
-        expect(statistics.getSuggestedDifficulty(64)).toBe(2048);
+        expect(statistics.getSuggestedDifficulty(64)).toBe(1024);
     });
 
     it('does not retarget when accepted shares have a zero-duration sample window', async () => {
@@ -76,7 +99,7 @@ describe('StratumV1ClientStatistics', () => {
             await statistics.addShares(client, 64);
         }
 
-        expect(statistics.getSuggestedDifficulty(128)).toBe(16);
+        expect(statistics.getSuggestedDifficulty(128)).toBe(8);
     });
 
     it('should not suggest a difficulty below the configured minimum', () => {
