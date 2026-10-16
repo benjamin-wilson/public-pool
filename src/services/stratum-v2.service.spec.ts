@@ -208,6 +208,44 @@ describe('StratumV2Service canonical job broadcaster', () => {
     expect((service as any).clients.has(client)).toBe(false);
   });
 
+  it('issues SV2 Noise certificates that are valid for 20 years by default', async () => {
+    const now = 1_800_000_000;
+    jest.spyOn(Date, 'now').mockReturnValue(now * 1000);
+    const { service } = createService({
+      SV2_AUTHORITY_PRIVKEY: '01'.repeat(32),
+    });
+
+    await service.ensureInitialized();
+
+    expect(service.getNoiseConfig().certificateMessage).toEqual(expect.objectContaining({
+      validFrom: now - 3600,
+      notValidAfter: now + (20 * 365 * 24 * 60 * 60),
+    }));
+  });
+
+  it('honors a configured SV2 Noise certificate lifetime', async () => {
+    const now = 1_800_000_000;
+    jest.spyOn(Date, 'now').mockReturnValue(now * 1000);
+    const { service } = createService({
+      SV2_AUTHORITY_PRIVKEY: '01'.repeat(32),
+      SV2_CERT_VALIDITY_SECONDS: '86400',
+    });
+
+    await service.ensureInitialized();
+
+    expect(service.getNoiseConfig().certificateMessage.notValidAfter).toBe(now + 86400);
+  });
+
+  it('rejects an invalid SV2 Noise certificate lifetime', async () => {
+    const { service } = createService({
+      SV2_AUTHORITY_PRIVKEY: '01'.repeat(32),
+      SV2_CERT_VALIDITY_SECONDS: '0',
+    });
+
+    await expect(service.ensureInitialized())
+      .rejects.toThrow('SV2_CERT_VALIDITY_SECONDS must be a positive integer');
+  });
+
   it('allocates one collision-free prefix space across channel types, workers, and reloads', () => {
     const allocateBothChannelTypes = (service: StratumV2Service): Buffer[] => {
       const standardChannelId = service.getNextChannelId();
@@ -265,7 +303,7 @@ describe('StratumV2Service canonical job broadcaster', () => {
   });
 });
 
-function createService(): {
+function createService(configValues: Record<string, string> = {}): {
   service: StratumV2Service;
   templates: Subject<IJobTemplate>;
   subscribeSpy: jest.Mock;
@@ -283,7 +321,7 @@ function createService(): {
     getLatestJobTemplate: jest.fn().mockReturnValue(null),
   };
   const configService = {
-    get: jest.fn((key: string) => (key === 'NETWORK' ? 'testnet' : null)),
+    get: jest.fn((key: string) => configValues[key] ?? (key === 'NETWORK' ? 'testnet' : null)),
   };
   const clientService = {
     delete: jest.fn().mockResolvedValue(undefined),

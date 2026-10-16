@@ -37,6 +37,8 @@ import { parsePayoutModePorts, PayoutMode } from '../types/payout-mode';
 
 const DEFAULT_SOCKET_TIMEOUT_MS = 1000 * 60 * 60;
 const DEFAULT_TCP_KEEPALIVE_INITIAL_DELAY_MS = 1000 * 60;
+const DEFAULT_CERTIFICATE_VALIDITY_SECONDS = 20 * 365 * 24 * 60 * 60;
+const MAX_UINT32 = 0xffffffff;
 
 @Injectable()
 export class StratumV2Service implements OnModuleInit, OnModuleDestroy {
@@ -353,15 +355,32 @@ export class StratumV2Service implements OnModuleInit, OnModuleDestroy {
 
         this.serverKeypair = await generateServerKeypair();
         const now = Math.floor(Date.now() / 1000);
+        const certificateValiditySeconds = this.getCertificateValiditySeconds(now);
         this.noiseConfig = {
             staticKeypair: this.serverKeypair,
             certificateMessage: createSignatureNoiseMessage(
                 this.authorityPrivKey,
                 xOnlyPubKeyFromPriv(this.serverKeypair.privateKey),
-                now - 3600,
-                now + 86400,
+                Math.max(0, now - 3600),
+                now + certificateValiditySeconds,
             ),
         };
+    }
+
+    private getCertificateValiditySeconds(now: number): number {
+        const configuredValue = this.configService.get<string>('SV2_CERT_VALIDITY_SECONDS');
+        const validitySeconds = configuredValue == null || configuredValue.trim() === ''
+            ? DEFAULT_CERTIFICATE_VALIDITY_SECONDS
+            : Number(configuredValue);
+
+        if (!Number.isSafeInteger(validitySeconds) || validitySeconds <= 0) {
+            throw new Error('SV2_CERT_VALIDITY_SECONDS must be a positive integer');
+        }
+        if (validitySeconds > MAX_UINT32 - now) {
+            throw new Error('SV2_CERT_VALIDITY_SECONDS exceeds the SV2 U32 timestamp range');
+        }
+
+        return validitySeconds;
     }
 
     private getPorts(): { port: number; payoutMode: PayoutMode }[] {
