@@ -37,4 +37,13 @@ WORKDIR /public-pool
 COPY --from=build /build .
 #COPY .env.example .env
 
+# Run as the non-root `node` user (uid/gid 1000) built into the node base
+# image. The app's only writable state is the SQLite directory (./DB,
+# created relative to the workdir); pre-create it owned by node so fresh
+# named volumes are writable out of the box (Docker copies image contents
+# into empty named volumes) and host bind mounts can be chowned to
+# 1000:1000. No port below 1024 is bound, so no capabilities are needed.
+RUN mkdir -p /public-pool/DB && chown node:node /public-pool/DB
+USER node
+
 CMD ["/usr/local/bin/node", "dist/main"]
