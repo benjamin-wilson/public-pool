@@ -73,6 +73,37 @@ Run container:
 $ docker container run --name public-pool --rm -p 3333:3333 -p 3334:3334 -p 8332:8332 -v .env:/public-pool/.env public-pool
 ```
 
+The container runs as the non-root `node` user (uid/gid 1000). Empty named
+volumes need no preparation — Docker copies the image's pre-created,
+node-owned `/public-pool/DB` into them. If you bind-mount the SQLite
+directory instead (e.g. the `./${NETWORK}-DB` pattern in
+`docker-compose.yml`), make it writable by that user before first start:
+
+```bash
+$ chown 1000:1000 ./mainnet-DB
+```
+
+A bind-mounted `.env` must likewise be readable by uid 1000.
+
+Upgrading an installation that previously ran as root: existing volumes
+contain root-owned SQLite files that the `node` user cannot open.
+Check whether a named volume needs migration:
+
+```bash
+$ docker run --rm -v <pool-db-volume>:/db --entrypoint ls alpine -la /db
+```
+
+If the files are not owned by uid 1000, migrate them once, before
+starting the updated image, with a throwaway helper container:
+
+```bash
+$ docker run --rm -v <pool-db-volume>:/db --entrypoint chown alpine -R 1000:1000 /db
+```
+
+(or run `chown -R 1000:1000` on the bind-mounted directory on the host).
+This is a one-time manual step — nothing runs `chown` automatically at
+container startup.
+
 ### Docker Compose
 
 Build container:
