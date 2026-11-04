@@ -9,6 +9,7 @@ import * as ecc from 'tiny-secp256k1';
 
 import { ApiModule } from './api.module';
 import { AppModule } from './app.module';
+import { resolveApiTlsMinVersion } from './utils/api-tls.utils';
 
 const DEFAULT_API_CONNECTION_TIMEOUT_MS = 15_000;
 const DEFAULT_API_KEEP_ALIVE_TIMEOUT_MS = 5_000;
@@ -47,6 +48,7 @@ async function bootstrap() {
     options.https = {
       key: readFileSync(keyPath),
       cert: readFileSync(certPath),
+      minVersion: resolveApiTlsMinVersion(process.env.API_TLS_MIN_VERSION),
     };
   }
 
