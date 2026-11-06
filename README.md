@@ -37,6 +37,12 @@ $ npm run test:cov
 
 See [public-pool-ui](https://github.com/benjamin-wilson/public-pool-ui)
 
+## Community projects
+
+Projects others have built around Public Pool. They aren't made or supported by this project.
+
+- [Public Pool Android](https://play.google.com/store/apps/details?id=com.codeskraps.publicpool) ([source](https://git.codeskraps.com/codeskraps/PublicPoolAndroid)): an unofficial Android app that shows your best difficulty, hash rate, workers and wallet balance from public-pool.io or your own Public Pool server.
+
 ## Deployment
 
 Install pm2 (https://pm2.keymetrics.io/)
