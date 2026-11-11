@@ -328,6 +328,46 @@ describe('ShareAccountingService', () => {
         );
     });
 
+    it('should keep aggregated accepted-share counts above the PostgreSQL int limit', async () => {
+        const repository = {
+            query: jest.fn()
+                .mockResolvedValueOnce([{
+                    totalAcceptedShares: '2147483648',
+                    totalCreditedDifficulty: '384',
+                    acceptedSharesLast10Minutes: '4',
+                    creditedDifficultyLast10Minutes: '128',
+                    acceptedSharesLastHour: '10',
+                    creditedDifficultyLastHour: '320',
+                    acceptedSharesLastDay: '12',
+                    creditedDifficultyLastDay: '384',
+                    hashRateLast10Minutes: '916259689.8',
+                    hashRateLastHour: '381774870.2',
+                    latestShareAt: new Date('2026-06-07T12:30:00Z'),
+                }])
+                .mockResolvedValueOnce([{
+                    bestSubmissionDifficulty: '4096',
+                    bestSubmissionDifficultyAt: new Date('2026-06-07T12:20:00Z'),
+                    currentRoundAcceptedShares: '2147483648',
+                    workSinceLastBlock: '352',
+                    currentRoundNetworkDifficulty: '1000',
+                }])
+                .mockResolvedValueOnce([]),
+        };
+        const service = new ShareAccountingService(repository as any);
+
+        await expect(service.refreshPoolSummary('solo')).resolves.toEqual(expect.objectContaining({
+            totalAcceptedShares: 2147483648,
+            currentRoundAcceptedShares: 2147483648,
+        }));
+
+        const poolSummarySql = repository.query.mock.calls[0][0];
+        const currentRoundSql = repository.query.mock.calls[1][0];
+        expect(poolSummarySql).toContain('::bigint AS "totalAcceptedShares"');
+        expect(poolSummarySql).not.toContain('::int AS "totalAcceptedShares"');
+        expect(currentRoundSql).toContain('::bigint AS "currentRoundAcceptedShares"');
+        expect(currentRoundSql).not.toContain('::int AS "currentRoundAcceptedShares"');
+    });
+
     it('should use Redis cache for share accounting summaries across API workers', async () => {
         process.env.SHARE_ACCOUNTING_SUMMARY_CACHE_MS = '0';
         const repository = {
