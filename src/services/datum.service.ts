@@ -111,6 +111,7 @@ export class DatumService implements OnModuleInit {
             userAgent: 'datum/unknown',
             pingTimer: null,
             datumJobs: new Map(),
+            acceptedSubmissionHeaders: new Set(),
             coinbaserPayoutContexts: new Map(),
             nextCoinbaserId: 1,
             statistics: new StratumV1ClientStatistics(this.getConfiguredDatumShareDifficulty()),
@@ -256,14 +257,25 @@ export class DatumService implements OnModuleInit {
         state.workerName = workerName;
         await this.ensureClientEntity(state);
 
+        const cachedJob = state.datumJobs.get(pow.jobId);
+        if (pow.targetByteIndex != null
+            && cachedJob?.targetByteIndex != null
+            && pow.targetByteIndex !== cachedJob.targetByteIndex) {
+            await this.sendShareResponse(socket, state, DatumShareResponseStatus.REJECTED, DatumRejectReason.BAD_TARGET, pow.nonce, pow.targetByte, pow.jobId);
+            return;
+        }
         const datumJob = this.updateDatumJobCache(state, pow);
+        const normalizedPow: DatumPowSubmit = {
+            ...pow,
+            targetByteIndex: pow.targetByteIndex ?? cachedJob?.targetByteIndex ?? datumJob.targetByteIndex,
+        };
         await this.maybeRequestDatumJobValidation(socket, state, pow.jobId, datumJob);
         const coinbase = this.getDatumCoinbase(datumJob, pow);
         if (coinbase == null || datumJob.prevBlockHash == null || datumJob.nBits == null || datumJob.merkleBranches == null) {
             await this.sendShareResponse(socket, state, DatumShareResponseStatus.REJECTED, DatumRejectReason.COINBASE_MISSING, pow.nonce, pow.targetByte, pow.jobId);
             return;
         }
-        if (datumJob.targetByteIndex == null) {
+        if (normalizedPow.targetByteIndex == null) {
             await this.sendShareResponse(socket, state, DatumShareResponseStatus.REJECTED, DatumRejectReason.BAD_TARGET, pow.nonce, pow.targetByte, pow.jobId);
             return;
         }
@@ -296,7 +308,7 @@ export class DatumService implements OnModuleInit {
             await this.sendShareResponse(socket, state, DatumShareResponseStatus.REJECTED, DatumRejectReason.OTHER, pow.nonce, pow.targetByte, pow.jobId);
             return;
         }
-        const payoutValidation = this.validateDatumCoinbasePayoutContext(coinbase, pow, latestTemplate, datumJob, state);
+        const payoutValidation = this.validateDatumCoinbasePayoutContext(coinbase, normalizedPow, latestTemplate, datumJob, state);
         if (!payoutValidation.validation.valid) {
             this.logDatumCoinbaseMismatchOnce(state, payoutValidation.validation);
             await this.sendShareResponse(socket, state, DatumShareResponseStatus.REJECTED, DatumRejectReason.BAD_COINBASER_ID, pow.nonce, pow.targetByte, pow.jobId);
@@ -312,8 +324,8 @@ export class DatumService implements OnModuleInit {
         const validation = this.customWorkService.validateShare({
             coinbasePrefix: coinbase.coinb1,
             coinbaseSuffix: coinbase.coinb2,
-            coinbaseTargetByteIndex: datumJob.targetByteIndex,
-            coinbaseTargetByte: pow.targetByte,
+            coinbaseTargetByteIndex: normalizedPow.targetByteIndex,
+            coinbaseTargetByte: normalizedPow.targetByte,
             merklePath: datumJob.merkleBranches,
             extranoncePrefix: Buffer.alloc(0),
             extranonce: pow.extranonce,
@@ -330,6 +342,20 @@ export class DatumService implements OnModuleInit {
             await this.sendShareResponse(socket, state, DatumShareResponseStatus.REJECTED, DatumRejectReason.HIGH_HASH, pow.nonce, pow.targetByte, pow.jobId);
             return;
         }
+
+        const acceptedHeaderKey = validation.header.toString('hex');
+        if (state.acceptedSubmissionHeaders.has(acceptedHeaderKey)) {
+            await this.sendShareResponse(socket, state, DatumShareResponseStatus.REJECTED, DatumRejectReason.DUPLICATE_WORK, pow.nonce, pow.targetByte, pow.jobId);
+            return;
+        }
+        const maxAcceptedHeaders = this.readPositiveInteger('DATUM_MAX_ACCEPTED_HEADER_HASHES', 100_000);
+        if (state.acceptedSubmissionHeaders.size >= maxAcceptedHeaders) {
+            await this.sendShareResponse(socket, state, DatumShareResponseStatus.REJECTED, DatumRejectReason.OTHER, pow.nonce, pow.targetByte, pow.jobId);
+            socket.destroy();
+            return;
+        }
+        datumJob.targetByteIndex = normalizedPow.targetByteIndex;
+        state.acceptedSubmissionHeaders.add(acceptedHeaderKey);
 
         const isBlockCandidate = validation.isBlockCandidate || pow.isBlock;
         const blockSubmissionResult = validation.isBlockCandidate ? 'datum-gateway-submit-expected' : null;
@@ -413,9 +439,6 @@ export class DatumService implements OnModuleInit {
 
         if (pow.prevBlockHash != null) {
             cache.prevBlockHash = pow.prevBlockHash;
-        }
-        if (pow.targetByteIndex != null) {
-            cache.targetByteIndex = pow.targetByteIndex;
         }
         if (pow.nBits != null) {
             cache.nBits = pow.nBits;
@@ -590,7 +613,12 @@ export class DatumService implements OnModuleInit {
         ]);
         coinbaseTx = Buffer.from(coinbaseTx);
         if (pow.targetByteIndex != null) {
-            if (pow.targetByteIndex < 0 || pow.targetByteIndex >= coinbaseTx.length) {
+            if (!Number.isInteger(pow.targetByteIndex)
+                || pow.targetByteIndex < 0
+                || pow.targetByteIndex >= coinbaseTx.length
+                || !Number.isInteger(pow.targetByte)
+                || pow.targetByte < 0
+                || pow.targetByte > 0xff) {
                 return { valid: false, expectedOutputs, submittedOutputs: [], error: 'target-byte-out-of-range' };
             }
             coinbaseTx[pow.targetByteIndex] = pow.targetByte & 0xff;
@@ -902,6 +930,11 @@ export class DatumService implements OnModuleInit {
         return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_DATUM_SHARE_DIFFICULTY;
     }
 
+    private readPositiveInteger(key: string, fallback: number): number {
+        const configured = Number(this.configService.get<string>(key));
+        return Number.isSafeInteger(configured) && configured > 0 ? configured : fallback;
+    }
+
     private logVerbose(message: string): void {
         if (process.env.DATUM_VERBOSE_LOGGING?.toLowerCase() === 'true') {
             console.log(message);
@@ -985,6 +1018,7 @@ interface DatumClientState {
     userAgent: string;
     pingTimer: NodeJS.Timeout | null;
     datumJobs: Map<number, DatumJobCache>;
+    acceptedSubmissionHeaders: Set<string>;
     coinbaserPayoutContexts: Map<number, DatumCoinbaserPayoutContext>;
     nextCoinbaserId: number;
     statistics: StratumV1ClientStatistics;

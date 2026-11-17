@@ -22,6 +22,7 @@ import {
     EMPTY_WITNESS_COMMITMENT_HASH,
 } from '../services/subsidy-only-template.factory';
 import { Sv2JobDeclarationRegistryService } from '../services/sv2-job-declaration-registry.service';
+import { TemplateProviderService } from '../services/template-provider.service';
 import { patchCoinbasePrefixVarint } from '../utils/coinbase-prefix.utils';
 import { DifficultyUtils } from '../utils/difficulty.utils';
 import { hash256 } from '../utils/hash.utils';
@@ -78,6 +79,7 @@ const DEFAULT_DIFFICULTY_CHECK_INTERVAL_MS = 60 * 1000;
 const DEFAULT_CLIENT_HASHRATE_PERSIST_INTERVAL_MS = 60 * 1000;
 const FIXED_STANDARD_EXTRANONCE2 = '0000000000000000';
 const DEFAULT_SV2_JOB_RETENTION_MS = 5 * 60 * 1000;
+const DEFAULT_MAX_ACCEPTED_HEADER_HASHES = 100_000;
 const DEFAULT_SV2_MAX_RETAINED_JOBS_PER_CHANNEL = 64;
 const DEFAULT_SV2_MAX_QUEUED_JOB_OPERATIONS = 4;
 const DEFAULT_SV2_MAX_SOCKET_BUFFER_BYTES = 256 * 1024;
@@ -153,13 +155,13 @@ interface ChannelState {
     latestExtendedPrevHash: Buffer;
     latestExtendedNBits: number;
     latestExtendedMinNtime: number;
-    miningSubmissionHashes: Set<string>;
     acceptedShareCount: number;
     readyForCanonicalJobs: boolean;
     lastCanonicalJobSignature?: string;
     stagedFutureJobId?: number;
     activeTipKey?: string;
     activatedFutureTipKey?: string;
+    customJobSignatures: Set<string>;
     activePrevHashMinNtime?: number;
     activePrevHashAtMonotonicNs?: bigint;
     activePrevHashJobId?: number;
@@ -205,6 +207,7 @@ export class StratumV2Client {
     private workSelectionEnabled = false;
     private versionRollingEnabled = false;
     private lastHashRatePersistedAt = 0;
+    private readonly acceptedHeaderHashes = new Set<string>();
 
     constructor(
         private readonly socket: Socket,
@@ -223,6 +226,7 @@ export class StratumV2Client {
         private readonly redisMessagingService?: RedisMessagingService,
         private readonly payoutSnapshotService?: PayoutSnapshotService,
         private readonly payoutMode: PayoutMode = 'solo',
+        private readonly templateProvider?: TemplateProviderService,
     ) {
         this.firstChunkSummary = this.describeChunk(firstChunk);
         this.noiseSession = new Sv2NoiseSession(this.stratumV2Service.getNoiseConfig());
@@ -486,9 +490,9 @@ export class StratumV2Client {
             latestExtendedPrevHash: Buffer.alloc(32),
             latestExtendedNBits: 0,
             latestExtendedMinNtime: 0,
-            miningSubmissionHashes: new Set(),
             acceptedShareCount: 0,
             readyForCanonicalJobs: false,
+            customJobSignatures: new Set(),
         };
         this.channels.set(channelId, channel);
         if (this.primaryChannelId == null) {
@@ -599,9 +603,9 @@ export class StratumV2Client {
             latestExtendedPrevHash: Buffer.alloc(32),
             latestExtendedNBits: 0,
             latestExtendedMinNtime: 0,
-            miningSubmissionHashes: new Set(),
             acceptedShareCount: 0,
             readyForCanonicalJobs: false,
+            customJobSignatures: new Set(),
         };
         this.channels.set(channelId, channel);
         if (this.primaryChannelId == null) {
@@ -653,21 +657,6 @@ export class StratumV2Client {
             return;
         }
 
-        const submissionKey = [
-            submission.jobId,
-            submission.nonce,
-            submission.ntime,
-            submission.version,
-        ].join(':');
-        if (channel.miningSubmissionHashes.has(submissionKey)) {
-            await this.sendShareError(submission.channelId, submission.sequenceNumber, 'stale-share');
-            return;
-        }
-        channel.miningSubmissionHashes.add(submissionKey);
-        if (channel.miningSubmissionHashes.size > 10000) {
-            channel.miningSubmissionHashes.clear();
-        }
-
         const standardJob = channel.standardJobs.get(submission.jobId);
         if (standardJob == null) {
             await this.sendShareError(submission.channelId, submission.sequenceNumber, 'invalid-job-id');
@@ -691,6 +680,10 @@ export class StratumV2Client {
             submission.nonce,
         );
         const { submissionDifficulty, hashBuffer } = DifficultyUtils.calculateDifficulty(header);
+        if (this.hasAcceptedHeader(hashBuffer)) {
+            await this.sendShareError(submission.channelId, submission.sequenceNumber, 'stale-share');
+            return;
+        }
         const jobDifficulty = channel.jobIdToDifficulty.get(submission.jobId) ?? channel.sessionDifficulty;
         const target = DifficultyUtils.difficultyToTarget(jobDifficulty);
         const isBlockCandidate = DifficultyUtils.meetsCompactTarget(hashBuffer, headerContext.nBits);
@@ -722,6 +715,9 @@ export class StratumV2Client {
                 submissionDifficulty,
                 meetsJobTarget,
             );
+            if (!this.rememberAcceptedHeader(hashBuffer)) {
+                return;
+            }
             await this.sendShareSuccess(
                 submission.channelId,
                 submission.sequenceNumber,
@@ -758,24 +754,27 @@ export class StratumV2Client {
             meetsJobTarget,
         );
 
-        await this.sendShareSuccess(
-            submission.channelId,
-            submission.sequenceNumber,
-            creditedDifficulty,
-        );
-
+        let blockSubmissionResult: string | null = null;
+        if (isBlockCandidate) {
+            const candidate = this.reconstructStandardBlock({
+                jobTemplate: standardJob.jobTemplate,
+                miningJob: standardJob.miningJob,
+                headerContext,
+            }, submission, channel.extranoncePrefix);
+            blockSubmissionResult = await this.submitBlockCandidate(standardJob.jobTemplate, candidate);
+        }
+        if (!this.rememberAcceptedHeader(hashBuffer)) {
+            return;
+        }
+        await this.sendShareSuccess(submission.channelId, submission.sequenceNumber, creditedDifficulty);
         channel.acceptedShareCount++;
-        await this.handleAcceptedShare(
-            submission,
-            channel,
-            standardJob.miningJob,
-            standardJob.jobTemplate,
-            submissionDifficulty,
-            creditedDifficulty,
-            hashBuffer,
-            headerContext,
-            isBlockCandidate,
-        );
+        await this.recordAcceptedShare(submissionDifficulty, creditedDifficulty, standardJob.jobTemplate, null, {
+            jobId: standardJob.miningJob.jobId,
+            nonce: submission.nonce,
+            ntime: submission.ntime,
+            version: submission.version,
+            extraNonce2: FIXED_STANDARD_EXTRANONCE2,
+        }, { blockCandidateResult: blockSubmissionResult, isBlockCandidate });
     }
 
     private async handleSubmitSharesExtended(payload: Buffer): Promise<void> {
@@ -784,22 +783,6 @@ export class StratumV2Client {
         if (channel == null || channel.channelType !== 'extended') {
             await this.sendShareError(submission.channelId, submission.sequenceNumber, 'invalid-channel-id');
             return;
-        }
-
-        const submissionKey = [
-            submission.jobId,
-            submission.nonce,
-            submission.ntime,
-            submission.version,
-            submission.extranonce.toString('hex'),
-        ].join(':');
-        if (channel.miningSubmissionHashes.has(submissionKey)) {
-            await this.sendShareError(submission.channelId, submission.sequenceNumber, 'stale-share');
-            return;
-        }
-        channel.miningSubmissionHashes.add(submissionKey);
-        if (channel.miningSubmissionHashes.size > 10000) {
-            channel.miningSubmissionHashes.clear();
         }
 
         const extendedJob = channel.extendedJobs.get(submission.jobId);
@@ -843,9 +826,11 @@ export class StratumV2Client {
             submission.nonce,
         );
         const { submissionDifficulty, hashBuffer } = DifficultyUtils.calculateDifficulty(header);
-        const isStale = extendedJob.retiredAt != null
-            || (extendedJob.workProtocol !== 'sv2_jdp'
-                && extendedJob.headerContext.tipKey !== channel.activeTipKey);
+        if (this.hasAcceptedHeader(hashBuffer)) {
+            await this.sendShareError(submission.channelId, submission.sequenceNumber, 'stale-share');
+            return;
+        }
+        const isStale = this.isExtendedJobStale(extendedJob, channel);
         if (isStale) {
             const isBlockCandidate = extendedJob.workProtocol !== 'sv2_jdp'
                 && DifficultyUtils.meetsCompactTarget(hashBuffer, extendedJob.headerContext.nBits);
@@ -868,6 +853,10 @@ export class StratumV2Client {
             );
             if (!this.isSuccessfulBlockSubmission(blockSubmissionResult)) {
                 await this.sendShareError(submission.channelId, submission.sequenceNumber, 'stale-share');
+                return;
+            }
+
+            if (!this.rememberAcceptedHeader(hashBuffer)) {
                 return;
             }
 
@@ -923,6 +912,22 @@ export class StratumV2Client {
             meetsJobTarget,
         );
 
+        let blockSubmissionResult: string | null = null;
+        if (isBlockCandidate && extendedJob.workProtocol !== 'sv2_jdp') {
+            const candidate = this.reconstructExtendedBlock(
+                extendedJob,
+                submission,
+                merkleRoot,
+                channel.extranoncePrefix,
+            );
+            blockSubmissionResult = await this.submitBlockCandidate(extendedJob.jobTemplate, candidate);
+        } else if (isBlockCandidate) {
+            blockSubmissionResult = 'sv2-jdp-client-submit-expected';
+        }
+        if (!this.rememberAcceptedHeader(hashBuffer)) {
+            return;
+        }
+
         await this.sendShareSuccess(
             submission.channelId,
             submission.sequenceNumber,
@@ -930,16 +935,7 @@ export class StratumV2Client {
         );
 
         channel.acceptedShareCount++;
-        let updatedJobBlock: bitcoinjs.Block = null;
-        let blockCandidateResult: string | null = null;
-        if (isBlockCandidate) {
-            if (extendedJob.workProtocol === 'sv2_jdp') {
-                blockCandidateResult = 'sv2-jdp-client-submit-expected';
-            } else {
-                updatedJobBlock = this.reconstructExtendedBlock(extendedJob, submission, merkleRoot, channel.extranoncePrefix);
-            }
-        }
-        await this.recordAcceptedShare(submissionDifficulty, creditedDifficulty, extendedJob.jobTemplate, updatedJobBlock, {
+        await this.recordAcceptedShare(submissionDifficulty, creditedDifficulty, extendedJob.jobTemplate, null, {
             jobId: submission.jobId.toString(16),
             nonce: submission.nonce,
             ntime: submission.ntime,
@@ -947,7 +943,8 @@ export class StratumV2Client {
             extraNonce2: submission.extranonce.toString('hex'),
         }, {
             workProtocol: extendedJob.workProtocol ?? 'pool',
-            blockCandidateResult,
+            blockCandidateResult: blockSubmissionResult,
+            isBlockCandidate,
         });
     }
 
@@ -1011,6 +1008,22 @@ export class StratumV2Client {
             return;
         }
 
+        const declaredTemplate = declaredJob.template;
+        if (declaredTemplate == null
+            || !msg.prevHash.equals(declaredTemplate.prevHash)
+            || msg.nBits !== declaredTemplate.nBits
+            || msg.minNtime < declaredTemplate.minNtime) {
+            await this.sendFrame(
+                Sv2MsgType.SET_CUSTOM_MINING_JOB_ERROR,
+                serializeSetCustomMiningJobError({
+                    channelId: msg.channelId,
+                    requestId: msg.requestId,
+                    errorCode: 'declared-job-mismatch',
+                }),
+            );
+            return;
+        }
+
         const latestTemplate = this.stratumV2Service.getLatestCanonicalJob(this.payoutMode);
         if (latestTemplate == null) {
             await this.sendFrame(
@@ -1019,6 +1032,53 @@ export class StratumV2Client {
                     channelId: msg.channelId,
                     requestId: msg.requestId,
                     errorCode: 'template-not-found',
+                }),
+            );
+            return;
+        }
+        if (!msg.prevHash.equals(latestTemplate.block.prevHash)
+            || msg.nBits !== latestTemplate.block.bits
+            || msg.minNtime < declaredTemplate.minNtime
+            || msg.minNtime > Math.floor(Date.now() / 1000) + 2 * 60 * 60) {
+            await this.sendFrame(
+                Sv2MsgType.SET_CUSTOM_MINING_JOB_ERROR,
+                serializeSetCustomMiningJobError({
+                    channelId: msg.channelId,
+                    requestId: msg.requestId,
+                    errorCode: 'stale-template',
+                }),
+            );
+            return;
+        }
+        let expectedMerklePath: Buffer[];
+        try {
+            if (this.templateProvider == null) {
+                throw new Error('template-validation-unavailable');
+            }
+            expectedMerklePath = this.templateProvider.buildDeclaredCoinbaseMerklePath({
+                template: declaredTemplate,
+                job: declaredJob.job,
+                providedTransactions: declaredJob.providedTransactions,
+            });
+        } catch {
+            await this.sendFrame(
+                Sv2MsgType.SET_CUSTOM_MINING_JOB_ERROR,
+                serializeSetCustomMiningJobError({
+                    channelId: msg.channelId,
+                    requestId: msg.requestId,
+                    errorCode: 'declared-job-mismatch',
+                }),
+            );
+            return;
+        }
+        if (msg.merklePath.length !== expectedMerklePath.length
+            || msg.merklePath.some((branch, index) => !branch.equals(expectedMerklePath[index]))) {
+            await this.sendFrame(
+                Sv2MsgType.SET_CUSTOM_MINING_JOB_ERROR,
+                serializeSetCustomMiningJobError({
+                    channelId: msg.channelId,
+                    requestId: msg.requestId,
+                    errorCode: 'declared-job-mismatch',
                 }),
             );
             return;
@@ -1040,12 +1100,28 @@ export class StratumV2Client {
             msg,
             channel.extranoncePrefix.length + channel.extranonceSize,
         );
+        const customCoinbase = Buffer.concat([
+            split.coinbasePrefix,
+            Buffer.alloc(channel.extranoncePrefix.length + channel.extranonceSize),
+            split.coinbaseSuffix,
+        ]);
+        const heightValidation = this.templateProvider?.validateCoinbaseTransactionHeight(
+            customCoinbase,
+            latestTemplate.blockData.height,
+        ) ?? { valid: false, errorCode: 'template-validation-unavailable' };
+        if (!heightValidation.valid) {
+            await this.sendFrame(
+                Sv2MsgType.SET_CUSTOM_MINING_JOB_ERROR,
+                serializeSetCustomMiningJobError({
+                    channelId: msg.channelId,
+                    requestId: msg.requestId,
+                    errorCode: heightValidation.errorCode,
+                }),
+            );
+            return;
+        }
         const payoutValidation = this.validateCoinbasePayoutOutputs(
-            Buffer.concat([
-                split.coinbasePrefix,
-                Buffer.alloc(channel.extranoncePrefix.length + channel.extranonceSize),
-                split.coinbaseSuffix,
-            ]),
+            customCoinbase,
             latestTemplate,
             payoutInformation,
         );
@@ -1060,6 +1136,41 @@ export class StratumV2Client {
             );
             return;
         }
+        const customJobSignature = crypto.createHash('sha256').update(JSON.stringify([
+            msg.version,
+            msg.prevHash.toString('hex'),
+            msg.minNtime,
+            msg.nBits,
+            msg.coinbaseTxVersion,
+            msg.coinbasePrefix.toString('hex'),
+            msg.coinbaseTxInputNSequence,
+            msg.coinbaseTxOutputs.toString('hex'),
+            msg.coinbaseTxLocktime,
+            msg.merklePath.map(branch => branch.toString('hex')),
+        ])).digest('hex');
+        if (channel.customJobSignatures.has(customJobSignature)) {
+            await this.sendFrame(
+                Sv2MsgType.SET_CUSTOM_MINING_JOB_ERROR,
+                serializeSetCustomMiningJobError({
+                    channelId: msg.channelId,
+                    requestId: msg.requestId,
+                    errorCode: 'duplicate-custom-mining-job',
+                }),
+            );
+            return;
+        }
+        if (!this.jobDeclarationRegistry.claimCustomWorkToken(msg.token)) {
+            await this.sendFrame(
+                Sv2MsgType.SET_CUSTOM_MINING_JOB_ERROR,
+                serializeSetCustomMiningJobError({
+                    channelId: msg.channelId,
+                    requestId: msg.requestId,
+                    errorCode: 'invalid-mining-job-token',
+                }),
+            );
+            return;
+        }
+        channel.customJobSignatures.add(customJobSignature);
         const placeholderJob = new MiningJob(
             this.network,
             jobIdHex,
@@ -1088,7 +1199,7 @@ export class StratumV2Client {
             expectedHeight: latestTemplate.blockData.height,
             expectedVersion: msg.version,
             headerContext: {
-                tipKey: `sv2-jdp:${msg.prevHash.toString('hex')}`,
+                tipKey: latestTemplate.blockData.tipKey,
                 prevHash: Buffer.from(msg.prevHash),
                 nBits: msg.nBits,
                 minNtime: msg.minNtime,
@@ -1640,6 +1751,7 @@ export class StratumV2Client {
     }
 
     private retireChannelJobs(channel: ChannelState, keepJobId?: number): void {
+        channel.customJobSignatures.clear();
         const now = Date.now();
         channel.standardJobs.forEach((job, jobId) => {
             if (jobId !== keepJobId && job.retiredAt == null) {
@@ -2428,8 +2540,43 @@ export class StratumV2Client {
         if (difficulty == null || !Number.isFinite(difficulty)) {
             return null;
         }
-        const configuredMinimum = this.getConfiguredMinimumDifficulty();
-        return configuredMinimum == null ? difficulty : Math.max(difficulty, configuredMinimum);
+        return Math.max(difficulty, this.getMinimumDifficulty());
+    }
+
+    private hasAcceptedHeader(hash: Buffer): boolean {
+        return this.acceptedHeaderHashes.has(hash.toString('hex'));
+    }
+
+    private rememberAcceptedHeader(hash: Buffer): boolean {
+        const key = hash.toString('hex');
+        if (this.acceptedHeaderHashes.has(key)) {
+            return false;
+        }
+        const limit = this.getPositiveIntegerConfig(
+            'SV2_MAX_ACCEPTED_HEADER_HASHES',
+            DEFAULT_MAX_ACCEPTED_HEADER_HASHES,
+        );
+        if (this.acceptedHeaderHashes.size >= limit) {
+            console.warn(`[SV2 ${this.sessionId}] accepted-share dedup capacity reached; closing client`);
+            this.closeSocket();
+            return false;
+        }
+        this.acceptedHeaderHashes.add(key);
+        return true;
+    }
+
+    private isExtendedJobStale(job: ExtendedJobData, channel: ChannelState): boolean {
+        if (job.retiredAt != null) {
+            return true;
+        }
+        if (job.workProtocol !== 'sv2_jdp') {
+            return job.headerContext.tipKey !== channel.activeTipKey;
+        }
+        const latest = this.stratumV2Service.getLatestCanonicalJob(this.payoutMode);
+        return latest == null
+            || latest.blockData.tipKey !== job.headerContext.tipKey
+            || !latest.block.prevHash.equals(job.headerContext.prevHash)
+            || latest.block.bits !== job.headerContext.nBits;
     }
 
     private disableApplicationIdleTimeout(): void {

@@ -43,8 +43,7 @@ const BLOCKED_USER_AGENT_LOG_INTERVAL_MS = 60 * 1000;
 const VALIDATION_ERROR_LOG_INTERVAL_MS = 60 * 1000;
 const DEFAULT_MIN_DIFFICULTY = 0.001;
 const DEFAULT_CLIENT_HASHRATE_PERSIST_INTERVAL_MS = 60 * 1000;
-const DEFAULT_SUBMISSION_DEDUP_TTL_MS = 5 * 60 * 1000;
-const DEFAULT_SUBMISSION_DEDUP_MAX_ENTRIES = 10_000;
+const DEFAULT_SUBMISSION_DEDUP_MAX_ENTRIES = 100_000;
 const DEFAULT_MAX_SOCKET_BUFFER_BYTES = 256 * 1024;
 const DEFAULT_MAX_INBOUND_LINE_BYTES = 64 * 1024;
 const MAX_NTIME_FUTURE_SECONDS = 2 * 60 * 60;
@@ -58,7 +57,6 @@ export interface MiningJobBroadcastResult {
 }
 
 interface SubmissionDedupEntry {
-    expiresAt: number;
     jobId: string;
 }
 
@@ -437,8 +435,6 @@ export class StratumV1Client {
     }
 
     private async initStratum() {
-        this.socket.setTimeout(0);
-
         if (this.isBlockedUserAgent(this.clientSubscription.userAgent)) {
             this.logBlockedUserAgent(this.clientSubscription.userAgent);
             this.closeSocket();
@@ -727,25 +723,6 @@ export class StratumV1Client {
             return false;
         }
 
-        const submissionHash = [
-            job.jobId,
-            submission.extraNonce2.toLowerCase(),
-            timestamp.toString(16).padStart(8, '0'),
-            nonce.toString(16).padStart(8, '0'),
-            submittedVersion.toString(16).padStart(8, '0'),
-        ].join(':');
-        if (this.isDuplicateSubmission(submissionHash)) {
-            const err = new StratumErrorMessage(
-                submission.id,
-                eStratumErrorCode.DuplicateShare,
-                'Duplicate share').response();
-            const success = await this.write(err);
-            if (!success) {
-                return false;
-            }
-            return false;
-        }
-
         const header = job.buildHeaderBuffer(
             jobTemplate,
             effectiveVersionBits,
@@ -756,6 +733,15 @@ export class StratumV1Client {
             VERSION_ROLLING_MASK,
         );
         const { submissionDifficulty, hashBuffer } = this.calculateDifficulty(header);
+        const submissionHash = hashBuffer.toString('hex');
+        if (this.isDuplicateSubmission(submissionHash)) {
+            await this.writeSubmissionError(
+                submission,
+                eStratumErrorCode.DuplicateShare,
+                'Duplicate share',
+            );
+            return false;
+        }
 
         //console.log(`DIFF: ${submissionDifficulty} of ${this.sessionDifficulty} from ${this.clientAuthorization.worker + '.' + this.extraNonceAndSessionId}`);
 
@@ -815,11 +801,6 @@ export class StratumV1Client {
         }
 
         {
-            const success = await this.write(JSON.stringify(submission.response()) + '\n');
-            if (!success) {
-                return false;
-            }
-
             if (status === 'current' && isBlockCandidate) {
                 blockSubmissionResult = await this.submitBlockCandidate(
                     job,
@@ -829,6 +810,10 @@ export class StratumV1Client {
                     nonce,
                     timestamp,
                 );
+            }
+            const success = await this.write(JSON.stringify(submission.response()) + '\n');
+            if (!success) {
+                return false;
             }
             await this.ensureClientEntity();
             try {
@@ -1087,42 +1072,18 @@ export class StratumV1Client {
     }
 
     private isDuplicateSubmission(submissionHash: string): boolean {
-        const now = Date.now();
-        this.pruneExpiredSubmissions(now);
         return this.miningSubmissionHashes.has(submissionHash);
     }
 
     private rememberSubmission(submissionHash: string, jobId: string): boolean {
-        const now = Date.now();
-        this.pruneExpiredSubmissions(now);
         if (this.miningSubmissionHashes.has(submissionHash)
             || this.miningSubmissionHashes.size >= this.getSubmissionDedupMaxEntries()) {
             return false;
         }
         this.miningSubmissionHashes.set(submissionHash, {
-            expiresAt: now + this.getSubmissionDedupTtlMs(),
             jobId,
         });
         return true;
-    }
-
-    private pruneExpiredSubmissions(now: number): void {
-        for (const [hash, entry] of this.miningSubmissionHashes) {
-            if (entry.expiresAt <= now
-                && this.stratumV1JobsService.getSubmissionContext(entry.jobId) == null) {
-                this.miningSubmissionHashes.delete(hash);
-            }
-        }
-    }
-
-    private getSubmissionDedupTtlMs(): number {
-        const configured = Number(
-            this.configService.get<string>('STRATUM_SUBMISSION_DEDUP_TTL_MS')
-            ?? process.env.STRATUM_SUBMISSION_DEDUP_TTL_MS,
-        );
-        return Number.isInteger(configured) && configured > 0
-            ? configured
-            : DEFAULT_SUBMISSION_DEDUP_TTL_MS;
     }
 
     private getSubmissionDedupMaxEntries(): number {
@@ -1183,8 +1144,7 @@ export class StratumV1Client {
         if (difficulty == null || !Number.isFinite(difficulty)) {
             return null;
         }
-        const configuredMinimum = this.getConfiguredMinimumDifficulty();
-        return configuredMinimum == null ? difficulty : Math.max(difficulty, configuredMinimum);
+        return Math.max(difficulty, this.getMinimumDifficulty());
     }
 
     private getMinimumDifficulty(): number {

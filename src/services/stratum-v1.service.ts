@@ -39,6 +39,7 @@ const DEFAULT_BACKPRESSURE_RSS_MB = 2500;
 const DEFAULT_BACKPRESSURE_RESUME_RSS_MB = 2000;
 const DEFAULT_BACKPRESSURE_HEALTHY_CHECKS = 3;
 const DEFAULT_MAX_CONNECTIONS_PER_LISTENER = 10000;
+const DEFAULT_MAX_CONNECTIONS_PER_IP = 100;
 const DEFAULT_TLS_HANDSHAKE_TIMEOUT_MS = 10000;
 const DEFAULT_SOCKET_TIMEOUT_MS = 1000 * 60 * 60;
 const DEFAULT_TCP_KEEPALIVE_INITIAL_DELAY_MS = 1000 * 60;
@@ -55,6 +56,7 @@ export class StratumV1Service implements OnModuleInit, OnModuleDestroy {
     private normalClosure = 0;
     private errorClosure = 0;
     private readonly listeners: StratumListenerState[] = [];
+    private readonly activeConnectionsByIp = new Map<string, number>();
     private readonly eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
     private backpressureMonitor: NodeJS.Timeout | null = null;
     private healthyBackpressureChecks = 0;
@@ -173,6 +175,11 @@ export class StratumV1Service implements OnModuleInit, OnModuleDestroy {
 
     private createSocketServer(payoutMode: PayoutMode): Server {
         const server = new Server(async (socket: Socket) => {
+            const sourceIp = this.reserveConnectionForIp(socket);
+            if (sourceIp == null) {
+                socket.destroy();
+                return;
+            }
             socket.setTimeout(this.getSocketTimeoutMs());
             socket.setKeepAlive(true, this.getTcpKeepAliveInitialDelayMs());
             socket.setNoDelay(true);
@@ -208,6 +215,7 @@ export class StratumV1Service implements OnModuleInit, OnModuleDestroy {
                         }
                     }
                 } finally {
+                    this.releaseConnectionForIp(sourceIp);
                     socket.removeAllListeners('close');
                     socket.removeAllListeners('timeout');
                     socket.removeAllListeners('error');
@@ -320,6 +328,11 @@ export class StratumV1Service implements OnModuleInit, OnModuleDestroy {
         };
 
         const server = createServer(tlsOptions, async (socket: TLSSocket) => {
+            const sourceIp = this.reserveConnectionForIp(socket);
+            if (sourceIp == null) {
+                socket.destroy();
+                return;
+            }
             socket.setTimeout(this.getSocketTimeoutMs());
             socket.setKeepAlive(true, this.getTcpKeepAliveInitialDelayMs());
             socket.setNoDelay(true);
@@ -345,6 +358,7 @@ export class StratumV1Service implements OnModuleInit, OnModuleDestroy {
                         }
                     }
                 } finally {
+                    this.releaseConnectionForIp(sourceIp);
                     socket.removeAllListeners('close');
                     socket.removeAllListeners('timeout');
                     socket.removeAllListeners('error');
@@ -727,6 +741,31 @@ export class StratumV1Service implements OnModuleInit, OnModuleDestroy {
 
     private getMaxConnectionsPerListener() {
         return this.getPositiveIntegerEnv('STRATUM_MAX_CONNECTIONS_PER_LISTENER', DEFAULT_MAX_CONNECTIONS_PER_LISTENER);
+    }
+
+    private reserveConnectionForIp(socket: Socket): string | null {
+        const remoteAddress = socket.remoteAddress;
+        if (remoteAddress == null) {
+            return null;
+        }
+        const sourceIp = remoteAddress.startsWith('::ffff:')
+            ? remoteAddress.slice('::ffff:'.length)
+            : remoteAddress;
+        const active = this.activeConnectionsByIp.get(sourceIp) ?? 0;
+        if (active >= this.getPositiveIntegerEnv('STRATUM_MAX_CONNECTIONS_PER_IP', DEFAULT_MAX_CONNECTIONS_PER_IP)) {
+            return null;
+        }
+        this.activeConnectionsByIp.set(sourceIp, active + 1);
+        return sourceIp;
+    }
+
+    private releaseConnectionForIp(sourceIp: string): void {
+        const active = this.activeConnectionsByIp.get(sourceIp) ?? 0;
+        if (active <= 1) {
+            this.activeConnectionsByIp.delete(sourceIp);
+        } else {
+            this.activeConnectionsByIp.set(sourceIp, active - 1);
+        }
     }
 
     private getTlsHandshakeTimeoutMs() {

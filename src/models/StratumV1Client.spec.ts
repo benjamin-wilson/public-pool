@@ -92,6 +92,8 @@ describe('StratumV1Client', () => {
                         return 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4';
                     case 'NETWORK':
                         return 'testnet';
+                    case 'STRATUM_MIN_DIFFICULTY':
+                        return '1e-9';
                 }
                 return null;
             })
@@ -262,7 +264,7 @@ describe('StratumV1Client', () => {
 
     });
 
-    it('should disable application idle timeout after Stratum initialization', async () => {
+    it('should retain the configured idle timeout after Stratum initialization', async () => {
         const setTimeoutSpy = jest.spyOn(socket, 'setTimeout').mockImplementation(() => socket);
         jest.spyOn(client as any, 'write').mockImplementation(() => Promise.resolve(true));
 
@@ -270,7 +272,7 @@ describe('StratumV1Client', () => {
         emitMessage(MockRecording1.MINING_AUTHORIZE);
         await new Promise((r) => setTimeout(r, 100));
 
-        expect(setTimeoutSpy).toHaveBeenCalledWith(0);
+        expect(setTimeoutSpy).not.toHaveBeenCalledWith(0);
     });
 
     it('disconnects a buffered client before building another mining job', async () => {
@@ -759,6 +761,37 @@ describe('StratumV1Client', () => {
         expect((client as any).write).lastCalledWith(`{"id":5,"result":null,"error":[22,"Duplicate share",""]}\n`);
     });
 
+    it('rejects a replay under another job id when the reconstructed header is identical', async () => {
+        jest.spyOn(client as any, 'write').mockImplementation(() => Promise.resolve(true));
+        emitMessage(MockRecording1.MINING_SUBSCRIBE);
+        emitMessage(`{"id":4,"method":"mining.suggest_difficulty","params":[1e-9]}`);
+        emitMessage(MockRecording1.MINING_AUTHORIZE);
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const original = JSON.parse(MockRecording1.MINING_SUBMIT);
+        emitMessage(JSON.stringify(original));
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const currentTemplate = stratumV1JobsService.getLatestJobTemplate('solo');
+        const nextTimestamp = currentTemplate.block.timestamp + 1;
+        const refreshedTemplate = {
+            ...currentTemplate,
+            block: Object.assign(new bitcoinjs.Block(), currentTemplate.block, { timestamp: nextTimestamp }),
+            blockData: { ...currentTemplate.blockData, clearJobs: true },
+        };
+        client.broadcastMiningJob(refreshedTemplate, true);
+        const replacement = stratumV1JobsService.getJobById('2');
+        expect(replacement).toBeDefined();
+
+        const replay = JSON.parse(MockRecording1.MINING_SUBMIT);
+        replay.params[1] = replacement.jobId;
+        emitMessage(JSON.stringify(replay));
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        expect(shareAccountingService.recordAcceptedShare).toHaveBeenCalledTimes(1);
+        expect((client as any).write).lastCalledWith(`{"id":5,"result":null,"error":[22,"Duplicate share",""]}\n`);
+    });
+
     it('should accept a five-field submission without clearing advertised version bits', async () => {
         jest.spyOn(client as any, 'write').mockImplementation((data) => Promise.resolve(true));
         const baseVersion = (MockRecording1.BLOCK_TEMPLATE.version | 0x00002000) | 0;
@@ -898,7 +931,6 @@ describe('StratumV1Client', () => {
         const getSubmissionContext = jest.spyOn(stratumV1JobsService, 'getSubmissionContext')
             .mockReturnValue({} as any);
         (configService.get as jest.Mock).mockImplementation((key: string) => {
-            if (key === 'STRATUM_SUBMISSION_DEDUP_TTL_MS') return '1000';
             if (key === 'STRATUM_SUBMISSION_DEDUP_MAX_ENTRIES') return '2';
             if (key === 'NETWORK') return 'testnet';
             return null;
@@ -914,9 +946,9 @@ describe('StratumV1Client', () => {
         jest.advanceTimersByTime(1001);
         expect((client as any).isDuplicateSubmission('two')).toBe(true);
         getSubmissionContext.mockReturnValue(null);
-        expect((client as any).isDuplicateSubmission('two')).toBe(false);
-        expect((client as any).rememberSubmission('three', '1')).toBe(true);
-        expect([...(client as any).miningSubmissionHashes.keys()]).toEqual(['three']);
+        expect((client as any).isDuplicateSubmission('two')).toBe(true);
+        expect((client as any).rememberSubmission('three', '1')).toBe(false);
+        expect([...(client as any).miningSubmissionHashes.keys()]).toEqual(['one', 'two']);
     });
 
     it('should hash and reject stale non-block shares without accounting them', async () => {

@@ -9,6 +9,7 @@ describe('StratumV1Service', () => {
     const originalSecureStratumPorts = process.env.SECURE_STRATUM_PORTS;
     const originalBackpressureEnabled = process.env.STRATUM_BACKPRESSURE_ENABLED;
     const originalMaxConnectionsPerListener = process.env.STRATUM_MAX_CONNECTIONS_PER_LISTENER;
+    const originalMaxConnectionsPerIp = process.env.STRATUM_MAX_CONNECTIONS_PER_IP;
     const originalTlsHandshakeTimeoutMs = process.env.STRATUM_TLS_HANDSHAKE_TIMEOUT_MS;
     const originalSocketTimeoutMs = process.env.STRATUM_SOCKET_TIMEOUT_MS;
     const originalTcpKeepAliveInitialDelayMs = process.env.STRATUM_TCP_KEEPALIVE_INITIAL_DELAY_MS;
@@ -68,6 +69,7 @@ describe('StratumV1Service', () => {
         restoreEnv('SECURE_STRATUM_PORTS', originalSecureStratumPorts);
         restoreEnv('STRATUM_BACKPRESSURE_ENABLED', originalBackpressureEnabled);
         restoreEnv('STRATUM_MAX_CONNECTIONS_PER_LISTENER', originalMaxConnectionsPerListener);
+        restoreEnv('STRATUM_MAX_CONNECTIONS_PER_IP', originalMaxConnectionsPerIp);
         restoreEnv('STRATUM_TLS_HANDSHAKE_TIMEOUT_MS', originalTlsHandshakeTimeoutMs);
         restoreEnv('STRATUM_SOCKET_TIMEOUT_MS', originalSocketTimeoutMs);
         restoreEnv('STRATUM_TCP_KEEPALIVE_INITIAL_DELAY_MS', originalTcpKeepAliveInitialDelayMs);
@@ -375,6 +377,19 @@ describe('StratumV1Service', () => {
         delete process.env.STRATUM_MAX_CONNECTIONS_PER_LISTENER;
 
         expect((service as any).getMaxConnectionsPerListener()).toBe(10000);
+    });
+
+    it('caps connections per source IP and releases the slot on cleanup', () => {
+        process.env.STRATUM_MAX_CONNECTIONS_PER_IP = '1';
+        const firstSocket = { remoteAddress: '::ffff:192.0.2.10' } as any;
+        const secondSocket = { remoteAddress: '192.0.2.10' } as any;
+
+        const firstIp = (service as any).reserveConnectionForIp(firstSocket);
+        expect(firstIp).toBe('192.0.2.10');
+        expect((service as any).reserveConnectionForIp(secondSocket)).toBeNull();
+
+        (service as any).releaseConnectionForIp(firstIp);
+        expect((service as any).reserveConnectionForIp(secondSocket)).toBe('192.0.2.10');
     });
 
     it('should use an explicit TLS handshake timeout', () => {

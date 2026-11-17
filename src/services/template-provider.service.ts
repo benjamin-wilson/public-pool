@@ -445,6 +445,22 @@ export class TemplateProviderService implements OnModuleInit {
         return path;
     }
 
+    public buildDeclaredCoinbaseMerklePath(input: {
+        template: TemplateProviderTemplate;
+        job: Sv2DeclareMiningJob;
+        providedTransactions: Buffer[];
+    }): Buffer[] {
+        const transactionMap = this.buildDeclaredTransactionMap(input.template, input.providedTransactions);
+        const transactions = input.job.wtxidList.map(wtxid => {
+            const transaction = this.lookupDeclaredTransaction(transactionMap, wtxid);
+            if (transaction == null) {
+                throw new Error('declared-transaction-not-found');
+            }
+            return transaction;
+        });
+        return this.buildCoinbaseMerklePath(transactions);
+    }
+
     public validateDatumTemplateFastPath(input: DatumTemplateValidationInput): TemplateFastPathValidationResult {
         const template = this.getLatestTemplate();
         if (template == null) {

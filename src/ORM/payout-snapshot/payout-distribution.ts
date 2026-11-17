@@ -373,12 +373,13 @@ function mergeFeeEntry(
     feeEntry: PayoutDistributionEntry,
     minerEntries: Omit<PayoutDistributionEntry, 'rank'>[],
 ): Omit<PayoutDistributionEntry, 'rank'>[] {
-    const existing = minerEntries.find(entry => entry.address === feeEntry.address && entry.includedInCoinbase);
+    const existing = minerEntries.find(entry => entry.address === feeEntry.address);
     if (existing == null) {
         return [feeEntry, ...minerEntries];
     }
     existing.payoutSats += feeEntry.payoutSats;
     existing.grossPayoutSats += feeEntry.grossPayoutSats;
+    existing.includedInCoinbase = true;
     return minerEntries;
 }
 

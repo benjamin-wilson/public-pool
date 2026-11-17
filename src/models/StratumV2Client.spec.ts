@@ -53,6 +53,7 @@ describe('StratumV2Client extended channels', () => {
         consoleLogSpy.mockRestore();
         consoleWarnSpy.mockRestore();
         consoleErrorSpy.mockRestore();
+        jest.restoreAllMocks();
         jest.useRealTimers();
     });
 
@@ -374,7 +375,7 @@ describe('StratumV2Client extended channels', () => {
             requestId: 99,
             token: Buffer.from('aa', 'hex'),
             version: MockRecording1.BLOCK_TEMPLATE.version,
-            prevHash: Buffer.alloc(32, 1),
+            prevHash: Buffer.from(MockRecording1.BLOCK_TEMPLATE.previousblockhash, 'hex').reverse(),
             minNtime: parseInt(MockRecording1.TIME, 16),
             nBits: parseInt(MockRecording1.BLOCK_TEMPLATE.bits, 16),
             coinbaseTxVersion: 2,
@@ -465,7 +466,7 @@ describe('StratumV2Client extended channels', () => {
             requestId: 101,
             token: Buffer.from('aa', 'hex'),
             version: MockRecording1.BLOCK_TEMPLATE.version,
-            prevHash: Buffer.alloc(32, 1),
+            prevHash: Buffer.from(MockRecording1.BLOCK_TEMPLATE.previousblockhash, 'hex').reverse(),
             minNtime: parseInt(MockRecording1.TIME, 16),
             nBits: parseInt(MockRecording1.BLOCK_TEMPLATE.bits, 16),
             coinbaseTxVersion: 2,
@@ -512,7 +513,7 @@ describe('StratumV2Client extended channels', () => {
             requestId: 100,
             token: Buffer.from('aa', 'hex'),
             version: MockRecording1.BLOCK_TEMPLATE.version,
-            prevHash: Buffer.alloc(32, 1),
+            prevHash: Buffer.from(MockRecording1.BLOCK_TEMPLATE.previousblockhash, 'hex').reverse(),
             minNtime: parseInt(MockRecording1.TIME, 16),
             nBits: parseInt(MockRecording1.BLOCK_TEMPLATE.bits, 16),
             coinbaseTxVersion: 2,
@@ -549,7 +550,7 @@ describe('StratumV2Client extended channels', () => {
             requestId: 100,
             token: Buffer.from('aa', 'hex'),
             version: MockRecording1.BLOCK_TEMPLATE.version,
-            prevHash: Buffer.alloc(32, 1),
+            prevHash: Buffer.from(MockRecording1.BLOCK_TEMPLATE.previousblockhash, 'hex').reverse(),
             minNtime: parseInt(MockRecording1.TIME, 16),
             nBits: parseInt(MockRecording1.BLOCK_TEMPLATE.bits, 16),
             coinbaseTxVersion: 2,
@@ -1590,6 +1591,8 @@ describe('StratumV2Client extended channels', () => {
                             return 'testnet';
                         case 'SV2_START_DIFFICULTY':
                             return '1';
+                        case 'STRATUM_MIN_DIFFICULTY':
+                            return '1e-9';
                         default:
                             return null;
                     }
@@ -1601,13 +1604,27 @@ describe('StratumV2Client extended channels', () => {
                 hasKnownToken: jest.fn().mockReturnValue(true),
                 getDeclaredJob: jest.fn().mockReturnValue({
                     validationMode: 'full_template',
-                    job: { version: MockRecording1.BLOCK_TEMPLATE.version },
+                    job: { version: MockRecording1.BLOCK_TEMPLATE.version, wtxidList: [] },
+                    template: {
+                        prevHash: Buffer.from(MockRecording1.BLOCK_TEMPLATE.previousblockhash, 'hex').reverse(),
+                        nBits: parseInt(MockRecording1.BLOCK_TEMPLATE.bits, 16),
+                        minNtime: MockRecording1.BLOCK_TEMPLATE.mintime,
+                        height: MockRecording1.BLOCK_TEMPLATE.height,
+                        transactions: [],
+                        transactionList: [],
+                    },
+                    providedTransactions: [],
                 }),
+                claimCustomWorkToken: jest.fn().mockReturnValue(true),
             } as any,
             shareAccountingService as any,
             redisMessagingService as any,
             undefined,
             payoutMode,
+            {
+                buildDeclaredCoinbaseMerklePath: jest.fn().mockReturnValue([]),
+                validateCoinbaseTransactionHeight: jest.fn().mockReturnValue({ valid: true }),
+            } as any,
         );
         (client as any).sendFrame = jest.fn((msgType: number, payload: Buffer, extensionType = 0) => {
             sentFrames.push({ msgType, payload, extensionType });

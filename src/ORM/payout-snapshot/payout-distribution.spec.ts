@@ -138,4 +138,27 @@ describe('buildPayoutDistribution', () => {
             payoutSats: 98000,
         }));
     });
+
+    it('merges the fee into an excluded miner row for the same address', () => {
+        const result = buildPayoutDistribution({
+            addressWork: [
+                { address: ADDRESS_A, creditedDifficulty: 99, acceptedShareCount: 99 },
+                { address: ADDRESS_C, creditedDifficulty: 1, acceptedShareCount: 1 },
+            ],
+            balances: [],
+            coinbaseValueSats: 100_000,
+            feeAddress: ADDRESS_C,
+            feePercent: 2,
+            minOutputSats: 546,
+            coinbaseWeightBudget: 1_050,
+        });
+
+        expect(result.entries.filter(entry => entry.address === ADDRESS_C)).toHaveLength(1);
+        expect(result.payoutOutputs.filter(entry => entry.address === ADDRESS_C)).toHaveLength(1);
+        expect(result.payoutOutputs.find(entry => entry.address === ADDRESS_C)).toEqual(expect.objectContaining({
+            payoutSats: 2_000,
+            includedInCoinbase: true,
+        }));
+        expect(result.distributedSats).toBe(100_000);
+    });
 });

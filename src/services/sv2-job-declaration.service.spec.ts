@@ -212,9 +212,12 @@ describe('Sv2JobDeclarationConnection compliance', () => {
 
     it('submits PushSolution before persisting the found block', async () => {
         const block = createMockBlock('deadbeef');
+        const prevHash = Buffer.alloc(32, 1);
         const templateProvider = {
             getTemplate: jest.fn().mockReturnValue({
                 height: 4990255,
+                prevHash,
+                nBits: 0x1d00ffff,
                 jobTemplate: {
                     blockData: {
                         payoutSnapshotId: '17',
@@ -260,7 +263,7 @@ describe('Sv2JobDeclarationConnection compliance', () => {
 
         await (connection as any).handlePushSolution(serializePushSolution({
             extranonce: Buffer.from('aabbccdd', 'hex'),
-            prevHash: Buffer.alloc(32, 1),
+            prevHash,
             nonce: 1,
             ntime: 2,
             nBits: 0x1d00ffff,
@@ -295,6 +298,8 @@ describe('Sv2JobDeclarationConnection compliance', () => {
         const block = createMockBlock('feedface');
         const declaredTemplate = {
             height: 4990300,
+            prevHash: Buffer.alloc(32, 1),
+            nBits: 0x1d00ffff,
             jobTemplate: {
                 blockData: {
                     payoutSnapshotId: '23',
@@ -338,7 +343,7 @@ describe('Sv2JobDeclarationConnection compliance', () => {
 
         await (connection as any).handlePushSolution(serializePushSolution({
             extranonce: Buffer.from('aabbccdd', 'hex'),
-            prevHash: Buffer.alloc(32, 1),
+            prevHash: declaredTemplate.prevHash,
             nonce: 1,
             ntime: 2,
             nBits: 0x1d00ffff,
@@ -376,6 +381,8 @@ describe('Sv2JobDeclarationConnection compliance', () => {
             job: { requestId: 1 } as any,
             template: {
                 height: 4990300,
+                prevHash: Buffer.alloc(32, 1),
+                nBits: 0x1d00ffff,
                 jobTemplate: { blockData: { payoutSnapshotId: null } },
             },
             validationMode: 'full_template',
@@ -423,6 +430,8 @@ describe('Sv2JobDeclarationConnection compliance', () => {
             job: { requestId: 1 } as any,
             template: {
                 height: 4990300,
+                prevHash: Buffer.alloc(32, 1),
+                nBits: 0x1d00ffff,
                 jobTemplate: { blockData: { payoutSnapshotId: null } },
             },
             validationMode: 'full_template',
@@ -441,6 +450,99 @@ describe('Sv2JobDeclarationConnection compliance', () => {
         expect(bitcoinRpcService.SUBMIT_BLOCK).not.toHaveBeenCalled();
         expect(blocksService.save).not.toHaveBeenCalled();
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid-job-param-value-coinbase_tx_prefix'));
+        warn.mockRestore();
+    });
+
+    it.each([
+        ['previous hash', { prevHash: Buffer.alloc(32, 2) }, 'prevhash-mismatch'],
+        ['nBits', { nBits: 0x1d00fffe }, 'nbits-mismatch'],
+    ])('does not submit a JDP solution with mismatched %s', async (_label, solutionOverrides, error) => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const template = {
+            height: 4990300,
+            prevHash: Buffer.alloc(32, 1),
+            nBits: 0x1d00ffff,
+            jobTemplate: { blockData: { payoutSnapshotId: null } },
+        };
+        const templateProvider = {
+            buildBlockFromDeclaredJobSolution: jest.fn().mockReturnValue(createMockBlock('feedface')),
+        };
+        const bitcoinRpcService = { SUBMIT_BLOCK: jest.fn().mockResolvedValue(null) };
+        const blocksService = { save: jest.fn().mockResolvedValue(undefined) };
+        const { connection } = createConnection({ templateProvider, bitcoinRpcService, blocksService });
+        (connection as any).latestDeclaredJob = {
+            token: Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
+            userIdentifier: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4.worker1',
+            job: { requestId: 1 } as any,
+            template,
+            validationMode: 'full_template',
+            providedTransactions: [],
+        };
+
+        await (connection as any).handlePushSolution(serializePushSolution({
+            extranonce: Buffer.from('aabbccdd', 'hex'),
+            prevHash: template.prevHash,
+            nonce: 1,
+            ntime: 2,
+            nBits: template.nBits,
+            version: 0x20000000,
+            ...solutionOverrides,
+        }));
+
+        expect(templateProvider.buildBlockFromDeclaredJobSolution).not.toHaveBeenCalled();
+        expect(bitcoinRpcService.SUBMIT_BLOCK).not.toHaveBeenCalled();
+        expect(blocksService.save).not.toHaveBeenCalled();
+        expect(warn).toHaveBeenCalledWith(`[SV2 JDP] PushSolution rejected locally: ${error}`);
+        warn.mockRestore();
+    });
+
+    it('rejects a JDP header that does not meet the template proof-of-work target', async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const template = {
+            height: 4990300,
+            prevHash: Buffer.alloc(32, 1),
+            nBits: 0x1d00ffff,
+            jobTemplate: { blockData: { payoutSnapshotId: null } },
+        };
+        const templateProvider = {
+            buildBlockFromDeclaredJobSolution: jest.fn().mockReturnValue(
+                createMockBlock('feedface', Buffer.alloc(32, 0xff)),
+            ),
+        };
+        const bitcoinRpcService = { SUBMIT_BLOCK: jest.fn().mockResolvedValue(null) };
+        const blocksService = { save: jest.fn().mockResolvedValue(undefined) };
+        const payoutSnapshotService = { finalizeSnapshotForBlock: jest.fn() };
+        const notificationService = { notifySubscribersBlockFound: jest.fn() };
+        const { connection } = createConnection({
+            templateProvider,
+            bitcoinRpcService,
+            blocksService,
+            payoutSnapshotService,
+            notificationService,
+        });
+        (connection as any).latestDeclaredJob = {
+            token: Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
+            userIdentifier: 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4.worker1',
+            job: { requestId: 1 } as any,
+            template,
+            validationMode: 'full_template',
+            providedTransactions: [],
+        };
+
+        await (connection as any).handlePushSolution(serializePushSolution({
+            extranonce: Buffer.from('aabbccdd', 'hex'),
+            prevHash: template.prevHash,
+            nonce: 1,
+            ntime: 2,
+            nBits: template.nBits,
+            version: 0x20000000,
+        }));
+
+        expect(bitcoinRpcService.SUBMIT_BLOCK).not.toHaveBeenCalled();
+        expect(blocksService.save).not.toHaveBeenCalled();
+        expect(payoutSnapshotService.finalizeSnapshotForBlock).not.toHaveBeenCalled();
+        expect(notificationService.notifySubscribersBlockFound).not.toHaveBeenCalled();
+        expect(warn).toHaveBeenCalledWith('[SV2 JDP] PushSolution rejected locally: high-hash');
         warn.mockRestore();
     });
 
@@ -469,6 +571,7 @@ describe('Sv2JobDeclarationConnection compliance', () => {
         const registry = overrides.registry ?? {
             allocateToken: jest.fn(),
             declareJob: jest.fn(),
+            matchesDeclaredCoinbaseOutputs: jest.fn().mockReturnValue(true),
         };
         const templateProvider = {
             getLatestTemplate: jest.fn().mockReturnValue(undefined),
@@ -492,6 +595,7 @@ describe('Sv2JobDeclarationConnection compliance', () => {
             validateDeclaredWtxids: jest.fn().mockReturnValue({ valid: false, errorCode: 'template-not-found' }),
             validateProvidedTransactions: jest.fn().mockReturnValue({ valid: false, errorCode: 'template-not-found' }),
             validateCoinbaseTransactionHeight: jest.fn().mockReturnValue({ valid: true }),
+            validateCoinbaseTransactionPayoutOutputs: jest.fn().mockReturnValue({ valid: true }),
             ...overrides.templateProvider,
         };
         const connection = new Sv2JobDeclarationConnection(
@@ -556,8 +660,13 @@ describe('Sv2JobDeclarationConnection compliance', () => {
         return block;
     }
 
-    function createMockBlock(hex: string): { toHex: jest.Mock; transactions: Array<{ toBuffer: jest.Mock }> } {
+    function createMockBlock(hex: string, hash = Buffer.alloc(32)): {
+        getHash: jest.Mock;
+        toHex: jest.Mock;
+        transactions: Array<{ toBuffer: jest.Mock }>;
+    } {
         return {
+            getHash: jest.fn().mockReturnValue(hash),
             toHex: jest.fn().mockReturnValue(hex),
             transactions: [{
                 toBuffer: jest.fn().mockReturnValue(Buffer.from('0100000000', 'hex')),

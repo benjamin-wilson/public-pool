@@ -25,6 +25,7 @@ import {
     serializeSetupConnectionSuccess,
 } from '../models/sv2/sv2-messages';
 import { Sv2NoiseSession } from '../models/sv2/sv2-noise';
+import { DifficultyUtils } from '../utils/difficulty.utils';
 import { BitcoinRpcService } from './bitcoin-rpc.service';
 import { CustomWorkService } from './custom-work.service';
 import { NotificationService } from './notification.service';
@@ -386,6 +387,15 @@ export class Sv2JobDeclarationConnection {
             return;
         }
 
+        if (!solution.prevHash.equals(template.prevHash)) {
+            console.warn('[SV2 JDP] PushSolution rejected locally: prevhash-mismatch');
+            return;
+        }
+        if (solution.nBits !== template.nBits) {
+            console.warn('[SV2 JDP] PushSolution rejected locally: nbits-mismatch');
+            return;
+        }
+
         try {
             const block = this.templateProvider.buildBlockFromDeclaredJobSolution({
                 template,
@@ -399,6 +409,37 @@ export class Sv2JobDeclarationConnection {
             );
             if (!coinbaseValidation.valid) {
                 console.warn(`[SV2 JDP] PushSolution rejected locally: ${coinbaseValidation.errorCode}`);
+                return;
+            }
+            const coinbaseTx = block.transactions[0].toBuffer();
+            if (!this.registry.matchesDeclaredCoinbaseOutputs(declared, coinbaseTx)) {
+                console.warn('[SV2 JDP] PushSolution rejected locally: coinbase-output-mismatch');
+                return;
+            }
+            const expectedCoinbaseValue = template.jobTemplate?.blockData?.coinbasevalue;
+            if (expectedCoinbaseValue != null && Array.isArray(block.transactions[0].outs)) {
+                const spendableCoinbaseValue = block.transactions[0].outs
+                    .filter(output => !this.isCoinbaseMetadataOutput(output.script, BigInt(output.value)))
+                    .reduce((sum, output) => sum + BigInt(output.value), 0n);
+                if (spendableCoinbaseValue !== BigInt(expectedCoinbaseValue)) {
+                    console.warn('[SV2 JDP] PushSolution rejected locally: coinbase-value-mismatch');
+                    return;
+                }
+            }
+            if (this.payoutMode === 'pplns') {
+                const payoutValidation = this.templateProvider.validateCoinbaseTransactionPayoutOutputs({
+                    coinbaseTx,
+                    payoutInformation: template.jobTemplate.blockData.payoutOutputs ?? [],
+                    coinbaseValue: template.jobTemplate.blockData.coinbasevalue,
+                    network: this.network,
+                });
+                if (!payoutValidation.valid) {
+                    console.warn(`[SV2 JDP] PushSolution rejected locally: ${payoutValidation.errorCode}`);
+                    return;
+                }
+            }
+            if (!DifficultyUtils.meetsCompactTarget(block.getHash(), template.nBits)) {
+                console.warn('[SV2 JDP] PushSolution rejected locally: high-hash');
                 return;
             }
             const blockHex = block.toHex(false);
@@ -468,6 +509,14 @@ export class Sv2JobDeclarationConnection {
             address: address || userIdentifier,
             worker: workerParts.join('.') || 'jdp',
         };
+    }
+
+    private isCoinbaseMetadataOutput(script: Buffer, value: bigint): boolean {
+        const witnessCommitment = script.length === 38
+            && script[0] === bitcoinjs.opcodes.OP_RETURN
+            && script[1] === 0x24
+            && script.subarray(2, 6).equals(Buffer.from('aa21a9ed', 'hex'));
+        return witnessCommitment || (value === 0n && script[0] === bitcoinjs.opcodes.OP_RETURN);
     }
 
     private async sendFrame(msgType: number, payload: Buffer): Promise<void> {

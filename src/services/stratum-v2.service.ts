@@ -33,6 +33,7 @@ import { NotificationService } from './notification.service';
 import { RedisMessagingService, Sv1PrestageActivation } from './redis-messaging.service';
 import { IJobTemplate, StratumV1JobsService } from './stratum-v1-jobs.service';
 import { Sv2JobDeclarationRegistryService } from './sv2-job-declaration-registry.service';
+import { TemplateProviderService } from './template-provider.service';
 import { parsePayoutModePorts, PayoutMode } from '../types/payout-mode';
 
 const DEFAULT_SOCKET_TIMEOUT_MS = 1000 * 60 * 60;
@@ -71,6 +72,7 @@ export class StratumV2Service implements OnModuleInit, OnModuleDestroy {
         private readonly shareAccountingService?: ShareAccountingService,
         private readonly redisMessagingService?: RedisMessagingService,
         private readonly payoutSnapshotService?: PayoutSnapshotService,
+        private readonly templateProvider?: TemplateProviderService,
     ) {}
 
     public async onModuleInit(): Promise<void> {
@@ -145,6 +147,7 @@ export class StratumV2Service implements OnModuleInit, OnModuleDestroy {
             this.redisMessagingService,
             this.payoutSnapshotService,
             payoutMode,
+            this.templateProvider,
         );
         this.registerClient(client);
         return client;
