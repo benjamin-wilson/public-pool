@@ -41,14 +41,22 @@ export class SubscriptionMessage extends StratumBaseMessage {
     }
 
     public static refineUserAgent(userAgent: string): string {
-        // return userAgent;
-        userAgent = userAgent.split(' ')[0].split('/')[0].split('V')[0].split('-')[0];
-
+        // Check the whole string first: Braiins OS sends
+        // "2026-10-19-0-46be68fe-26.10-plus;bosminer-plus-tuner 0.9.0-46be68fe",
+        // where the name only appears after a build date.
         if (userAgent.includes('bosminer') || userAgent.includes('bOS')) {
-            userAgent = 'Braiins OS';
-        } else if (userAgent.includes('cpuminer')) {
-            userAgent = 'cpuminer';
+            return 'Braiins OS';
         }
-        return userAgent;
+        if (userAgent.includes('cpuminer')) {
+            return 'cpuminer';
+        }
+
+        const refined = userAgent.split(' ')[0].split('/')[0].split('V')[0].split('-')[0];
+        // If shortening leaves nothing or only a date/version number, keep the
+        // first whole word instead (e.g. "Vnish/1.2" used to become "", now "Vnish").
+        if (refined === '' || /^[\d.]+$/.test(refined)) {
+            return userAgent.split(/[ ;/]/)[0];
+        }
+        return refined;
     }
 }
