@@ -33,6 +33,22 @@ describe('NotificationService', () => {
         jest.clearAllMocks();
     });
 
+    it('does not publish or dispatch rejected candidates, including legacy Redis events', async () => {
+        const service = createService();
+        const block = createBlock('11'.repeat(32));
+        process.env.MASTER = 'false';
+        await service.notifySubscribersBlockFound('bc1qminer', 900001, block, 'high-hash');
+        expect(redisMessagingService.publishBlockFoundNotification).not.toHaveBeenCalled();
+
+        process.env.MASTER = 'true';
+        await service.notifySubscribersBlockFound('bc1qminer', 900001, block, 'high-hash');
+        await service.onModuleInit();
+        const handler = redisMessagingService.subscribeBlockFoundNotifications.mock.calls[0][0];
+        await handler({ eventId: 'rejected-candidate', message: 'high-hash' });
+        expect(discordService.notifySubscribersBlockFound).not.toHaveBeenCalled();
+        expect(telegramService.notifySubscribersBlockFound).not.toHaveBeenCalled();
+    });
+
     it('publishes block found notifications from worker processes', async () => {
         process.env.MASTER = 'false';
         const service = createService();
@@ -41,7 +57,7 @@ describe('NotificationService', () => {
             'bc1qminer',
             900001,
             createBlock('11'.repeat(32)),
-            'accepted',
+            'SUCCESS!',
         );
 
         expect(redisMessagingService.publishBlockFoundNotification).toHaveBeenCalledWith({
@@ -50,7 +66,7 @@ describe('NotificationService', () => {
             address: 'bc1qminer',
             height: 900001,
             blockHash: '11'.repeat(32),
-            message: 'accepted',
+            message: 'SUCCESS!',
             publishedAtMs: expect.any(Number),
         });
         expect(discordService.notifySubscribersBlockFound).not.toHaveBeenCalled();
@@ -69,7 +85,7 @@ describe('NotificationService', () => {
             address: 'bc1qminer',
             height: 900001,
             blockHash: 'blockhash',
-            message: 'accepted',
+            message: 'SUCCESS!',
             publishedAtMs: 123,
         });
 
@@ -78,13 +94,13 @@ describe('NotificationService', () => {
         expect(discordService.notifySubscribersBlockFound).toHaveBeenCalledWith(
             900001,
             undefined,
-            'accepted',
+            'SUCCESS!',
         );
         expect(telegramService.notifySubscribersBlockFound).toHaveBeenCalledWith(
             'bc1qminer',
             900001,
             undefined,
-            'accepted',
+            'SUCCESS!',
         );
     });
 
@@ -97,7 +113,7 @@ describe('NotificationService', () => {
             address: 'bc1qminer',
             height: 900001,
             blockHash: 'blockhash',
-            message: 'accepted',
+            message: 'SUCCESS!',
             publishedAtMs: 123,
         };
 
@@ -115,19 +131,19 @@ describe('NotificationService', () => {
         const service = createService();
         const block = createBlock('22'.repeat(32));
 
-        await service.notifySubscribersBlockFound('bc1qminer', 900002, block, 'accepted');
+        await service.notifySubscribersBlockFound('bc1qminer', 900002, block, 'SUCCESS!');
 
         expect(redisMessagingService.publishBlockFoundNotification).not.toHaveBeenCalled();
         expect(discordService.notifySubscribersBlockFound).toHaveBeenCalledWith(
             900002,
             block,
-            'accepted',
+            'SUCCESS!',
         );
         expect(telegramService.notifySubscribersBlockFound).toHaveBeenCalledWith(
             'bc1qminer',
             900002,
             block,
-            'accepted',
+            'SUCCESS!',
         );
     });
 

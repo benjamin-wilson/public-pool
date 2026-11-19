@@ -31,6 +31,7 @@ import { StratumV2Service } from './stratum-v2.service';
 import { TemplateProviderService, TemplateProviderTemplate } from './template-provider.service';
 import { AddressObject } from '../models/MiningJob';
 import { parsePayoutModePorts, PayoutMode } from '../types/payout-mode';
+import { DifficultyUtils } from '../utils/difficulty.utils';
 
 interface TdpCoinbaseTemplateFields {
     coinbaseTxVersion: number;
@@ -407,6 +408,10 @@ export class Sv2TemplateDistributionConnection {
             headerTimestamp: solution.headerTimestamp,
             headerNonce: solution.headerNonce,
         });
+        if (!DifficultyUtils.meetsCompactTarget(block.getHash(), template.nBits)) {
+            console.warn(`[SV2 TDP] SubmitSolution rejected locally: high-hash at height ${template.height}`);
+            return;
+        }
         const blockHex = block.toHex(false);
         const solutionKey = `${solution.templateId.toString()}:${block.getId()}`;
         if (this.submittedSolutions.has(solutionKey)) {

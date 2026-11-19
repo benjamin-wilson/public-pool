@@ -30,6 +30,9 @@ export class NotificationService implements OnModuleInit {
     }
 
     public async notifySubscribersBlockFound(address: string, height: number, block: Block, message: string) {
+        if (message !== 'SUCCESS!') {
+            return;
+        }
         const blockHash = this.getBlockHash(block);
         const notification: BlockFoundNotification = {
             schemaVersion: 1,
@@ -56,7 +59,8 @@ export class NotificationService implements OnModuleInit {
         notification: BlockFoundNotification,
         block?: Block,
     ): Promise<void> {
-        if (this.hasProcessedBlockNotification(notification.eventId)) {
+        if (notification.message !== 'SUCCESS!'
+            || this.hasProcessedBlockNotification(notification.eventId)) {
             return;
         }
         await this.discordService.notifySubscribersBlockFound(notification.height, block, notification.message);

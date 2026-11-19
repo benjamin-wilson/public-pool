@@ -111,7 +111,7 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
                 templateId: template.templateId,
                 version: template.version,
                 headerTimestamp: template.minNtime,
-                headerNonce: 123,
+                headerNonce: findNonce(templateProvider, template, coinbaseTx),
                 coinbaseTx: coinbaseTx.toBuffer(),
             }),
         );
@@ -149,7 +149,7 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
             templateId: template.templateId,
             version: template.version,
             headerTimestamp: template.minNtime,
-            headerNonce: 123,
+            headerNonce: findNonce(templateProvider, template, coinbaseTx),
             coinbaseTx: coinbaseTx.toBuffer(),
         });
 
@@ -182,6 +182,28 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
         warn.mockRestore();
     });
 
+    it('rejects a high-hash solution before submitting, saving or notifying', async () => {
+        const { connection, templateProvider, jobTemplate, bitcoinRpcService, blocksService, payoutSnapshotService, notificationService } = await createConnection('pplns');
+        const template = templateProvider.upsert(jobTemplate);
+        const coinbaseTx = createPayoutCoinbaseTransaction(
+            templateProvider.buildCoinbaseHeightPrefix(template.height),
+            jobTemplate.blockData.coinbasevalue,
+        );
+
+        await (connection as any).handleFrame(Sv2MsgType.TDP_SUBMIT_SOLUTION, serializeTdpSubmitSolution({
+            templateId: template.templateId,
+            version: template.version,
+            headerTimestamp: template.minNtime,
+            headerNonce: findNonce(templateProvider, template, coinbaseTx, false),
+            coinbaseTx: coinbaseTx.toBuffer(),
+        }));
+
+        expect(bitcoinRpcService.SUBMIT_BLOCK).not.toHaveBeenCalled();
+        expect(blocksService.save).not.toHaveBeenCalled();
+        expect(payoutSnapshotService.finalizeSnapshotForBlock).not.toHaveBeenCalled();
+        expect(notificationService.notifySubscribersBlockFound).not.toHaveBeenCalled();
+    });
+
     it('rejects SubmitSolution locally when the coinbase does not pay the pool outputs', async () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
         const { connection, templateProvider, jobTemplate, bitcoinRpcService, blocksService } = await createConnection();
@@ -212,6 +234,7 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
 
     it('submits using a served template snapshot after provider cache cleanup', async () => {
         const { connection, sentFrames, templateProvider, jobTemplate, bitcoinRpcService, blocksService } = await createConnection();
+        const template = templateProvider.upsert(jobTemplate);
         await (connection as any).sendTemplate(jobTemplate);
         const templateId = BigInt(parseInt(jobTemplate.blockData.id, 16));
         jest.spyOn(templateProvider, 'getTemplate').mockReturnValue(undefined);
@@ -227,7 +250,7 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
                 templateId,
                 version: jobTemplate.block.version,
                 headerTimestamp: jobTemplate.block.timestamp,
-                headerNonce: 123,
+                headerNonce: findNonce(templateProvider, template, coinbaseTx),
                 coinbaseTx: coinbaseTx.toBuffer(),
             }),
         );
@@ -250,7 +273,7 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
         payoutSnapshotService: { finalizeSnapshotForBlock: jest.Mock };
         notificationService: { notifySubscribersBlockFound: jest.Mock };
     }> {
-        const blockTemplate$ = new BehaviorSubject(MockRecording1.BLOCK_TEMPLATE);
+        const blockTemplate$ = new BehaviorSubject({ ...MockRecording1.BLOCK_TEMPLATE, bits: '207fffff' });
         const jobsService = new StratumV1JobsService({
             newBlockTemplate$: blockTemplate$.asObservable(),
             miningInfo: { blocks: MockRecording1.BLOCK_TEMPLATE.height },
@@ -319,6 +342,28 @@ describe('Sv2TemplateDistributionConnection compliance', () => {
             payoutSnapshotService,
             notificationService,
         };
+    }
+
+    function findNonce(
+        provider: TemplateProviderService,
+        template: ReturnType<TemplateProviderService['upsert']>,
+        coinbase: bitcoinjs.Transaction,
+        valid = true,
+    ): number {
+        const block = provider.buildBlockFromSolution({
+            template,
+            coinbaseTx: coinbase.toBuffer(),
+            version: template.version,
+            headerTimestamp: template.minNtime,
+            headerNonce: 0,
+        });
+        for (let nonce = 0; nonce < 1000; nonce++) {
+            block.nonce = nonce;
+            if (block.checkProofOfWork() === valid) {
+                return nonce;
+            }
+        }
+        throw new Error('No nonce found for test fixture');
     }
 
     function createCoinbaseTransaction(script: Buffer): bitcoinjs.Transaction {
