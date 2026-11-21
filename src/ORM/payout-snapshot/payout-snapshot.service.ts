@@ -244,7 +244,7 @@ export class PayoutSnapshotService {
         if ((input.payoutMode ?? PPLNS_PAYOUT_MODE) !== PPLNS_PAYOUT_MODE) {
             return { finalized: false, reason: 'missing-snapshot' };
         }
-        if (!this.isSuccessfulBlockSubmission(input.blockSubmissionResult)) {
+        if (input.blockSubmissionResult !== 'SUCCESS!') {
             return { finalized: false, reason: 'missing-snapshot' };
         }
         if (input.payoutSnapshotId == null) {
@@ -791,10 +791,6 @@ export class PayoutSnapshotService {
         }
 
         return limitedEntries;
-    }
-
-    private isSuccessfulBlockSubmission(result?: string | null): boolean {
-        return result == null || result === 'SUCCESS!';
     }
 
     private toNumber(value: unknown): number {

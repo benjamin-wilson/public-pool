@@ -1,5 +1,7 @@
 import { Socket } from 'net';
 import * as bitcoinjs from 'bitcoinjs-lib';
+import { of } from 'rxjs';
+import * as datumCodec from '../models/datum/datum-codec';
 import { DatumProtocolCommand } from '../models/datum/datum-codec';
 import { DatumService } from './datum.service';
 import { TemplateProviderService } from './template-provider.service';
@@ -63,6 +65,52 @@ function createState(cache: any): any {
         datumJobs: new Map([[7, cache]]),
     };
 }
+
+describe('DatumService block candidates', () => {
+    afterEach(() => jest.restoreAllMocks());
+
+    it.each([false, true])('records block candidates only when validation confirms network work (%s)', async isBlockCandidate => {
+        const service = createService() as any;
+        const address = 'tb1qumezefzdeqqwn5zfvgdrhxjzc5ylr39uhuxcz4';
+        const state = createState({
+            height: 976799,
+            prevBlockHash: Buffer.alloc(32),
+            nBits: Buffer.from('ffff001d', 'hex'),
+            merkleBranches: [],
+            coinbasePairs: new Map([[0, { coinb1: Buffer.alloc(1), coinb2: Buffer.alloc(1) }]]),
+        });
+        state.payoutMode = 'pplns';
+        state.clientEntity = { id: '1' };
+        state.acceptedSubmissionHeaders = new Set();
+        jest.spyOn(datumCodec, 'deserializeDatumPowSubmit').mockReturnValue({
+            username: address, jobId: 7, coinbaseId: 0, coinbasePairs: new Map(),
+            isBlock: true, targetByteIndex: 0, targetByte: 1, extranonce: Buffer.alloc(12),
+            nonce: 0, ntime: 1, version: 0x20000000,
+        } as datumCodec.DatumPowSubmit);
+        service.jobsService.newMiningJob$ = of({ blockData: { height: 976799, networkDifficulty: 1 } });
+        service.templateProvider.validateDatumTemplateFastPath = jest.fn().mockReturnValue({ valid: true });
+        jest.spyOn(service, 'updateAcceptedSharePresence').mockResolvedValue(undefined as never);
+        jest.spyOn(service, 'validateDatumCoinbasePayoutContext').mockReturnValue({ validation: { valid: true } });
+        service.customWorkService.validateShare = jest.fn().mockReturnValue({
+            accepted: true, isBlockCandidate, header: Buffer.alloc(80), submissionDifficulty: 1,
+        });
+        service.blocksService.save = jest.fn();
+        service.shareAccountingService.recordAcceptedShare = jest.fn();
+
+        await service.handlePowSubmit(createSocket(), state, Buffer.alloc(0));
+
+        expect(service.shareAccountingService.recordAcceptedShare).toHaveBeenCalledWith(expect.objectContaining({
+            isBlockCandidate,
+        }));
+        if (isBlockCandidate) {
+            expect(service.blocksService.save).toHaveBeenCalledWith(expect.objectContaining({
+                blockSubmissionResult: 'datum-gateway-submit-expected',
+            }));
+        } else {
+            expect(service.blocksService.save).not.toHaveBeenCalled();
+        }
+    });
+});
 
 describe('DatumService job validation', () => {
     afterEach(() => {

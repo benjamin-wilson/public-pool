@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bitcoinjs from 'bitcoinjs-lib';
-import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { BlocksEntity } from './blocks.entity';
 import { PayoutMode } from '../../types/payout-mode';
@@ -9,8 +9,6 @@ import { PayoutMode } from '../../types/payout-mode';
 
 @Injectable()
 export class BlocksService {
-
-    private static readonly PUBLIC_FOUND_BLOCK_RESULTS = ['SUCCESS!', 'datum-gateway-submit-expected'];
 
     constructor(
 
@@ -40,7 +38,7 @@ export class BlocksService {
             });
         if (existing != null) {
             const update: Partial<BlocksEntity> = {};
-            if (this.isSuccessfulBlockSubmission(block.blockSubmissionResult)) {
+            if (block.blockSubmissionResult === 'SUCCESS!') {
                 update.blockSubmissionResult = 'SUCCESS!';
                 update.payoutSnapshotId = Object.prototype.hasOwnProperty.call(block, 'payoutSnapshotId')
                     ? block.payoutSnapshotId ?? null
@@ -78,10 +76,7 @@ export class BlocksService {
                 blockSubmissionResult: true,
                 createdAt: true,
             },
-            where: [
-                { ...(payoutMode == null ? {} : { payoutMode }), blockSubmissionResult: In(BlocksService.PUBLIC_FOUND_BLOCK_RESULTS) },
-                { ...(payoutMode == null ? {} : { payoutMode }), blockSubmissionResult: IsNull() },
-            ],
+            where: { ...(payoutMode == null ? {} : { payoutMode }), blockSubmissionResult: 'SUCCESS!' },
             order: {
                 height: 'DESC',
                 createdAt: 'DESC',
@@ -102,10 +97,7 @@ export class BlocksService {
                 blockSubmissionResult: true,
                 createdAt: true,
             },
-            where: [
-                { minerAddress: address, ...(payoutMode == null ? {} : { payoutMode }), blockSubmissionResult: In(BlocksService.PUBLIC_FOUND_BLOCK_RESULTS) },
-                { minerAddress: address, ...(payoutMode == null ? {} : { payoutMode }), blockSubmissionResult: IsNull() },
-            ],
+            where: { minerAddress: address, ...(payoutMode == null ? {} : { payoutMode }), blockSubmissionResult: 'SUCCESS!' },
             order: {
                 height: 'DESC',
                 createdAt: 'DESC',
@@ -142,10 +134,6 @@ export class BlocksService {
         } catch {
             return undefined;
         }
-    }
-
-    private isSuccessfulBlockSubmission(result?: string | null): boolean {
-        return result == null || result === 'SUCCESS!';
     }
 
     private shouldReplaceAttribution(existing: Partial<BlocksEntity>, incoming: Partial<BlocksEntity>): boolean {

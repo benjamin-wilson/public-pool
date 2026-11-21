@@ -23,7 +23,6 @@ export interface CustomWorkShareValidationInput {
     ntime: number;
     nonce: number;
     shareDifficulty: number;
-    networkDifficulty: number;
 }
 
 export interface CustomWorkShareValidationResult {
@@ -95,7 +94,7 @@ export class CustomWorkService {
             hashBuffer,
             submissionDifficulty,
             accepted: DifficultyUtils.meetsTarget(hashBuffer, DifficultyUtils.difficultyToTarget(input.shareDifficulty)),
-            isBlockCandidate: DifficultyUtils.meetsTarget(hashBuffer, DifficultyUtils.difficultyToTarget(input.networkDifficulty)),
+            isBlockCandidate: DifficultyUtils.meetsCompactTarget(hashBuffer, input.nBits),
         };
     }
 

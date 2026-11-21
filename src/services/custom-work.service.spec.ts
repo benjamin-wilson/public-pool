@@ -42,12 +42,11 @@ describe('CustomWorkService', () => {
             extranoncePrefix: Buffer.alloc(4),
             extranonce: Buffer.alloc(8),
             prevHash: Buffer.alloc(32),
-            nBits: 0x207fffff,
+            nBits: 0x1d00ffff,
             version: 0x20000000,
             ntime: 1,
             nonce: 1,
             shareDifficulty: 0.00000001,
-            networkDifficulty: Number.MAX_SAFE_INTEGER,
         });
 
         expect(result.header).toHaveLength(80);
@@ -70,7 +69,6 @@ describe('CustomWorkService', () => {
             ntime: 1,
             nonce: 1,
             shareDifficulty: 0.00000001,
-            networkDifficulty: Number.MAX_SAFE_INTEGER,
         };
 
         const placeholder = service.validateShare(baseInput);

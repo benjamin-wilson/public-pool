@@ -143,14 +143,11 @@ describe('BlocksService', () => {
             { height: 123, minerAddress: 'addr1', worker: 'a', sessionId: '1111', blockHash: null },
         ]);
         expect(repository.find).toHaveBeenCalledWith(expect.objectContaining({
-            where: expect.arrayContaining([
-                expect.objectContaining({ blockSubmissionResult: expect.objectContaining({ _value: expect.arrayContaining(['SUCCESS!', 'datum-gateway-submit-expected']) }) }),
-                expect.objectContaining({ blockSubmissionResult: expect.objectContaining({ _type: 'isNull' }) }),
-            ]),
+            where: { blockSubmissionResult: 'SUCCESS!' },
         }));
     });
 
-    it('includes DATUM gateway-submitted candidates for address found-block lookups', async () => {
+    it('queries only confirmed blocks for address found-block lookups', async () => {
         const repository = createRepository();
         repository.find.mockResolvedValue([
             {
@@ -159,7 +156,7 @@ describe('BlocksService', () => {
                 worker: 'datum',
                 sessionId: '28ff7236',
                 blockHash: 'hash-datum',
-                blockSubmissionResult: 'datum-gateway-submit-expected',
+                blockSubmissionResult: 'SUCCESS!',
             },
         ]);
         const service = new BlocksService({} as any, repository as any);
@@ -171,20 +168,11 @@ describe('BlocksService', () => {
                 worker: 'datum',
                 sessionId: '28ff7236',
                 blockHash: 'hash-datum',
-                blockSubmissionResult: 'datum-gateway-submit-expected',
+                blockSubmissionResult: 'SUCCESS!',
             },
         ]);
         expect(repository.find).toHaveBeenCalledWith(expect.objectContaining({
-            where: expect.arrayContaining([
-                expect.objectContaining({
-                    minerAddress: 'tb1qminer',
-                    blockSubmissionResult: expect.objectContaining({ _value: expect.arrayContaining(['SUCCESS!', 'datum-gateway-submit-expected']) }),
-                }),
-                expect.objectContaining({
-                    minerAddress: 'tb1qminer',
-                    blockSubmissionResult: expect.objectContaining({ _type: 'isNull' }),
-                }),
-            ]),
+            where: { minerAddress: 'tb1qminer', blockSubmissionResult: 'SUCCESS!' },
         }));
     });
 

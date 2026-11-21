@@ -39,7 +39,6 @@ import { DatumKeyPair } from '../models/datum/datum-crypto';
 import { TemplateProviderService } from './template-provider.service';
 import { StratumV1ClientStatistics } from '../models/StratumV1ClientStatistics';
 import type { AddressObject } from '../models/MiningJob';
-import { PayoutSnapshotService } from '../ORM/payout-snapshot/payout-snapshot.service';
 import { parsePayoutModePorts, PayoutMode } from '../types/payout-mode';
 
 const DEFAULT_DATUM_SHARE_DIFFICULTY = 1;
@@ -61,7 +60,6 @@ export class DatumService implements OnModuleInit {
         private readonly customWorkService: CustomWorkService,
         private readonly templateProvider: TemplateProviderService,
         private readonly redisMessagingService?: RedisMessagingService,
-        private readonly payoutSnapshotService?: PayoutSnapshotService,
     ) {}
 
     public async onModuleInit(): Promise<void> {
@@ -335,7 +333,6 @@ export class DatumService implements OnModuleInit {
             ntime: pow.ntime,
             nonce: pow.nonce,
             shareDifficulty,
-            networkDifficulty: latestTemplate.blockData.networkDifficulty,
         });
 
         if (!validation.accepted) {
@@ -357,7 +354,7 @@ export class DatumService implements OnModuleInit {
         datumJob.targetByteIndex = normalizedPow.targetByteIndex;
         state.acceptedSubmissionHeaders.add(acceptedHeaderKey);
 
-        const isBlockCandidate = validation.isBlockCandidate || pow.isBlock;
+        const isBlockCandidate = validation.isBlockCandidate;
         const blockSubmissionResult = validation.isBlockCandidate ? 'datum-gateway-submit-expected' : null;
 
         await this.sendShareResponse(socket, state, DatumShareResponseStatus.ACCEPTED, 0, pow.nonce, pow.targetByte, pow.jobId);
@@ -374,14 +371,6 @@ export class DatumService implements OnModuleInit {
                     : null,
                 payoutMode: state.payoutMode,
             });
-            if (state.payoutMode === 'pplns') {
-                await this.payoutSnapshotService?.finalizeSnapshotForBlock({
-                    payoutSnapshotId: datumJob.payoutSnapshotId,
-                    blockHeight: datumJob.height ?? latestTemplate.blockData.height,
-                    blockSubmissionResult,
-                    payoutMode: state.payoutMode,
-                });
-            }
         }
         await this.shareAccountingService.recordAcceptedShare({
             protocol: 'datum',

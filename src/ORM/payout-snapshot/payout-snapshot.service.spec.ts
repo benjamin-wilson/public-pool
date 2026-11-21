@@ -402,6 +402,16 @@ describe('PayoutSnapshotService', () => {
         expect(manager.query).toHaveBeenCalledTimes(7);
     });
 
+    it.each([null, undefined, 'datum-gateway-submit-expected'])('does not finalize an unconfirmed block (%s)', async result => {
+        await expect(service.finalizeSnapshotForBlock({
+            payoutSnapshotId: '55',
+            blockHeight: 976799,
+            payoutMode: 'pplns',
+            blockSubmissionResult: result,
+        })).resolves.toEqual({ finalized: false, reason: 'missing-snapshot' });
+        expect(manager.query).not.toHaveBeenCalled();
+    });
+
     it('should skip finalization when a block was already processed', async () => {
         manager.query
             .mockResolvedValueOnce([{ id: '55', coinbaseValueSats: '1000' }])
